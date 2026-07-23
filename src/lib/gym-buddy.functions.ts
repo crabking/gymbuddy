@@ -153,6 +153,40 @@ export const updateProfile = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/* -------------------- live modules (session + nutrition) -------------------- */
+
+export const getActiveWorkoutSession = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { getActiveSession } = await import("@/lib/workout-session.server");
+    return getActiveSession(context.userId);
+  });
+
+export const toggleSessionExercise = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ exercise: z.string(), done: z.boolean() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { markExerciseDone } = await import("@/lib/workout-session.server");
+    const r = await markExerciseDone(context.userId, data.exercise, data.done);
+    return r.session;
+  });
+
+export const completeActiveSession = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { completeSession } = await import("@/lib/workout-session.server");
+    return completeSession(context.userId);
+  });
+
+export const getNutritionToday = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { getNutrition } = await import("@/lib/nutrition.server");
+    return getNutrition(context.userId);
+  });
+
 export const resetWorkspace = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .handler(async ({ context }) => {

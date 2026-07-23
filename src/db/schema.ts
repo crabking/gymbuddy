@@ -148,6 +148,40 @@ export const mealLogs = pgTable(
   (t) => [index("meal_logs_user_logged_idx").on(t.user_id, t.logged_at)],
 );
 
+// Live workout sessions — the coach's real-time "today's workout" engine.
+export const workoutSessions = pgTable(
+  "workout_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    session_date: text("session_date").notNull(), // YYYY-MM-DD (user-local day)
+    title: text("title").notNull(),
+    status: text("status").notNull().default("active"), // active | completed | abandoned
+    created_at: createdAt(),
+    completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+  },
+  (t) => [index("workout_sessions_user_idx").on(t.user_id, t.session_date)],
+);
+
+export const sessionExercises = pgTable(
+  "session_exercises",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    session_id: uuid("session_id")
+      .notNull()
+      .references(() => workoutSessions.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    name: text("name").notNull(),
+    target: text("target"), // e.g. "4×6–8 @ 60kg"
+    completed: boolean("completed").notNull().default(false),
+    completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+    notes: text("notes"),
+  },
+  (t) => [index("session_exercises_session_idx").on(t.session_id, t.position)],
+);
+
 export const workspaceFiles = pgTable(
   "workspace_files",
   {

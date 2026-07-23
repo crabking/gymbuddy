@@ -5,13 +5,17 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Shimmer } from "@/components/ai-elements/shimmer";
-import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getProfile,
   getWorkspaceFiles,
   updateProfile,
   resetOnboarding,
   resetWorkspace,
+  getActiveWorkoutSession,
+  toggleSessionExercise,
+  completeActiveSession,
+  getNutritionToday,
 } from "@/lib/gym-buddy.functions";
 import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { toast } from "sonner";
@@ -33,6 +37,8 @@ import {
   Dumbbell,
   FileText,
   Target,
+  Flame,
+  Play,
 } from "lucide-react";
 import coachMale from "@/assets/coach-rex-male-face.jpg";
 import coachFemale from "@/assets/coach-rex-female-face.jpg";
@@ -178,6 +184,14 @@ function ChatScreen() {
     queryKey: ["workspace-files"],
     queryFn: () => getWorkspaceFiles({ data: undefined }),
   });
+  const { data: session } = useQuery({
+    queryKey: ["workout-session"],
+    queryFn: () => getActiveWorkoutSession({ data: undefined }),
+  });
+  const { data: nutrition } = useQuery({
+    queryKey: ["nutrition"],
+    queryFn: () => getNutritionToday({ data: undefined }),
+  });
   const coach = useCoachPortrait();
 
   const [openSection, setOpenSection] = useState<SetupKey | "all" | null>(null);
@@ -211,9 +225,11 @@ function ChatScreen() {
     transport,
     onError: (err) => toast.error(err.message || "Chat failed"),
     onFinish: () => {
-      // Tool calls may have mutated the profile/workspace — refetch so trackers update.
+      // Tool calls may have mutated any module — refetch so live panels update.
       qc.invalidateQueries({ queryKey: ["profile"] });
       qc.invalidateQueries({ queryKey: ["workspace-files"] });
+      qc.invalidateQueries({ queryKey: ["workout-session"] });
+      qc.invalidateQueries({ queryKey: ["nutrition"] });
     },
   });
 
@@ -290,6 +306,24 @@ function ChatScreen() {
   function explainAgain() {
     if (busy) return;
     void sendMessage({ text: "Can you explain that again, slower and with an example?" });
+  }
+
+  function startWorkout() {
+    if (busy) return;
+    void sendMessage({
+      text: "Let's start today's workout session — pull up today's exercises and let's go.",
+    });
+  }
+
+  async function toggleExercise(name: string, done: boolean) {
+    await toggleSessionExercise({ data: { exercise: name, done } });
+    await qc.invalidateQueries({ queryKey: ["workout-session"] });
+  }
+
+  async function finishWorkout() {
+    await completeActiveSession({ data: undefined });
+    await qc.invalidateQueries({ queryKey: ["workout-session"] });
+    toast.success("Workout done — nice work 🎉");
   }
 
   // Hide the internal "__begin__" kickoff marker from the transcript.
@@ -668,6 +702,51 @@ function ChatScreen() {
         </div>
       )}
 
+      {/* Live modules strip — coach is connected to these in real time */}
+      {!inOnboarding && (
+        <div className="space-y-2 border-t border-border bg-card/40 px-3 py-2">
+          {nutrition && (
+            <div className="flex items-center gap-2">
+              <Flame className="h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span className="font-semibold text-foreground">
+                    {Math.round(nutrition.calories)}
+                    {nutrition.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal
+                  </span>
+                  <span>
+                    P{Math.round(nutrition.protein_g)} · C{Math.round(nutrition.carbs_g)} · F
+                    {Math.round(nutrition.fat_g)}
+                  </span>
+                </div>
+                {nutrition.target_calories ? (
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{
+                        width: `${Math.min(100, (nutrition.calories / nutrition.target_calories) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {session ? (
+            <WorkoutPanel session={session} onToggle={toggleExercise} onFinish={finishWorkout} />
+          ) : (
+            <button
+              onClick={startWorkout}
+              disabled={busy}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 py-2 text-sm font-bold text-primary transition hover:bg-primary/20 disabled:opacity-50"
+            >
+              <Play className="h-4 w-4" /> Start today's workout
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Composer */}
       <div className="border-t border-border bg-background px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
         <div className="flex items-end gap-2">
@@ -789,6 +868,63 @@ function ChatScreen() {
         />
       )}
 
+    </div>
+  );
+}
+
+type WorkoutSession = NonNullable<Awaited<ReturnType<typeof getActiveWorkoutSession>>>;
+
+function WorkoutPanel({
+  session,
+  onToggle,
+  onFinish,
+}: {
+  session: WorkoutSession;
+  onToggle: (name: string, done: boolean) => void;
+  onFinish: () => void;
+}) {
+  const allDone = session.total > 0 && session.done === session.total;
+  return (
+    <div className="rounded-xl border border-border bg-background p-2.5">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+          <Dumbbell className="h-3.5 w-3.5 text-primary" /> {session.title}
+        </div>
+        <span className="font-display text-[10px] font-bold text-emerald-400">
+          {session.done}/{session.total}
+        </span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {session.exercises.map((e) => (
+          <button
+            key={e.id}
+            onClick={() => onToggle(e.name, !e.completed)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition hover:bg-secondary/50"
+          >
+            <span
+              className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                e.completed
+                  ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+                  : "border-border"
+              }`}
+            >
+              {e.completed && <Check className="h-3 w-3" strokeWidth={3} />}
+            </span>
+            <span className={e.completed ? "text-muted-foreground line-through" : "text-foreground"}>
+              {e.name}
+              {e.target ? ` — ${e.target}` : ""}
+            </span>
+          </button>
+        ))}
+      </div>
+      {allDone && (
+        <button
+          onClick={onFinish}
+          className="mt-2 w-full rounded-lg bg-emerald-500/20 py-1.5 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/30"
+        >
+          Finish workout 🎉
+        </button>
+      )}
     </div>
   );
 }

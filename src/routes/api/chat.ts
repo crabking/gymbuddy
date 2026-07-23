@@ -53,6 +53,9 @@ export const Route = createFileRoute("/api/chat")({
         const { getUserFromRequest } = await import("@/lib/auth.server");
         const { workspaceTools } = await import("@/lib/workspace-tools.server");
         const { ensureAgentConfig } = await import("@/lib/workspace.server");
+        const { getActiveSession, startSession, markExerciseDone, completeSession, summarizeSession } =
+          await import("@/lib/workout-session.server");
+        const { getNutrition, summarizeNutrition } = await import("@/lib/nutrition.server");
 
         const user = await getUserFromRequest(request);
         if (!user) return new Response("Unauthorized", { status: 401 });
@@ -125,6 +128,12 @@ export const Route = createFileRoute("/api/chat")({
         const longTermMemory =
           [profile?.memory_notes?.trim(), memoryFile.trim()].filter(Boolean).join("\n\n") ||
           "(nothing saved yet)";
+
+        // Live module state — the coach is "connected" to these in real time.
+        const [activeSession, nutrition] = await Promise.all([
+          getActiveSession(userId),
+          getNutrition(userId),
+        ]);
 
         const skillCatalog = Object.entries(SKILLS)
           .map(([name, s]) => `- ${name}: ${s.description}`)
@@ -217,6 +226,18 @@ ${workspaceIndex}
 
 ## Long-term memory (durable — always keep this in mind)
 ${longTermMemory}
+
+## LIVE MODULES — you are wired into these in real time (this is current, not history)
+### Workout session
+${summarizeSession(activeSession)}
+- If the user wants to start today's workout, read their schedule + plan, figure out today's exercises, and call \`start_workout_session\` with the list (name + target like "4×8 @ 60kg").
+- When they finish an exercise ("done with squats", "knocked out bench"), call \`mark_exercise_done\` with that exercise, then hype them and name the NEXT unchecked exercise from the list above.
+- When every exercise is checked, call \`complete_workout_session\` and celebrate.
+- Never claim an exercise is done unless it shows [x] above or you just marked it.
+
+### Nutrition (today)
+${summarizeNutrition(nutrition)}
+- You already KNOW what they've eaten today and how much room is left — use it. When they mention eating something, call \`log_meal\`. Answer "what have I had today / how many calories left" straight from the numbers above.
 
 ## Live user state
 ${JSON.stringify(liveState, null, 2)}
@@ -573,6 +594,57 @@ ${input.notes}
           },
         });
 
+        /* -------------------- live workout session -------------------- */
+
+        const startWorkoutSessionTool = tool({
+          description:
+            "Start today's LIVE workout session. First read the user's saved plan/schedule to derive today's exercises, then call this with the full list. Replaces any currently-active session.",
+          inputSchema: z.object({
+            title: z.string().describe("e.g. 'Upper (push)', 'Legs', 'Day 2 — Pull'"),
+            exercises: z
+              .array(
+                z.object({
+                  name: z.string(),
+                  target: z.string().nullable().describe("e.g. '4×6–8 @ 60kg', or null"),
+                }),
+              )
+              .min(1),
+          }),
+          execute: async ({ title, exercises }) => {
+            const session = await startSession(userId, title, exercises);
+            return { ok: true, session: summarizeSession(session) };
+          },
+        });
+
+        const markExerciseDoneTool = tool({
+          description:
+            "Check off (or un-check) an exercise in the active workout session when the user finishes it. Match by name, e.g. 'squats'.",
+          inputSchema: z.object({
+            exercise: z.string(),
+            done: z.boolean().nullable().describe("false to un-check; defaults to true"),
+          }),
+          execute: async ({ exercise, done }) => {
+            const r = await markExerciseDone(userId, exercise, done ?? true);
+            if (!r.ok) return { ok: false, error: r.error };
+            return {
+              ok: true,
+              marked: r.marked,
+              next: r.session?.next?.name ?? null,
+              session: summarizeSession(r.session),
+            };
+          },
+        });
+
+        const completeWorkoutSessionTool = tool({
+          description:
+            "Mark the active workout session complete (all exercises done, or the user is wrapping up).",
+          inputSchema: z.object({}),
+          execute: async () => {
+            const r = await completeSession(userId);
+            return r.ok ? { ok: true } : { ok: false, error: r.error };
+          },
+        });
+
         /* -------------------- workout-plan calculators -------------------- */
 
         const calcProgramTimelineTool = tool({
@@ -841,6 +913,9 @@ ${input.notes}
             complete_onboarding: completeOnboardingTool,
             log_workout: logWorkoutTool,
             log_meal: logMealTool,
+            start_workout_session: startWorkoutSessionTool,
+            mark_exercise_done: markExerciseDoneTool,
+            complete_workout_session: completeWorkoutSessionTool,
             calc_program_timeline: calcProgramTimelineTool,
             calc_starting_weights: calcStartingWeightsTool,
             substitute_exercise: substituteExerciseTool,
