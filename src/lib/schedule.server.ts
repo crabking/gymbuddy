@@ -33,7 +33,8 @@ export async function getTodayTraining(
     .split("\n")
     .map((l) => l.match(/^-\s*\*\*(.+?)\*\*\s*—\s*(.+)$/))
     .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => ({ label: m[1].trim(), focus: m[2].trim() }));
+    // Focus lines end with a "(time_of_day)" group — drop it for display.
+    .map((m) => ({ label: m[1].trim(), focus: m[2].trim().replace(/\s*\([^)]*\)\s*$/, "") }));
   if (!entries.length) return null;
 
   const now = new Date();

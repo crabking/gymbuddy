@@ -596,19 +596,13 @@ function ChatScreen() {
           </>
         )}
 
-        {/* Today: date, time, and which training day it is */}
-        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <span>
-            {clock.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+        {/* Date & time — clear, on its own line */}
+        <div className="mt-2 text-xs font-semibold text-foreground">
+          {clock.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          <span className="font-normal text-muted-foreground">
             {" · "}
             {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
-          {!inOnboarding && todayTraining && (
-            <span className="truncate font-semibold text-foreground">
-              <Dumbbell className="mr-1 inline h-3 w-3 text-primary" />
-              Today: {todayTraining.label}
-            </span>
-          )}
         </div>
 
         {/* Today's calories — always visible up top once onboarded */}
@@ -639,6 +633,24 @@ function ChatScreen() {
             </div>
           </div>
         )}
+
+        {/* Session bar — live session (lit + timer) or the next one up */}
+        {!inOnboarding &&
+          (session ? (
+            <SessionTimerBar
+              session={session}
+              minutes={(profile as Profile).session_minutes ?? 60}
+            />
+          ) : todayTraining ? (
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Dumbbell className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate">
+                Next session:{" "}
+                <span className="font-semibold text-foreground">{todayTraining.label}</span>
+              </span>
+              {todayTraining.detail && <span className="shrink-0">{todayTraining.detail}</span>}
+            </div>
+          ) : null)}
       </header>
 
 
@@ -936,6 +948,49 @@ function ChatScreen() {
 }
 
 type WorkoutSession = NonNullable<Awaited<ReturnType<typeof getActiveWorkoutSession>>>;
+
+function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minutes: number }) {
+  // Local 1s ticker so only this bar re-renders each second.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const started = new Date(session.started_at).getTime();
+  const totalMs = Math.max(1, minutes) * 60_000;
+  const elapsed = Math.max(0, now - started);
+  const remaining = totalMs - elapsed;
+  const over = remaining < 0;
+  const mmss = (ms: number) => {
+    const s = Math.floor(Math.abs(ms) / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  const pct = Math.min(100, (elapsed / totalMs) * 100);
+
+  return (
+    <div className="mt-2 rounded-xl border border-primary/60 bg-primary/10 px-3 py-2 shadow-[0_0_16px_-6px] shadow-primary/60">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="flex min-w-0 items-center gap-1.5 font-bold text-primary">
+          <Dumbbell className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">LIVE · {session.title}</span>
+        </span>
+        <span className={`shrink-0 font-display font-bold ${over ? "text-red-400" : "text-foreground"}`}>
+          {over ? `+${mmss(remaining)}` : mmss(remaining)}
+          <span className="ml-2 text-emerald-400">
+            {session.done}/{session.total}
+          </span>
+        </span>
+      </div>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
+        <div
+          className={`h-full transition-all ${over ? "bg-red-400" : "bg-primary"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 function WorkoutPanel({
   session,

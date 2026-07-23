@@ -18,6 +18,7 @@ export type ActiveSession = {
   session_date: string;
   title: string;
   status: string;
+  started_at: string;
   exercises: SessionExercise[];
   done: number;
   total: number;
@@ -53,6 +54,7 @@ export async function getActiveSession(userId: string): Promise<ActiveSession> {
     session_date: session.session_date,
     title: session.title,
     status: session.status,
+    started_at: session.created_at,
     exercises,
     done,
     total: exercises.length,
