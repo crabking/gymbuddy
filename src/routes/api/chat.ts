@@ -119,6 +119,13 @@ export const Route = createFileRoute("/api/chat")({
                 .join("\n")
             : "(workspace is empty)";
 
+        // Durable memory injected every session so the agent always remembers the
+        // important bits without replaying the whole chat transcript.
+        const memoryFile = files.find((f) => f.path === "memory/notes.md")?.content ?? "";
+        const longTermMemory =
+          [profile?.memory_notes?.trim(), memoryFile.trim()].filter(Boolean).join("\n\n") ||
+          "(nothing saved yet)";
+
         const skillCatalog = Object.entries(SKILLS)
           .map(([name, s]) => `- ${name}: ${s.description}`)
           .join("\n");
@@ -208,32 +215,25 @@ ${skillCatalog}
 ## Workspace file index (paths only — read the file for content)
 ${workspaceIndex}
 
+## Long-term memory (durable — always keep this in mind)
+${longTermMemory}
+
 ## Live user state
 ${JSON.stringify(liveState, null, 2)}
 
 ${
   onboarded
-    ? ""
-    : `## Onboarding not complete
-The UI already showed a hardcoded greeting. Do NOT re-introduce yourself. Load the \`onboarding\` skill now and follow it. The user's next message is likely their name — save it via \`update_profile { display_name }\` and proceed.`
+    ? `## Fresh session
+This is a fresh session — the previous chat was cleared on purpose to keep you sharp. You are NOT missing anything: the user's durable state lives in the profile, long-term memory, and workspace files above. Greet them by name and pick up where their saved plan/schedule/goals leave off. Read a workspace file before referencing its details.`
+    : `## Onboarding not complete — RUN IT NOW
+This is a fresh session and the user is NOT onboarded yet. Load the \`onboarding\` skill immediately and drive the FULL guided setup yourself — talk freely and naturally, one topic per message. If the incoming message is the kickoff marker "__begin__", it just means "start": greet the user warmly as ${coachName} and ask the first onboarding question. NEVER echo or mention "__begin__". When every setup step is saved, call \`complete_onboarding\` — the chat will then reset into a fresh session.`
 }
 `;
 
         const model = getChatModel();
 
-        // Persist last user message (skip internal kickoff marker)
-        const last = body.messages[body.messages.length - 1];
-        const lastText = last?.parts
-          .map((p) => (p.type === "text" ? p.text : ""))
-          .join("")
-          .trim();
-        if (last?.role === "user" && lastText && lastText !== "__begin__") {
-          await db.insert(chatMessages).values({
-            user_id: userId,
-            role: "user",
-            parts: last.parts as unknown,
-          });
-        }
+        // Sessions are ephemeral (no transcript replay) — durable state lives in
+        // the profile, long-term memory, and workspace files. Nothing to persist.
 
         // ---------- TOOLS ----------
 
@@ -852,16 +852,6 @@ ${input.notes}
 
         return result.toUIMessageStreamResponse({
           originalMessages: body.messages,
-          onFinish: async ({ messages }) => {
-            const assistantMsg = messages[messages.length - 1];
-            if (assistantMsg?.role === "assistant") {
-              await db.insert(chatMessages).values({
-                user_id: userId,
-                role: "assistant",
-                parts: assistantMsg.parts as unknown,
-              });
-            }
-          },
         });
       },
     },

@@ -8,7 +8,6 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getProfile,
-  getChatMessages,
   getWorkspaceFiles,
   updateProfile,
   resetOnboarding,
@@ -175,10 +174,6 @@ function ChatScreen() {
     queryKey: ["profile"],
     queryFn: () => getProfile({ data: undefined }),
   });
-  const { data: initialMessages } = useSuspenseQuery({
-    queryKey: ["chat-messages"],
-    queryFn: () => getChatMessages({ data: undefined }),
-  });
   const { data: workspaceFiles } = useSuspenseQuery({
     queryKey: ["workspace-files"],
     queryFn: () => getWorkspaceFiles({ data: undefined }),
@@ -196,16 +191,6 @@ function ChatScreen() {
   const isAdmin = !!userEmail;
 
 
-  const initial = useMemo<UIMessage[]>(
-    () =>
-      (initialMessages ?? []).map((m) => ({
-        id: m.id,
-        role: m.role,
-        parts: m.parts,
-      })) as UIMessage[],
-    [initialMessages],
-  );
-
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -221,9 +206,8 @@ function ChatScreen() {
   );
 
   const qc = useQueryClient();
-  const { messages, sendMessage, status, stop } = useChat({
+  const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: "gym-buddy",
-    messages: initial,
     transport,
     onError: (err) => toast.error(err.message || "Chat failed"),
     onFinish: () => {
@@ -252,6 +236,23 @@ function ChatScreen() {
   const buildStatus_ = buildStatus(profile as Profile, workspaceFiles);
   const buildDoneCount = Object.values(buildStatus_).filter(Boolean).length;
   const buildTotalSteps = Object.keys(buildStatus_).length;
+
+  // Auto-boot onboarding: the agent greets and runs the onboarding skill itself
+  // (no hardcoded greeting). The "__begin__" marker is filtered from the UI.
+  const kicked = useRef(false);
+  useEffect(() => {
+    if (inOnboarding && !kicked.current && messages.length === 0 && status === "ready") {
+      kicked.current = true;
+      void sendMessage({ text: "__begin__" });
+    }
+  }, [inOnboarding, messages.length, status, sendMessage]);
+
+  // When onboarding finishes, clear the chat into a fresh session.
+  const wasOnboarding = useRef(inOnboarding);
+  useEffect(() => {
+    if (wasOnboarding.current && !inOnboarding) setMessages([]);
+    wasOnboarding.current = inOnboarding;
+  }, [inOnboarding, setMessages]);
 
 
 
@@ -291,23 +292,12 @@ function ChatScreen() {
     void sendMessage({ text: "Can you explain that again, slower and with an example?" });
   }
 
-  // Hardcoded first greeting when onboarding and there are no messages yet.
-  // Avoids the LLM inventing an identity (Rex vs Reya) on first render.
-  const greetingMessage: UIMessage | null =
-    inOnboarding && messages.length === 0
-      ? ({
-          id: "coach-greeting",
-          role: "assistant",
-          parts: [
-            {
-              type: "text",
-              text: `Hey — I'm **${coach.name}**, your coach in your pocket. We'll get you set up fast, one step at a time.\n\nFirst up: **what should I call you?**`,
-            },
-          ],
-        } as UIMessage)
-      : null;
-
-  const visibleMessages: UIMessage[] = greetingMessage ? [greetingMessage] : messages;
+  // Hide the internal "__begin__" kickoff marker from the transcript.
+  const visibleMessages: UIMessage[] = messages.filter((m) => {
+    if (m.role !== "user") return true;
+    const text = m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+    return text !== "__begin__";
+  });
   const latest = visibleMessages[visibleMessages.length - 1];
   const latestText = latest
     ? latest.parts.map((p) => (p.type === "text" ? p.text : "")).join("")
@@ -529,7 +519,18 @@ function ChatScreen() {
 
       {/* Single-message stage */}
       <main className="flex flex-1 flex-col justify-center overflow-hidden px-5 py-6">
-        {!latest && (
+        {!latest && inOnboarding && (
+          <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
+            <img
+              src={coach.portrait}
+              alt={coach.name}
+              className="h-24 w-24 animate-pulse rounded-2xl object-cover object-top ring-2 ring-primary"
+            />
+            <Shimmer>{`${coach.name} is getting set up…`}</Shimmer>
+          </div>
+        )}
+
+        {!latest && !inOnboarding && (
           <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
             <img
               src={coach.portrait}
