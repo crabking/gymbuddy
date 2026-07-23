@@ -56,6 +56,7 @@ export const Route = createFileRoute("/api/chat")({
         const { getActiveSession, startSession, markExerciseDone, completeSession, summarizeSession } =
           await import("@/lib/workout-session.server");
         const { getNutrition, summarizeNutrition } = await import("@/lib/nutrition.server");
+        const { getTodayTraining } = await import("@/lib/schedule.server");
 
         const user = await getUserFromRequest(request);
         if (!user) return new Response("Unauthorized", { status: 401 });
@@ -129,10 +130,16 @@ export const Route = createFileRoute("/api/chat")({
           [profile?.memory_notes?.trim(), memoryFile.trim()].filter(Boolean).join("\n\n") ||
           "(nothing saved yet)";
 
+        // Client wall-clock ("date|weekday|HH:MM") so the coach's sense of "now"
+        // matches the user's timezone, not the server's.
+        const clientLocal = request.headers.get("x-client-local")?.split("|") ?? [];
+        const [clientDate, clientWeekday, clientTime] = clientLocal;
+
         // Live module state — the coach is "connected" to these in real time.
-        const [activeSession, nutrition] = await Promise.all([
+        const [activeSession, nutrition, todayTraining] = await Promise.all([
           getActiveSession(userId),
           getNutrition(userId),
+          getTodayTraining(userId, { date: clientDate ?? null, weekday: clientWeekday ?? null }),
         ]);
 
         const skillCatalog = Object.entries(SKILLS)
@@ -145,9 +152,12 @@ export const Route = createFileRoute("/api/chat")({
 
         const liveState = {
           coach: coachName,
-          today: now.toISOString().slice(0, 10),
-          day_of_week: todayName,
-          local_time: now.toTimeString().slice(0, 5),
+          today: clientDate || now.toISOString().slice(0, 10),
+          day_of_week: clientWeekday || todayName,
+          local_time: clientTime || now.toTimeString().slice(0, 5),
+          training_day_today: todayTraining
+            ? `${todayTraining.label}${todayTraining.detail ? ` (${todayTraining.detail})` : ""}`
+            : null,
           onboarded,
           name: profile?.display_name ?? null,
           goal: profile?.goal ?? null,
@@ -237,8 +247,9 @@ ${
   onboarded
     ? `## LIVE MODULES — you are wired into these in real time (this is current, not history)
 ### Workout session
+Today per the schedule: ${todayTraining ? `${todayTraining.label}${todayTraining.detail ? ` (${todayTraining.detail})` : ""}` : "(no schedule saved yet)"}
 ${summarizeSession(activeSession)}
-- If the user wants to start today's workout, read their schedule + plan, figure out today's exercises, and call \`start_workout_session\` with the list (name + target like "4×8 @ 60kg").
+- If the user wants to start today's workout, default to today's training day above — read the plan for its exercises and call \`start_workout_session\` with the list (name + target like "4×8 @ 60kg").
 - When they finish an exercise ("done with squats", "knocked out bench"), call \`mark_exercise_done\` with that exercise, then hype them and name the NEXT unchecked exercise from the list above.
 - When every exercise is checked, call \`complete_workout_session\` and celebrate.
 - Never claim an exercise is done unless it shows [x] above or you just marked it.

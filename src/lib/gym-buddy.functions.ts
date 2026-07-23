@@ -187,6 +187,16 @@ export const getNutritionToday = createServerFn({ method: "GET" })
     return getNutrition(context.userId);
   });
 
+export const getTodayTrainingInfo = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ date: z.string().nullable(), weekday: z.string().nullable() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { getTodayTraining } = await import("@/lib/schedule.server");
+    return getTodayTraining(context.userId, data);
+  });
+
 export const resetWorkspace = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .handler(async ({ context }) => {

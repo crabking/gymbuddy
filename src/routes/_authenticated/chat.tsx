@@ -16,6 +16,7 @@ import {
   toggleSessionExercise,
   completeActiveSession,
   getNutritionToday,
+  getTodayTrainingInfo,
 } from "@/lib/gym-buddy.functions";
 import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { toast } from "sonner";
@@ -53,6 +54,13 @@ function useCoachPortrait() {
     portrait: gender === "female" ? coachFemale : coachMale,
     name: gender === "female" ? "Reya" : "Rex",
   };
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** "YYYY-MM-DD|Weekday|HH:MM" in the user's local timezone. */
+function clientLocalStamp(d = new Date()) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}|${WEEKDAYS[d.getDay()]}|${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -192,6 +200,24 @@ function ChatScreen() {
     queryKey: ["nutrition"],
     queryFn: () => getNutritionToday({ data: undefined }),
   });
+  const { data: todayTraining } = useQuery({
+    queryKey: ["today-training"],
+    queryFn: () => {
+      const d = new Date();
+      return getTodayTrainingInfo({
+        data: {
+          date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+          weekday: WEEKDAYS[d.getDay()],
+        },
+      });
+    },
+  });
+  // Live clock for the header (minute resolution).
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setClock(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
   const coach = useCoachPortrait();
 
   const [openSection, setOpenSection] = useState<SetupKey | "all" | null>(null);
@@ -213,6 +239,7 @@ function ChatScreen() {
           // Auth rides on the httpOnly session cookie (same-origin request).
           const headers = new Headers(init?.headers);
           headers.set("X-Coach-Name", coach.name);
+          headers.set("X-Client-Local", clientLocalStamp());
           return fetch(input, { ...init, headers, credentials: "same-origin" });
         }) as typeof fetch,
       }),
@@ -230,6 +257,7 @@ function ChatScreen() {
       qc.invalidateQueries({ queryKey: ["workspace-files"] });
       qc.invalidateQueries({ queryKey: ["workout-session"] });
       qc.invalidateQueries({ queryKey: ["nutrition"] });
+      qc.invalidateQueries({ queryKey: ["today-training"] });
     },
   });
 
@@ -567,6 +595,21 @@ function ChatScreen() {
             </div>
           </>
         )}
+
+        {/* Today: date, time, and which training day it is */}
+        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span>
+            {clock.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+            {" · "}
+            {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {!inOnboarding && todayTraining && (
+            <span className="truncate font-semibold text-foreground">
+              <Dumbbell className="mr-1 inline h-3 w-3 text-primary" />
+              Today: {todayTraining.label}
+            </span>
+          )}
+        </div>
 
         {/* Today's calories — always visible up top once onboarded */}
         {!inOnboarding && nutrition && (
