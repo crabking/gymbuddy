@@ -78,11 +78,14 @@ export async function getDashboardData(userId: string, days = 90) {
     .sort((a, b) => b.points.length - a.points.length);
 
   // --- Weekly volume: completed sets + tonnage per ISO week ---
+  // NOTE: format locally — toISOString() shifts across UTC midnight.
+  const localStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const weekKey = (dateStr: string) => {
     const d = new Date(`${dateStr}T00:00:00`);
     const monday = new Date(d);
     monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    return monday.toISOString().slice(0, 10);
+    return localStr(monday);
   };
   const volume = new Map<string, { sets: number; tonnage: number }>();
   for (const set of sets) {
@@ -158,12 +161,12 @@ export async function getDashboardData(userId: string, days = 90) {
     const weeksWithSession = new Set(
       sessions.filter((s) => s.status === "completed").map((s) => weekKey(s.session_date)),
     );
-    let cursor = weekKey(new Date().toISOString().slice(0, 10));
+    let cursor = weekKey(localStr(new Date()));
     while (weeksWithSession.has(cursor)) {
       streakWeeks++;
       const d = new Date(`${cursor}T00:00:00`);
       d.setDate(d.getDate() - 7);
-      cursor = d.toISOString().slice(0, 10);
+      cursor = localStr(d);
     }
   }
 

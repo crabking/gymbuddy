@@ -346,7 +346,13 @@ function DashboardPage() {
                         axisLine={{ stroke: C.grid }}
                         tickLine={false}
                       />
-                      <YAxis tick={{ fill: C.ink, fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis
+                        // Keep the target reference line inside the plot.
+                        domain={[0, (dataMax: number) => Math.max(dataMax, (data.stats.calorie_target ?? 0) + 150)]}
+                        tick={{ fill: C.ink, fontSize: 10 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
                       <Tooltip
                         contentStyle={tooltipStyle}
                         labelFormatter={(d) => fmtShort(String(d))}
