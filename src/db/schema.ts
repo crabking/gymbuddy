@@ -148,6 +148,105 @@ export const mealLogs = pgTable(
   (t) => [index("meal_logs_user_logged_idx").on(t.user_id, t.logged_at)],
 );
 
+// --- Structured training programs (full dated 16-week engine) ---
+
+export const programs = pgTable(
+  "programs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    goal: text("goal"),
+    experience: text("experience"),
+    start_date: text("start_date").notNull(), // YYYY-MM-DD
+    end_date: text("end_date").notNull(),
+    weeks: integer("weeks").notNull(),
+    days_per_week: integer("days_per_week").notNull(),
+    session_minutes: integer("session_minutes"),
+    status: text("status").notNull().default("active"), // active | completed | archived
+    deload_weeks: jsonb("deload_weeks").notNull().default([]),
+    progression_rules: text("progression_rules"),
+    why: text("why"),
+    created_at: createdAt(),
+  },
+  (t) => [index("programs_user_idx").on(t.user_id, t.status)],
+);
+
+export const programDays = pgTable(
+  "program_days",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    program_id: uuid("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    week: integer("week").notNull(), // 1-based
+    day_index: integer("day_index").notNull(), // 1-based within the week
+    date: text("date").notNull(), // YYYY-MM-DD — real calendar date
+    title: text("title").notNull(), // e.g. "Upper Power"
+    focus: text("focus"),
+    is_deload: boolean("is_deload").notNull().default(false),
+    status: text("status").notNull().default("planned"), // planned | completed | skipped
+    session_id: uuid("session_id"), // linked live session when run
+  },
+  (t) => [
+    index("program_days_program_idx").on(t.program_id, t.date),
+    index("program_days_date_idx").on(t.date),
+  ],
+);
+
+export const programExercises = pgTable(
+  "program_exercises",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    program_day_id: uuid("program_day_id")
+      .notNull()
+      .references(() => programDays.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    name: text("name").notNull(),
+    sets: integer("sets").notNull(),
+    rep_range: text("rep_range").notNull(), // e.g. "6–8"
+    target_weight_kg: doublePrecision("target_weight_kg"),
+    notes: text("notes"),
+  },
+  (t) => [index("program_exercises_day_idx").on(t.program_day_id, t.position)],
+);
+
+// Per-set logging inside a live session (actual weight × reps performed).
+export const sessionSets = pgTable(
+  "session_sets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    session_exercise_id: uuid("session_exercise_id")
+      .notNull()
+      .references(() => sessionExercises.id, { onDelete: "cascade" }),
+    set_index: integer("set_index").notNull(), // 1-based
+    target_reps: text("target_reps"), // e.g. "6–8"
+    weight_kg: doublePrecision("weight_kg"),
+    reps: integer("reps"),
+    completed: boolean("completed").notNull().default(false),
+    completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+  },
+  (t) => [index("session_sets_exercise_idx").on(t.session_exercise_id, t.set_index)],
+);
+
+// Bodyweight history.
+export const weightLogs = pgTable(
+  "weight_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    weight_kg: doublePrecision("weight_kg").notNull(),
+    logged_at: timestamp("logged_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("weight_logs_user_idx").on(t.user_id, t.logged_at)],
+);
+
 // Live workout sessions — the coach's real-time "today's workout" engine.
 export const workoutSessions = pgTable(
   "workout_sessions",
@@ -159,6 +258,7 @@ export const workoutSessions = pgTable(
     session_date: text("session_date").notNull(), // YYYY-MM-DD (user-local day)
     title: text("title").notNull(),
     status: text("status").notNull().default("active"), // active | completed | abandoned
+    program_day_id: uuid("program_day_id"), // linked program day (dated engine)
     created_at: createdAt(),
     completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
   },

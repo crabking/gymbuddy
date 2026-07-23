@@ -46,17 +46,25 @@ export const Route = createFileRoute("/api/chat")({
     handlers: {
       POST: async ({ request }) => {
         // Server-only modules loaded here so `pg` never enters the client bundle.
-        const { and, eq, asc } = await import("drizzle-orm");
+        const { and, eq, asc, desc } = await import("drizzle-orm");
         const { getDb } = await import("@/db/db.server");
-        const { profiles, workspaceFiles, chatMessages, workoutLogs, mealLogs } =
+        const { profiles, workspaceFiles, chatMessages, workoutLogs, mealLogs, weightLogs } =
           await import("@/db/schema");
         const { getUserFromRequest } = await import("@/lib/auth.server");
         const { workspaceTools } = await import("@/lib/workspace-tools.server");
         const { ensureAgentConfig } = await import("@/lib/workspace.server");
-        const { getActiveSession, startSession, markExerciseDone, completeSession, summarizeSession } =
-          await import("@/lib/workout-session.server");
+        const {
+          getActiveSession,
+          startSession,
+          markExerciseDone,
+          completeSession,
+          summarizeSession,
+          getRecentSessions,
+          summarizeRecentSessions,
+        } = await import("@/lib/workout-session.server");
         const { getNutrition, summarizeNutrition } = await import("@/lib/nutrition.server");
-        const { getTodayTraining } = await import("@/lib/schedule.server");
+        const { getActiveProgram, summarizeProgram, generateProgram, adjustProgramExercise } =
+          await import("@/lib/program.server");
 
         const user = await getUserFromRequest(request);
         if (!user) return new Response("Unauthorized", { status: 401 });
@@ -135,12 +143,31 @@ export const Route = createFileRoute("/api/chat")({
         const clientLocal = request.headers.get("x-client-local")?.split("|") ?? [];
         const [clientDate, clientWeekday, clientTime] = clientLocal;
 
+        const todayDate = clientDate || new Date().toISOString().slice(0, 10);
+
         // Live module state — the coach is "connected" to these in real time.
-        const [activeSession, nutrition, todayTraining] = await Promise.all([
-          getActiveSession(userId),
-          getNutrition(userId),
-          getTodayTraining(userId, { date: clientDate ?? null, weekday: clientWeekday ?? null }),
-        ]);
+        const [activeSession, nutrition, program, recentSessions, recentWeights] =
+          await Promise.all([
+            getActiveSession(userId),
+            getNutrition(userId),
+            getActiveProgram(userId, todayDate),
+            getRecentSessions(userId, 7),
+            db
+              .select()
+              .from(weightLogs)
+              .where(eq(weightLogs.user_id, userId))
+              .orderBy(desc(weightLogs.logged_at))
+              .limit(5),
+          ]);
+
+        const todayProgramDay = program?.days.find((d) => d.date === todayDate) ?? null;
+        const lastCompleted = recentSessions.find((r) => r.status === "completed");
+        const weightTrend = recentWeights.length
+          ? recentWeights
+              .map((w) => `${w.logged_at.slice(0, 10)}: ${w.weight_kg}kg`)
+              .reverse()
+              .join(" → ")
+          : "(no weight logs yet)";
 
         const skillCatalog = Object.entries(SKILLS)
           .map(([name, s]) => `- ${name}: ${s.description}`)
@@ -155,9 +182,9 @@ export const Route = createFileRoute("/api/chat")({
           today: clientDate || now.toISOString().slice(0, 10),
           day_of_week: clientWeekday || todayName,
           local_time: clientTime || now.toTimeString().slice(0, 5),
-          training_day_today: todayTraining
-            ? `${todayTraining.label}${todayTraining.detail ? ` (${todayTraining.detail})` : ""}`
-            : null,
+          training_day_today: todayProgramDay
+            ? `${todayProgramDay.title}${todayProgramDay.is_deload ? " (deload)" : ""} — status: ${todayProgramDay.status}`
+            : "rest day (no program day scheduled today)",
           onboarded,
           name: profile?.display_name ?? null,
           goal: profile?.goal ?? null,
@@ -201,7 +228,7 @@ When the user asks for a workout plan, or you're recommending one, you MUST go s
 1. **Pitch (TLDR, 2–3 sentences MAX).** Name the plan (e.g. "Upper/Lower 4-day"), one line on why it fits them, one line on the vibe (frequency + focus). End with a yes/no: "Want to run this one?" Do NOT list exercises, sets, reps, or weights yet.
 2. **If yes → ask duration.** One question only: "How long do you want to run it — 8, 12, or 16 weeks?" (Adjust options to their goal.) Wait for the answer.
 3. **Ask anything else you still need** (bodyweight for starting loads, equipment gaps, injuries) — one short question at a time. Never a wall of questions.
-4. **THEN build.** Load \`workout-planner\`, call the calculators, then call \`save_workout_plan\` with EVERY required field filled in. Reply with a TLDR summary only ("Saved — 12 weeks, 4 days, deloads on week 5 and 10. Ready for Monday?"). Do NOT paste the full plan in chat — the user can open it later.
+4. **THEN build.** Load \`workout-planner\`, call the calculators, then call \`generate_program\` with the full week template — the engine materializes EVERY dated week/day/exercise into the Program tab. Reply with a TLDR summary only ("Program's live — 16 weeks, 4 days, deloads week 5 and 10. Check the Program tab. Ready for Monday?"). Do NOT paste the full plan in chat.
 
 Same idea for meals, schedules, memories: pitch briefly → confirm → gather what's missing → then act. Never surprise-dump.
 
@@ -218,7 +245,7 @@ Current build checklist from workspace:
 
 ## Typed save tools — pre-flight checklist (CRITICAL)
 Each save tool below has REQUIRED fields. You cannot call them until every field is filled from real user data. If ANY field is missing, ASK THE USER (one short question at a time) — never guess, never pass placeholders, never say "I'll figure it out". These are your checklists:
-- **save_workout_plan** → needs: template_name, goal, timeline_weeks, start_date, end_date, days_per_week, session_minutes, experience, sex, bodyweight_kg, equipment, deload_weeks, sessions_week1 (per-day exercises with sets×reps @ weight), progression_rules, substitutions, why_this_plan.
+- **generate_program** → needs: name, goal, experience, start_date, weeks, session_minutes, deload_weeks (from calc_program_timeline), progression_rules, why, and week_template (one full week: per-day title/focus + exercises with sets, rep_range, start_weight_kg from calc_starting_weights, increment_kg, increment_every_weeks).
 - **save_schedule** → needs: mode ('weekday' OR 'rolling'), sessions_per_week, days[] (label + focus + time_of_day), session_minutes, notes. Default to 'rolling' with labels 'Day 1', 'Day 2'... unless the user explicitly wants fixed weekdays. Rolling is label-free — the user slots sessions in as they go and crossover between weeks is fine.
 - **save_nutrition_targets** → needs: daily_calories, protein_g, carbs_g, fat_g, meals_per_day, diet_style, dislikes, notes.
 - **save_memory_note** → needs: topic, note.
@@ -231,7 +258,7 @@ ${skillCatalog}
 ## Workflow triggers
 - User is not onboarded → load the \`onboarding\` skill FIRST (already flagged below).
 - User wants to build/change their weekly plan of days → load \`schedule-builder\`, then \`save_schedule\`.
-- User wants a workout program, wants to change one, skip weeks, or swap exercises → load \`workout-planner\` and USE its calculator tools (calc_program_timeline, calc_starting_weights, substitute_exercise, shift_schedule_weeks). Never invent progression, starting weights, or lazy-swap an exercise. Save with \`save_workout_plan\`.
+- User wants a workout program, wants to change one, skip weeks, or swap exercises → load \`workout-planner\` and USE its calculator tools (calc_program_timeline, calc_starting_weights, substitute_exercise, shift_schedule_weeks). Never invent progression, starting weights, or lazy-swap an exercise. Build with \`generate_program\`; tune future weeks with \`adjust_program\`.
 - User asks about food / macros / meal ideas → load \`meal-planner\`, then \`save_nutrition_targets\` once numbers are locked.
 - User shares a durable fact ("remember that…", injuries, events) → \`save_memory_note\`.
 
@@ -246,20 +273,36 @@ ${longTermMemory}
 ${
   onboarded
     ? `## LIVE MODULES — you are wired into these in real time (this is current, not history)
+### Program (structured, dated)
+${summarizeProgram(program, todayDate)}
+Today's program day: ${todayProgramDay ? `${todayProgramDay.date} — ${todayProgramDay.title}${todayProgramDay.is_deload ? " [DELOAD]" : ""} (${todayProgramDay.status})` : "REST DAY — nothing scheduled today"}
+
 ### Workout session
-Today per the schedule: ${todayTraining ? `${todayTraining.label}${todayTraining.detail ? ` (${todayTraining.detail})` : ""}` : "(no schedule saved yet)"}
 ${summarizeSession(activeSession)}
-- If the user wants to start today's workout, default to today's training day above — read the plan for its exercises and call \`start_workout_session\` with the list (name + target like "4×8 @ 60kg").
-- When they finish an exercise ("done with squats", "knocked out bench"), call \`mark_exercise_done\` with that exercise, then hype them and name the NEXT unchecked exercise from the list above.
-- When every exercise is checked, call \`complete_workout_session\` and celebrate.
-- Never claim an exercise is done unless it shows [x] above or you just marked it.
+- "Start today's workout" → call \`start_workout_session\` (no exercise list needed — it auto-loads today's program day). Ad-hoc sessions need an explicit exercise list.
+- When they finish an exercise, call \`mark_exercise_done\`, then hype them and name the NEXT unchecked exercise.
+- All done → \`complete_workout_session\` and celebrate. Never claim an exercise is done unless it shows [x] above or you just marked it.
+
+### Session history (last 7 days)
+${summarizeRecentSessions(recentSessions)}
+Last completed session: ${lastCompleted ? `${lastCompleted.title} on ${lastCompleted.date}${lastCompleted.duration_min != null ? ` (${lastCompleted.duration_min} min)` : ""}` : "(none this week)"}
+
+### Bodyweight trend
+${weightTrend}
+- When the user mentions their weight ("I'm 82kg today"), call \`log_weight\`.
 
 ### Nutrition (today)
 ${summarizeNutrition(nutrition)}
 - You already KNOW what they've eaten today and how much room is left — use it. When they mention eating something, call \`log_meal\`. Answer "what have I had today / how many calories left" straight from the numbers above.
 
+### REALITY RULES (you are a REAL coach — hard limits are enforced in code too)
+- ONE workout per day. Recovery is training. If today's session is done, the answer to "another workout?" is a firm, warm NO — rest, food, sleep, come back tomorrow.
+- Real workouts take real time. A ~60-min session finished in minutes is impossible — the tools will refuse and tell you why; relay it like a coach ("that was 4 minutes, bro — what actually happened?"). Accept overrides ONLY for genuine reasons (trained offline earlier, logging retroactively) and pass override_reason to the tool.
+- Rest days exist for a reason. On a rest day, steer to recovery, nutrition, mobility — not another session (unless they have a true reason).
+- Watch the clock and the calendar: you know the time, today's date, when they last trained and for how long. Use that context like a human coach would.
+
 ### UI events (hivemind channel)
-A user message starting with \`__ui_event__\` is NOT typed by the user — it's the app telling you they just did something in the UI (tapped a checkbox, finished the session). The live state above ALREADY reflects it — do NOT call \`mark_exercise_done\` again for it. React instantly and briefly like the locked-in coach you are: checked off an exercise → one hype line + name the NEXT unchecked exercise (or, if everything's [x], tell them to smash "Finish workout"); un-checked → roll with it ("no stress — back on <exercise> then"); finished session → short celebration + one recovery/nutrition nudge using today's numbers. NEVER echo or mention the marker text.`
+A user message starting with \`__ui_event__\` is NOT typed by the user — it's the app telling you they just did something in the UI (tapped a checkbox, finished the session). The live state above ALREADY reflects it — do NOT call \`mark_exercise_done\` again for it. React instantly and briefly like the locked-in coach you are: checked off an exercise → one hype line + name the NEXT unchecked exercise (or, if everything's [x], tell them to smash "Finish workout"); un-checked → roll with it ("no stress — back on <exercise> then"); finished session → short celebration + one recovery/nutrition nudge using today's numbers. If a pace warning appears in a tool result, address it seriously. NEVER echo or mention the marker text.`
     : `## Modules locked until onboarding completes
 Workout sessions and meal/workout tracking unlock AFTER onboarding. If the user asks for them now, warmly steer back to finishing setup first ("Let's lock in your setup, then we train").`
 }
@@ -338,79 +381,6 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
             const data = await readFile(path);
             if (!data) return { ok: false, error: "not_found" };
             return { ok: true, path, content: data.content, updated_at: data.updated_at };
-          },
-        });
-
-        const saveWorkoutPlanTool = tool({
-          description:
-            "Save the user's training plan to plans/current.md. EVERY field is REQUIRED. Do NOT call this until you have gathered all of them from the user (via chat + update_profile + calc_program_timeline + calc_starting_weights). If you're missing anything, ASK THE USER FIRST — do not guess, do not pass placeholders. Archives any existing plan before overwriting.",
-          inputSchema: z.object({
-            template_name: z.string().describe("e.g. 'PHUL', 'Upper/Lower 4-day', '5/3/1 BBB'"),
-            goal: z.string().describe("Primary goal(s), e.g. 'hypertrophy + strength'"),
-            timeline_weeks: z.number().int().describe("Total program length in weeks"),
-            start_date: z.string().describe("YYYY-MM-DD start date"),
-            end_date: z.string().describe("YYYY-MM-DD end date"),
-            days_per_week: z.number().int(),
-            session_minutes: z.number().int(),
-            experience: z.string().describe("beginner | intermediate | advanced"),
-            sex: z.string(),
-            bodyweight_kg: z.number(),
-            equipment: z.string().describe("full_gym | home_gym | dumbbells_only | bodyweight"),
-            deload_weeks: z.array(z.number().int()).describe("Week numbers that are deloads, e.g. [5, 10]"),
-            sessions_week1: z.array(
-              z.object({
-                day: z.string().describe("e.g. 'Mon — Upper (push)'"),
-                exercises: z.array(z.string()).describe("Full lines, e.g. 'Bench press — 4×6–8 @ 60kg'"),
-              }),
-            ),
-            progression_rules: z.string().describe("Concrete rules, e.g. '+2.5kg upper / +5kg lower when all sets hit top of range for 2 sessions.'"),
-            substitutions: z.array(z.string()).describe("Locked-in swaps, e.g. 'Back squat → hack squat (user pref)'. Empty array if none."),
-            why_this_plan: z.string().describe("2–4 sentence rationale for future sessions."),
-          }),
-          execute: async (input) => {
-            // Archive existing if present.
-            const existing = await readFile("plans/current.md");
-            if (existing?.content) {
-              const stamp = new Date().toISOString().slice(0, 10);
-              await saveFile(`plans/archive/${stamp}_replaced.md`, existing.content);
-            }
-
-            const week1 = input.sessions_week1
-              .map((s) => `### ${s.day}\n${s.exercises.map((e) => `- ${e}`).join("\n")}`)
-              .join("\n\n");
-            const subs = input.substitutions.length
-              ? input.substitutions.map((s) => `- ${s}`).join("\n")
-              : "- (none)";
-            const deloads = input.deload_weeks.length
-              ? input.deload_weeks.map((w) => `week ${w}`).join(", ")
-              : "(none)";
-
-            const md = `# Plan — ${input.template_name}
-Goal: ${input.goal}
-Timeline: ${input.start_date} → ${input.end_date} (${input.timeline_weeks} weeks)
-Training days: ${input.days_per_week}/week, ~${input.session_minutes} min
-User: ${input.sex}, ${input.bodyweight_kg} kg, ${input.experience}, equipment: ${input.equipment}
-Deloads: ${deloads}
-
-## Week 1
-${week1}
-
-## Progression rules
-${input.progression_rules}
-
-## Substitutions locked in
-${subs}
-
-## Why this plan
-${input.why_this_plan}
-`;
-
-            await saveFile("plans/current.md", md);
-            return {
-              ok: true,
-              path: "plans/current.md",
-              next_step: "Move to nutrition targets now. Ask one short question about meals per day, calorie preference, or dislikes — whichever is still missing.",
-            };
           },
         });
 
@@ -626,27 +596,38 @@ ${input.notes}
 
         const startWorkoutSessionTool = tool({
           description:
-            "Start today's LIVE workout session. First read the user's saved plan/schedule to derive today's exercises, then call this with the full list. Replaces any currently-active session.",
+            "Start a LIVE workout session with realism guardrails (one session/day, program-aware). If today has a program day, call with NO exercises — it auto-loads them with per-set targets. For ad-hoc sessions pass an explicit list. If refused, relay the coach_note like a real coach; pass override_reason ONLY when the user gives a genuine real-world reason.",
           inputSchema: z.object({
-            title: z.string().describe("e.g. 'Upper (push)', 'Legs', 'Day 2 — Pull'"),
+            title: z.string().nullable().describe("Optional override title; defaults to the program day"),
             exercises: z
               .array(
                 z.object({
                   name: z.string(),
-                  target: z.string().nullable().describe("e.g. '4×6–8 @ 60kg', or null"),
+                  target: z.string().nullable().describe("Display target, e.g. '4×6–8 @ 60kg'"),
+                  sets: z.number().int().nullable(),
+                  rep_range: z.string().nullable(),
+                  weight_kg: z.number().nullable(),
                 }),
               )
-              .min(1),
+              .nullable()
+              .describe("Only for ad-hoc sessions; null to use today's program day"),
+            override_reason: z.string().nullable().describe("Real-world justification to bypass a guardrail; null normally"),
           }),
-          execute: async ({ title, exercises }) => {
-            const session = await startSession(userId, title, exercises);
-            return { ok: true, session: summarizeSession(session) };
+          execute: async ({ title, exercises, override_reason }) => {
+            const r = await startSession(userId, {
+              date: todayDate,
+              title,
+              exercises: exercises ?? undefined,
+              override_reason,
+            });
+            if (!r.ok) return { ok: false, error: r.error, coach_note: r.coach_note };
+            return { ok: true, session: summarizeSession(r.session) };
           },
         });
 
         const markExerciseDoneTool = tool({
           description:
-            "Check off (or un-check) an exercise in the active workout session when the user finishes it. Match by name, e.g. 'squats'.",
+            "Check off (or un-check) an exercise in the active workout session when the user finishes it. Match by name, e.g. 'squats'. If the result contains pace_warning, take it seriously and challenge the user.",
           inputSchema: z.object({
             exercise: z.string(),
             done: z.boolean().nullable().describe("false to un-check; defaults to true"),
@@ -657,6 +638,7 @@ ${input.notes}
             return {
               ok: true,
               marked: r.marked,
+              pace_warning: r.pace_warning ?? null,
               next: r.session?.next?.name ?? null,
               session: summarizeSession(r.session),
             };
@@ -665,11 +647,96 @@ ${input.notes}
 
         const completeWorkoutSessionTool = tool({
           description:
-            "Mark the active workout session complete (all exercises done, or the user is wrapping up).",
-          inputSchema: z.object({}),
-          execute: async () => {
-            const r = await completeSession(userId);
-            return r.ok ? { ok: true } : { ok: false, error: r.error };
+            "Complete the active workout session. Enforces duration realism — a planned session finished implausibly fast is refused; relay the coach_note and ask what actually happened. Pass override_reason only for genuine explanations (e.g. trained offline earlier).",
+          inputSchema: z.object({
+            override_reason: z.string().nullable().describe("Genuine reason to accept an implausible duration; null normally"),
+          }),
+          execute: async ({ override_reason }) => {
+            const r = await completeSession(userId, {
+              planned_minutes: profile?.session_minutes ?? 60,
+              override_reason,
+            });
+            if (!r.ok) return { ok: false, error: r.error, coach_note: r.coach_note };
+            return { ok: true, duration_min: r.duration_min };
+          },
+        });
+
+        const generateProgramTool = tool({
+          description:
+            "Generate the user's FULL structured training program — every week, every dated day, every exercise with sets/reps/target weights, progression and deloads applied. This is what powers the Program tab. Use calc_program_timeline + calc_starting_weights FIRST to ground the numbers. week_template is ONE week; the engine materializes all weeks with progression. Also archives any previous program.",
+          inputSchema: z.object({
+            name: z.string().describe("e.g. 'PHUL — 16 weeks'"),
+            goal: z.string(),
+            experience: z.string(),
+            start_date: z.string().describe("YYYY-MM-DD first training day"),
+            weeks: z.number().int().min(2).max(52),
+            session_minutes: z.number().int(),
+            deload_weeks: z.array(z.number().int()).describe("From calc_program_timeline"),
+            progression_rules: z.string(),
+            why: z.string().describe("2-4 sentence rationale"),
+            week_template: z
+              .array(
+                z.object({
+                  title: z.string().describe("e.g. 'Upper Power'"),
+                  focus: z.string().nullable(),
+                  exercises: z
+                    .array(
+                      z.object({
+                        name: z.string(),
+                        sets: z.number().int(),
+                        rep_range: z.string().describe("e.g. '6–8'"),
+                        start_weight_kg: z.number().nullable().describe("From calc_starting_weights; null for bodyweight"),
+                        increment_kg: z.number().nullable().describe("Progression step, e.g. 2.5 upper / 5 lower"),
+                        increment_every_weeks: z.number().int().nullable().describe("Default 2"),
+                        notes: z.string().nullable(),
+                      }),
+                    )
+                    .min(1),
+                }),
+              )
+              .min(1)
+              .max(7),
+          }),
+          execute: async (input) => {
+            const result = await generateProgram(userId, {
+              ...input,
+              week_template: input.week_template.map((d) => ({
+                title: d.title,
+                focus: d.focus,
+                exercises: d.exercises.map((e) => ({ ...e })),
+              })),
+            });
+            // Keep a markdown summary in the workspace for continuity.
+            const md = `# Program — ${input.name}\nGoal: ${input.goal}\n${input.weeks} weeks, ${input.week_template.length}x/week, ${result.start_date} → ${result.end_date}\nDeloads: ${input.deload_weeks.join(", ") || "none"}\n\n## Progression\n${input.progression_rules}\n\n## Why\n${input.why}\n\n(Full day-by-day program lives in the Program tab.)\n`;
+            await saveFile("plans/current.md", md);
+            return {
+              ok: true,
+              ...result,
+              next_step:
+                "Tell the user the full program is live in the Program tab (every week, day by day). Then move to nutrition targets if not set.",
+            };
+          },
+        });
+
+        const adjustProgramTool = tool({
+          description:
+            "Adjust target weights for one exercise across future weeks of the active program (e.g. bench felt too heavy → drop 2.5kg from week 5 onward). Use when real performance diverges from the plan.",
+          inputSchema: z.object({
+            exercise: z.string(),
+            from_week: z.number().int().min(1),
+            delta_kg: z.number().nullable().describe("Relative change, e.g. -2.5"),
+            set_weight_kg: z.number().nullable().describe("Or an absolute new target"),
+          }),
+          execute: async (input) => adjustProgramExercise(userId, input),
+        });
+
+        const logWeightTool = tool({
+          description: "Log the user's current bodyweight (kg). Also updates their profile.",
+          inputSchema: z.object({ weight_kg: z.number().min(25).max(400) }),
+          execute: async ({ weight_kg }) => {
+            await db.insert(weightLogs).values({ user_id: userId, weight_kg });
+            await db.update(profiles).set({ weight_kg }).where(eq(profiles.id, userId));
+            return { ok: true, weight_kg };
           },
         });
 
@@ -932,7 +999,8 @@ ${input.notes}
             load_skill: loadSkillTool,
             list_workspace: listWorkspaceTool,
             read_file: readFileTool,
-            save_workout_plan: saveWorkoutPlanTool,
+            generate_program: generateProgramTool,
+            adjust_program: adjustProgramTool,
             save_schedule: saveScheduleTool,
             save_nutrition_targets: saveNutritionTargetsTool,
             save_memory_note: saveMemoryNoteTool,
@@ -944,6 +1012,7 @@ ${input.notes}
               ? {
                   log_workout: logWorkoutTool,
                   log_meal: logMealTool,
+                  log_weight: logWeightTool,
                   start_workout_session: startWorkoutSessionTool,
                   mark_exercise_done: markExerciseDoneTool,
                   complete_workout_session: completeWorkoutSessionTool,

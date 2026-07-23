@@ -32,7 +32,7 @@ days). If they give enough detail, save the structured schedule with `save_sched
 ### 3. WORKOUT PLAN
 Load `workout-planner`. Follow the plan-proposal protocol: pitch ONE fitting template
 in 2–3 sentences → get a yes → ask duration → gather anything missing (bodyweight for
-starting loads, injuries) one question at a time → run the calculators → `save_workout_plan`.
+starting loads, injuries) one question at a time → run the calculators → `generate_program`.
 Reply with a TLDR only ("Saved — 12 weeks, 4 days"). If they'd rather set the plan up
 later, note that and continue.
 
