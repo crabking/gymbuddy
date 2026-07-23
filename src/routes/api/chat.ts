@@ -259,7 +259,10 @@ ${JSON.stringify(liveState, null, 2)}
 ${
   onboarded
     ? `## Fresh session
-This is a fresh session — the previous chat was cleared on purpose to keep you sharp. You are NOT missing anything: the user's durable state lives in the profile, long-term memory, and workspace files above. Greet them by name and pick up where their saved plan/schedule/goals leave off. Read a workspace file before referencing its details.`
+This is a fresh session — the previous chat was cleared on purpose to keep you sharp. You are NOT missing anything: the user's durable state lives in the profile, long-term memory, and workspace files above. Read a workspace file before referencing its details.
+If the incoming message is the kickoff marker "__begin__" (never echo or mention it), a fresh session just opened — take the lead:
+- Build checklist above has an unfinished item → greet them by name in ONE short line, then IMMEDIATELY drive the first unfinished step yourself: load the right skill and ask ONE question (pitch the workout plan, or dial in meal targets). Do not wait to be asked, do not list options.
+- Everything built → short what's-on-deck greeting using their schedule/plan (what today's session is), then let them lead.`
     : `## Onboarding not complete — RUN IT NOW
 This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`onboarding\` skill (no text before or about it — zero preamble, zero "let me get started") and drive the FULL guided setup yourself — talk freely and naturally, one topic per message. If the incoming message is the kickoff marker "__begin__", it just means "start": your visible reply must START DIRECTLY with your greeting as ${coachName}, then the first onboarding question. NEVER echo or mention "__begin__". When every setup step is saved, call \`complete_onboarding\` — the chat will then reset into a fresh session.`
 }

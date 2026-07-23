@@ -253,20 +253,31 @@ function ChatScreen() {
   const buildDoneCount = Object.values(buildStatus_).filter(Boolean).length;
   const buildTotalSteps = Object.keys(buildStatus_).length;
 
-  // Auto-boot onboarding: the agent greets and runs the onboarding skill itself
-  // (no hardcoded greeting). The "__begin__" marker is filtered from the UI.
+  // Auto-boot the coach on a fresh session: during onboarding it runs the
+  // onboarding skill; after onboarding it keeps driving the build (plan, meals…)
+  // until everything is set up. The "__begin__" marker is filtered from the UI.
+  const buildIncomplete = buildDoneCount < buildTotalSteps;
   const kicked = useRef(false);
   useEffect(() => {
-    if (inOnboarding && !kicked.current && messages.length === 0 && status === "ready") {
+    if (
+      (inOnboarding || buildIncomplete) &&
+      !kicked.current &&
+      messages.length === 0 &&
+      status === "ready"
+    ) {
       kicked.current = true;
       void sendMessage({ text: "__begin__" });
     }
-  }, [inOnboarding, messages.length, status, sendMessage]);
+  }, [inOnboarding, buildIncomplete, messages.length, status, sendMessage]);
 
-  // When onboarding finishes, clear the chat into a fresh session.
+  // When onboarding finishes, clear the chat into a fresh session — and re-arm
+  // the kickoff so the coach immediately continues with the build steps.
   const wasOnboarding = useRef(inOnboarding);
   useEffect(() => {
-    if (wasOnboarding.current && !inOnboarding) setMessages([]);
+    if (wasOnboarding.current && !inOnboarding) {
+      setMessages([]);
+      kicked.current = false;
+    }
     wasOnboarding.current = inOnboarding;
   }, [inOnboarding, setMessages]);
 
@@ -518,7 +529,7 @@ function ChatScreen() {
                         done
                           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
                           : isCurrent
-                            ? "animate-pulse border-primary bg-primary/20 text-primary shadow-[0_0_20px_-4px] shadow-primary/60 scale-105"
+                            ? "border-primary/60 bg-primary/10 text-primary"
                             : "border-border bg-secondary/40 text-muted-foreground"
                       }`}
                     >
