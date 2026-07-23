@@ -200,7 +200,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
-    const { profiles, chatMessages, workoutLogs, mealLogs, plans, workspaceFiles } =
+    const { profiles, chatMessages, workoutLogs, mealLogs, plans, workspaceFiles, workoutSessions } =
       await import("@/db/schema");
     const db = getDb();
     const userId = context.userId;
@@ -232,5 +232,6 @@ export const resetOnboarding = createServerFn({ method: "POST" })
     await db.delete(mealLogs).where(eq(mealLogs.user_id, userId));
     await db.delete(plans).where(eq(plans.user_id, userId));
     await db.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
+    await db.delete(workoutSessions).where(eq(workoutSessions.user_id, userId));
     return { ok: true };
   });

@@ -318,19 +318,28 @@ function ChatScreen() {
   async function toggleExercise(name: string, done: boolean) {
     await toggleSessionExercise({ data: { exercise: name, done } });
     await qc.invalidateQueries({ queryKey: ["workout-session"] });
+    // Notify the coach so it reacts in real time (hidden UI event message).
+    if (!busy) {
+      void sendMessage({
+        text: `__ui_event__ ${done ? "checked off" : "un-checked"} "${name}" in the workout panel`,
+      });
+    }
   }
 
   async function finishWorkout() {
     await completeActiveSession({ data: undefined });
     await qc.invalidateQueries({ queryKey: ["workout-session"] });
     toast.success("Workout done — nice work 🎉");
+    if (!busy) {
+      void sendMessage({ text: "__ui_event__ tapped 'Finish workout' — session complete" });
+    }
   }
 
-  // Hide the internal "__begin__" kickoff marker from the transcript.
+  // Hide internal markers (kickoff + UI events) from the transcript.
   const visibleMessages: UIMessage[] = messages.filter((m) => {
     if (m.role !== "user") return true;
     const text = m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
-    return text !== "__begin__";
+    return text !== "__begin__" && !text.startsWith("__ui_event__");
   });
   const latest = visibleMessages[visibleMessages.length - 1];
   const latestText = latest
@@ -548,6 +557,34 @@ function ChatScreen() {
           </>
         )}
 
+        {/* Today's calories — always visible up top once onboarded */}
+        {!inOnboarding && nutrition && (
+          <div className="mt-2.5 flex items-center gap-2">
+            <Flame className="h-4 w-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <div className="flex justify-between text-[11px] text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  {Math.round(nutrition.calories)}
+                  {nutrition.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal today
+                </span>
+                <span>
+                  Protein {Math.round(nutrition.protein_g)}g · Carbs {Math.round(nutrition.carbs_g)}g
+                  · Fat {Math.round(nutrition.fat_g)}g
+                </span>
+              </div>
+              {nutrition.target_calories ? (
+                <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{
+                      width: `${Math.min(100, (nutrition.calories / nutrition.target_calories) * 100)}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </header>
 
 
@@ -702,37 +739,9 @@ function ChatScreen() {
         </div>
       )}
 
-      {/* Live modules strip — coach is connected to these in real time */}
+      {/* Live workout module — coach is connected in real time */}
       {!inOnboarding && (
-        <div className="space-y-2 border-t border-border bg-card/40 px-3 py-2">
-          {nutrition && (
-            <div className="flex items-center gap-2">
-              <Flame className="h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <div className="flex justify-between text-[11px] text-muted-foreground">
-                  <span className="font-semibold text-foreground">
-                    {Math.round(nutrition.calories)}
-                    {nutrition.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal
-                  </span>
-                  <span>
-                    P{Math.round(nutrition.protein_g)} · C{Math.round(nutrition.carbs_g)} · F
-                    {Math.round(nutrition.fat_g)}
-                  </span>
-                </div>
-                {nutrition.target_calories ? (
-                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{
-                        width: `${Math.min(100, (nutrition.calories / nutrition.target_calories) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )}
-
+        <div className="border-t border-border bg-card/40 px-3 py-2">
           {session ? (
             <WorkoutPanel session={session} onToggle={toggleExercise} onFinish={finishWorkout} />
           ) : (
