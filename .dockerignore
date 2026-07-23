@@ -1,0 +1,24 @@
+node_modules
+.output
+.nitro
+.tanstack
+dist
+dist-ssr
+.vinxi
+.wrangler
+.dev.vars
+
+# Secrets — never copy into the image. Public build-time vars come in as build
+# args (see Dockerfile), runtime vars come from the container environment.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+*.log
+.vscode
+.idea
+.DS_Store
+README.md
+AGENTS.md

@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createClient } from "@supabase/supabase-js";
 import {
   convertToModelMessages,
   streamText,
@@ -8,8 +7,7 @@ import {
   type UIMessage,
 } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
-import type { Database } from "@/integrations/supabase/types";
+import { getChatModel } from "@/lib/ai-provider.server";
 
 // Bundle skill markdown at build time.
 import onboardingSkill from "@/agent/skills/onboarding.md?raw";
@@ -43,56 +41,68 @@ const SKILLS: Record<string, { description: string; content: string }> = {
 
 type Body = { messages?: UIMessage[] };
 
-function supabaseFromToken(token: string) {
-  const url = process.env.SUPABASE_URL!;
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY!;
-  return createClient<Database>(url, key, {
-    global: {
-      fetch: (input, init) => {
-        const headers = new Headers(init?.headers);
-        if (headers.get("Authorization") === `Bearer ${key}`) headers.delete("Authorization");
-        headers.set("apikey", key);
-        headers.set("Authorization", `Bearer ${token}`);
-        return fetch(input, { ...init, headers });
-      },
-    },
-    auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
-  });
-}
-
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const auth = request.headers.get("authorization");
-        if (!auth?.startsWith("Bearer ")) return new Response("Unauthorized", { status: 401 });
-        const token = auth.slice(7);
+        // Server-only modules loaded here so `pg` never enters the client bundle.
+        const { and, eq, asc } = await import("drizzle-orm");
+        const { getDb } = await import("@/db/db.server");
+        const { profiles, workspaceFiles, chatMessages, workoutLogs, mealLogs } =
+          await import("@/db/schema");
+        const { getUserFromRequest } = await import("@/lib/auth.server");
+
+        const user = await getUserFromRequest(request);
+        if (!user) return new Response("Unauthorized", { status: 401 });
+        const userId = user.id;
+
         const coachHeader = request.headers.get("x-coach-name");
         const coachName = coachHeader === "Reya" ? "Reya" : "Rex";
-
-        const supabase = supabaseFromToken(token);
-        const { data: userData, error: userErr } = await supabase.auth.getUser(token);
-        if (userErr || !userData.user) return new Response("Unauthorized", { status: 401 });
-        const userId = userData.user.id;
 
         const body = (await request.json()) as Body;
         if (!Array.isArray(body.messages)) return new Response("Bad request", { status: 400 });
 
-        const key = process.env.LOVABLE_API_KEY;
-        if (!key) return new Response("Missing LOVABLE_API_KEY", { status: 500 });
+        if (!process.env.AI_API_KEY) return new Response("Missing AI_API_KEY", { status: 500 });
 
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .maybeSingle();
+        const db = getDb();
+
+        const [profile] = await db
+          .select()
+          .from(profiles)
+          .where(eq(profiles.id, userId))
+          .limit(1);
 
         // Workspace file index (paths + first line as a summary — cheap, always fresh).
-        const { data: files } = await supabase
-          .from("workspace_files")
-          .select("path, content, updated_at")
-          .eq("user_id", userId)
-          .order("path");
+        const files = await db
+          .select({
+            path: workspaceFiles.path,
+            content: workspaceFiles.content,
+            updated_at: workspaceFiles.updated_at,
+          })
+          .from(workspaceFiles)
+          .where(eq(workspaceFiles.user_id, userId))
+          .orderBy(asc(workspaceFiles.path));
+
+        // Upsert a workspace file (insert or overwrite by user_id+path).
+        const saveFile = async (path: string, content: string) => {
+          const now = new Date().toISOString();
+          await db
+            .insert(workspaceFiles)
+            .values({ user_id: userId, path, content, updated_at: now })
+            .onConflictDoUpdate({
+              target: [workspaceFiles.user_id, workspaceFiles.path],
+              set: { content, updated_at: now },
+            });
+        };
+
+        const readFile = async (path: string) => {
+          const [row] = await db
+            .select({ content: workspaceFiles.content, updated_at: workspaceFiles.updated_at })
+            .from(workspaceFiles)
+            .where(and(eq(workspaceFiles.user_id, userId), eq(workspaceFiles.path, path)))
+            .limit(1);
+          return row ?? null;
+        };
 
         const workspaceIndex =
           files && files.length
@@ -204,8 +214,7 @@ The UI already showed a hardcoded greeting. Do NOT re-introduce yourself. Load t
 }
 `;
 
-        const gateway = createLovableAiGatewayProvider(key);
-        const model = gateway("openai/gpt-5.5");
+        const model = getChatModel();
 
         // Persist last user message (skip internal kickoff marker)
         const last = body.messages[body.messages.length - 1];
@@ -214,10 +223,10 @@ The UI already showed a hardcoded greeting. Do NOT re-introduce yourself. Load t
           .join("")
           .trim();
         if (last?.role === "user" && lastText && lastText !== "__begin__") {
-          await supabase.from("chat_messages").insert({
+          await db.insert(chatMessages).values({
             user_id: userId,
             role: "user",
-            parts: last.parts as never,
+            parts: last.parts as unknown,
           });
         }
 
@@ -247,15 +256,18 @@ The UI already showed a hardcoded greeting. Do NOT re-introduce yourself. Load t
             "List every file in the user's workspace with path, size and last-updated timestamp.",
           inputSchema: z.object({}),
           execute: async () => {
-            const { data, error } = await supabase
-              .from("workspace_files")
-              .select("path, content, updated_at")
-              .eq("user_id", userId)
-              .order("path");
-            if (error) return { ok: false, error: error.message };
+            const data = await db
+              .select({
+                path: workspaceFiles.path,
+                content: workspaceFiles.content,
+                updated_at: workspaceFiles.updated_at,
+              })
+              .from(workspaceFiles)
+              .where(eq(workspaceFiles.user_id, userId))
+              .orderBy(asc(workspaceFiles.path));
             return {
               ok: true,
-              files: (data ?? []).map((f) => ({
+              files: data.map((f) => ({
                 path: f.path,
                 size: (f.content ?? "").length,
                 updated_at: f.updated_at,
@@ -269,13 +281,7 @@ The UI already showed a hardcoded greeting. Do NOT re-introduce yourself. Load t
             "Read the full markdown content of one workspace file by its exact path (e.g. 'schedule/current.md').",
           inputSchema: z.object({ path: z.string() }),
           execute: async ({ path }) => {
-            const { data, error } = await supabase
-              .from("workspace_files")
-              .select("content, updated_at")
-              .eq("user_id", userId)
-              .eq("path", path)
-              .maybeSingle();
-            if (error) return { ok: false, error: error.message };
+            const data = await readFile(path);
             if (!data) return { ok: false, error: "not_found" };
             return { ok: true, path, content: data.content, updated_at: data.updated_at };
           },
@@ -309,23 +315,10 @@ The UI already showed a hardcoded greeting. Do NOT re-introduce yourself. Load t
           }),
           execute: async (input) => {
             // Archive existing if present.
-            const { data: existing } = await supabase
-              .from("workspace_files")
-              .select("content")
-              .eq("user_id", userId)
-              .eq("path", "plans/current.md")
-              .maybeSingle();
+            const existing = await readFile("plans/current.md");
             if (existing?.content) {
               const stamp = new Date().toISOString().slice(0, 10);
-              await supabase.from("workspace_files").upsert(
-                {
-                  user_id: userId,
-                  path: `plans/archive/${stamp}_replaced.md`,
-                  content: existing.content,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: "user_id,path" },
-              );
+              await saveFile(`plans/archive/${stamp}_replaced.md`, existing.content);
             }
 
             const week1 = input.sessions_week1
@@ -358,16 +351,7 @@ ${subs}
 ${input.why_this_plan}
 `;
 
-            const { error } = await supabase.from("workspace_files").upsert(
-              {
-                user_id: userId,
-                path: "plans/current.md",
-                content: md,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "user_id,path" },
-            );
-            if (error) return { ok: false, error: error.message };
+            await saveFile("plans/current.md", md);
             return {
               ok: true,
               path: "plans/current.md",
@@ -412,20 +396,11 @@ ${rows}
 ## Notes
 ${input.notes}
 `;
-            const { error } = await supabase.from("workspace_files").upsert(
-              {
-                user_id: userId,
-                path: "schedule/current.md",
-                content: md,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "user_id,path" },
-            );
-            if (error) return { ok: false, error: error.message };
-            await supabase
-              .from("profiles")
-              .update({ schedule_note: input.notes || rows })
-              .eq("id", userId);
+            await saveFile("schedule/current.md", md);
+            await db
+              .update(profiles)
+              .set({ schedule_note: input.notes || rows })
+              .where(eq(profiles.id, userId));
             return {
               ok: true,
               path: "schedule/current.md",
@@ -460,23 +435,11 @@ ${input.notes}
 ## Notes
 ${input.notes}
 `;
-            const { error } = await supabase.from("workspace_files").upsert(
-              {
-                user_id: userId,
-                path: "nutrition/targets.md",
-                content: md,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "user_id,path" },
-            );
-            if (error) return { ok: false, error: error.message };
-            await supabase
-              .from("profiles")
-              .update({
-                daily_calorie_target: input.daily_calories,
-                diet_style: input.diet_style,
-              })
-              .eq("id", userId);
+            await saveFile("nutrition/targets.md", md);
+            await db
+              .update(profiles)
+              .set({ daily_calorie_target: input.daily_calories, diet_style: input.diet_style })
+              .where(eq(profiles.id, userId));
             return {
               ok: true,
               path: "nutrition/targets.md",
@@ -493,27 +456,13 @@ ${input.notes}
             note: z.string().describe("The fact itself, one or two sentences."),
           }),
           execute: async ({ topic, note }) => {
-            const { data: existing } = await supabase
-              .from("workspace_files")
-              .select("content")
-              .eq("user_id", userId)
-              .eq("path", "memory/notes.md")
-              .maybeSingle();
+            const existing = await readFile("memory/notes.md");
             const stamp = new Date().toISOString().slice(0, 10);
             const entry = `- **${stamp} — ${topic}:** ${note}`;
             const md = existing?.content
               ? `${existing.content.trimEnd()}\n${entry}\n`
               : `# Memory notes\n${entry}\n`;
-            const { error } = await supabase.from("workspace_files").upsert(
-              {
-                user_id: userId,
-                path: "memory/notes.md",
-                content: md,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "user_id,path" },
-            );
-            if (error) return { ok: false, error: error.message };
+            await saveFile("memory/notes.md", md);
             return { ok: true, path: "memory/notes.md" };
           },
         });
@@ -522,16 +471,12 @@ ${input.notes}
           description: "Delete a workspace file by its exact path.",
           inputSchema: z.object({ path: z.string() }),
           execute: async ({ path }) => {
-            const { error } = await supabase
-              .from("workspace_files")
-              .delete()
-              .eq("user_id", userId)
-              .eq("path", path);
-            if (error) return { ok: false, error: error.message };
+            await db
+              .delete(workspaceFiles)
+              .where(and(eq(workspaceFiles.user_id, userId), eq(workspaceFiles.path, path)));
             return { ok: true };
           },
         });
-
 
         const updateProfileTool = tool({
           description:
@@ -560,11 +505,7 @@ ${input.notes}
               if (v !== null && v !== undefined) patch[k] = v;
             }
             if (Object.keys(patch).length === 0) return { ok: true, saved: [] };
-            const { error } = await supabase
-              .from("profiles")
-              .update(patch as Database["public"]["Tables"]["profiles"]["Update"])
-              .eq("id", userId);
-            if (error) return { ok: false, error: error.message };
+            await db.update(profiles).set(patch).where(eq(profiles.id, userId));
             return { ok: true, saved: Object.keys(patch) };
           },
         });
@@ -574,11 +515,10 @@ ${input.notes}
             "Mark onboarding complete. Only after basics + schedule + music + meals are all saved.",
           inputSchema: z.object({}),
           execute: async () => {
-            const { error } = await supabase
-              .from("profiles")
-              .update({ onboarding_completed: true })
-              .eq("id", userId);
-            if (error) return { ok: false, error: error.message };
+            await db
+              .update(profiles)
+              .set({ onboarding_completed: true })
+              .where(eq(profiles.id, userId));
             return { ok: true };
           },
         });
@@ -593,7 +533,7 @@ ${input.notes}
             notes: z.string().nullable(),
           }),
           execute: async (input) => {
-            const { error } = await supabase.from("workout_logs").insert({
+            await db.insert(workoutLogs).values({
               user_id: userId,
               exercise: input.exercise,
               weight_kg: input.weight_kg,
@@ -601,7 +541,6 @@ ${input.notes}
               rpe: input.rpe,
               notes: input.notes,
             });
-            if (error) return { ok: false, error: error.message };
             return { ok: true };
           },
         });
@@ -617,7 +556,7 @@ ${input.notes}
             fat_g: z.number().nullable(),
           }),
           execute: async (input) => {
-            const { error } = await supabase.from("meal_logs").insert({
+            await db.insert(mealLogs).values({
               user_id: userId,
               description: input.description,
               calories: input.calories,
@@ -625,7 +564,6 @@ ${input.notes}
               carbs_g: input.carbs_g,
               fat_g: input.fat_g,
             });
-            if (error) return { ok: false, error: error.message };
             return { ok: true };
           },
         });
@@ -911,10 +849,10 @@ ${input.notes}
           onFinish: async ({ messages }) => {
             const assistantMsg = messages[messages.length - 1];
             if (assistantMsg?.role === "assistant") {
-              await supabase.from("chat_messages").insert({
+              await db.insert(chatMessages).values({
                 user_id: userId,
                 role: "assistant",
-                parts: assistantMsg.parts as never,
+                parts: assistantMsg.parts as unknown,
               });
             }
           },

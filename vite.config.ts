@@ -1,15 +1,80 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { defineConfig, loadEnv, type PluginOption } from "vite";
+import tailwindcss from "@tailwindcss/vite";
+import tsConfigPaths from "vite-tsconfig-paths";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import viteReact from "@vitejs/plugin-react";
 
-export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-  },
+// Plain TanStack Start + Nitro config (previously wrapped by
+// @lovable.dev/vite-tanstack-config). Builds a self-hostable Node server via
+// Nitro's `node-server` preset — output lands in `.output/` and boots with
+// `node .output/server/index.mjs` (see Dockerfile).
+export default defineConfig(async ({ command, mode }) => {
+  const plugins: PluginOption[] = [
+    tailwindcss(),
+    tsConfigPaths({ projects: ["./tsconfig.json"] }),
+    tanstackStart({
+      // Redirect the bundled server entry to src/server.ts (our SSR error wrapper).
+      server: { entry: "server" },
+      importProtection: {
+        behavior: "error",
+        client: {
+          files: ["**/server/**"],
+          specifiers: ["server-only"],
+        },
+      },
+    }),
+  ];
+
+  // Nitro only participates in the production build.
+  if (command === "build") {
+    const { nitro } = await import("nitro/vite");
+    plugins.push(nitro({ preset: "node-server" }));
+  }
+
+  plugins.push(viteReact());
+
+  // Inline VITE_*-prefixed env vars into import.meta.env for both the client
+  // bundle and SSR.
+  const env = loadEnv(mode, process.cwd(), "VITE_");
+  const define: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    define[`import.meta.env.${key}`] = JSON.stringify(value);
+  }
+
+  // Make ALL .env vars (DATABASE_URL, AI_API_KEY, …) visible to server code via
+  // process.env during dev/build. In production the process environment (e.g.
+  // Coolify) already provides these, and takes precedence.
+  const fullEnv = loadEnv(mode, process.cwd(), "");
+  for (const [key, value] of Object.entries(fullEnv)) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+
+  return {
+    define,
+    server: {
+      host: true,
+      port: 8080,
+    },
+    resolve: {
+      alias: { "@": `${process.cwd()}/src` },
+      dedupe: [
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+        "@tanstack/react-query",
+        "@tanstack/query-core",
+      ],
+    },
+    optimizeDeps: {
+      include: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+      ],
+    },
+    plugins,
+  };
 });

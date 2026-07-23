@@ -6,7 +6,6 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import {
   getProfile,
   getChatMessages,
@@ -14,6 +13,7 @@ import {
   updateProfile,
   resetOnboarding,
 } from "@/lib/gym-buddy.functions";
+import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { toast } from "sonner";
 import {
   LogOut,
@@ -188,10 +188,11 @@ function ChatScreen() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
+    getCurrentUser({ data: undefined }).then((user) => setUserEmail(user?.email ?? null));
   }, []);
 
-  const isAdmin = userEmail?.toLowerCase() === "terver@mindark.com";
+  // Private, invite-only app: any signed-in user can self-reset their own data.
+  const isAdmin = !!userEmail;
 
 
   const initial = useMemo<UIMessage[]>(
@@ -209,12 +210,10 @@ function ChatScreen() {
       new DefaultChatTransport({
         api: "/api/chat",
         fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
-          const { data } = await supabase.auth.getSession();
-          const token = data.session?.access_token;
+          // Auth rides on the httpOnly session cookie (same-origin request).
           const headers = new Headers(init?.headers);
-          if (token) headers.set("Authorization", `Bearer ${token}`);
           headers.set("X-Coach-Name", coach.name);
-          return fetch(input, { ...init, headers });
+          return fetch(input, { ...init, headers, credentials: "same-origin" });
         }) as typeof fetch,
       }),
     [coach.name],
@@ -271,17 +270,17 @@ function ChatScreen() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await logout({ data: undefined });
     navigate({ to: "/auth", replace: true });
   }
 
   async function fullReset() {
     if (!confirm("Reset everything — profile, memory, and chat history?")) return;
     await resetFn({ data: undefined });
-    
+
     await qc.cancelQueries();
     qc.clear();
-    await supabase.auth.signOut();
+    await logout({ data: undefined });
     window.location.href = "/";
   }
 

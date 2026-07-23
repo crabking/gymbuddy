@@ -1,0 +1,24 @@
+# Local Postgres for development.
+#   docker compose up -d
+# Then use this in .env (note host port 5433 to avoid clashing with any local 5432):
+#   DATABASE_URL="postgres://gymbuddy:gymbuddy@localhost:5433/gymbuddy"
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gymbuddy
+      POSTGRES_PASSWORD: gymbuddy
+      POSTGRES_DB: gymbuddy
+    ports:
+      - "5433:5432"
+    volumes:
+      - gymbuddy_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gymbuddy -d gymbuddy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  gymbuddy_pgdata:

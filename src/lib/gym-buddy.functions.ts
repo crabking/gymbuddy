@@ -1,47 +1,71 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuth } from "@/lib/auth-middleware";
 import { z } from "zod";
+
+// Server-only db modules are imported dynamically inside handlers so `pg` never
+// reaches the client bundle. Access control (previously Postgres RLS) is now
+// enforced here: every query filters by context.userId.
 
 /* -------------------- profile & messages -------------------- */
 
 export const getProfile = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", context.userId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data;
+    const { eq } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { profiles } = await import("@/db/schema");
+    const db = getDb();
+    const [row] = await db.select().from(profiles).where(eq(profiles.id, context.userId)).limit(1);
+    if (row) return row;
+    // Ensure a profile exists (replaces the old on-signup trigger).
+    const [created] = await db
+      .insert(profiles)
+      .values({ id: context.userId })
+      .onConflictDoNothing()
+      .returning();
+    if (created) return created;
+    const [existing] = await db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.id, context.userId))
+      .limit(1);
+    return existing ?? null;
   });
 
 export const getChatMessages = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("chat_messages")
-      .select("id, role, parts, created_at")
-      .eq("user_id", context.userId)
-      .order("created_at", { ascending: true });
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((m) => ({
-      id: m.id as string,
+    const { eq, asc } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { chatMessages } = await import("@/db/schema");
+    const rows = await getDb()
+      .select({ id: chatMessages.id, role: chatMessages.role, parts: chatMessages.parts })
+      .from(chatMessages)
+      .where(eq(chatMessages.user_id, context.userId))
+      .orderBy(asc(chatMessages.created_at));
+    return rows.map((m) => ({
+      id: m.id,
       role: m.role as "user" | "assistant" | "system",
       parts: m.parts as Array<{ type: string; text?: string }>,
     }));
   });
 
 export const getWorkspaceFiles = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("workspace_files")
-      .select("path, content, updated_at")
-      .eq("user_id", context.userId)
-      .order("path");
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((file) => ({
+    const { eq, asc } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { workspaceFiles } = await import("@/db/schema");
+    const rows = await getDb()
+      .select({
+        path: workspaceFiles.path,
+        content: workspaceFiles.content,
+        updated_at: workspaceFiles.updated_at,
+      })
+      .from(workspaceFiles)
+      .where(eq(workspaceFiles.user_id, context.userId))
+      .orderBy(asc(workspaceFiles.path));
+    return rows.map((file) => ({
       path: file.path,
       content: file.content,
       updated_at: file.updated_at,
@@ -68,12 +92,15 @@ const OnboardingSchema = z.object({
 });
 
 export const saveOnboarding = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => OnboardingSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("profiles")
-      .update({
+    const { eq } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { profiles } = await import("@/db/schema");
+    await getDb()
+      .update(profiles)
+      .set({
         display_name: data.display_name,
         goal: data.goal,
         experience: data.experience,
@@ -89,8 +116,7 @@ export const saveOnboarding = createServerFn({ method: "POST" })
         daily_calorie_target: data.daily_calorie_target ?? null,
         onboarding_completed: true,
       })
-      .eq("id", context.userId);
-    if (error) throw new Error(error.message);
+      .where(eq(profiles.id, context.userId));
     return { ok: true };
   });
 
@@ -115,24 +141,30 @@ const ProfilePatchSchema = z.object({
 });
 
 export const updateProfile = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => ProfilePatchSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("profiles")
-      .update(data)
-      .eq("id", context.userId);
-    if (error) throw new Error(error.message);
+    const patch = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+    if (Object.keys(patch).length === 0) return { ok: true };
+    const { eq } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { profiles } = await import("@/db/schema");
+    await getDb().update(profiles).set(patch).where(eq(profiles.id, context.userId));
     return { ok: true };
   });
 
-
 export const resetOnboarding = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }) => {
-    await context.supabase
-      .from("profiles")
-      .update({
+    const { eq } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { profiles, chatMessages, workoutLogs, mealLogs, plans, workspaceFiles } =
+      await import("@/db/schema");
+    const db = getDb();
+    const userId = context.userId;
+    await db
+      .update(profiles)
+      .set({
         onboarding_completed: false,
         display_name: null,
         goal: null,
@@ -152,13 +184,11 @@ export const resetOnboarding = createServerFn({ method: "POST" })
         meal_preferences: null,
         memory_notes: null,
       })
-      .eq("id", context.userId);
-    await context.supabase.from("chat_messages").delete().eq("user_id", context.userId);
-    await context.supabase.from("workout_logs").delete().eq("user_id", context.userId);
-    await context.supabase.from("meal_logs").delete().eq("user_id", context.userId);
-    await context.supabase.from("plans").delete().eq("user_id", context.userId);
-    await context.supabase.from("workspace_files").delete().eq("user_id", context.userId);
+      .where(eq(profiles.id, userId));
+    await db.delete(chatMessages).where(eq(chatMessages.user_id, userId));
+    await db.delete(workoutLogs).where(eq(workoutLogs.user_id, userId));
+    await db.delete(mealLogs).where(eq(mealLogs.user_id, userId));
+    await db.delete(plans).where(eq(plans.user_id, userId));
+    await db.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
     return { ok: true };
   });
-
-
