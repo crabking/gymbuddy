@@ -267,6 +267,44 @@ export async function markExerciseDone(
   return { ok: true, marked: target.name, pace_warning, session };
 }
 
+/** Toggle/log a single set (per-set logging). Auto-completes the parent exercise
+ * when all its sets are done. */
+export async function markSetDone(
+  userId: string,
+  setId: string,
+  opts: { completed: boolean; weight_kg?: number | null; reps?: number | null },
+): Promise<{ ok: boolean; error?: string; session: ActiveSession }> {
+  const current = await getActiveSession(userId);
+  if (!current) return { ok: false, error: "no_active_session", session: null };
+  const parent = current.exercises.find((e) => e.sets.some((s) => s.id === setId));
+  if (!parent) return { ok: false, error: "set_not_found", session: current };
+
+  const db = getDb();
+  await db
+    .update(sessionSets)
+    .set({
+      completed: opts.completed,
+      completed_at: opts.completed ? new Date().toISOString() : null,
+      ...(opts.weight_kg !== undefined ? { weight_kg: opts.weight_kg } : {}),
+      ...(opts.reps !== undefined ? { reps: opts.reps } : {}),
+    })
+    .where(eq(sessionSets.id, setId));
+
+  // Sync the parent exercise's completed flag with its sets.
+  const refreshed = await getActiveSession(userId);
+  const p = refreshed?.exercises.find((e) => e.id === parent.id);
+  if (p) {
+    const allDone = p.sets.length > 0 && p.sets.every((s) => s.completed);
+    if (allDone !== p.completed) {
+      await db
+        .update(sessionExercises)
+        .set({ completed: allDone, completed_at: allDone ? new Date().toISOString() : null })
+        .where(eq(sessionExercises.id, p.id));
+    }
+  }
+  return { ok: true, session: await getActiveSession(userId) };
+}
+
 export type CompleteResult =
   | { ok: true; duration_min: number }
   | { ok: false; error: string; coach_note: string };

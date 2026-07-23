@@ -193,8 +193,74 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
     z.object({ date: z.string().nullable(), weekday: z.string().nullable() }).parse(input),
   )
   .handler(async ({ data, context }) => {
+    // Structured program first; fall back to the markdown schedule.
+    const { getTodayProgramDay, getNextProgramDay } = await import("@/lib/program.server");
+    const today = data.date ?? new Date().toISOString().slice(0, 10);
+    const todayDay = await getTodayProgramDay(context.userId, today);
+    if (todayDay && todayDay.status === "planned") {
+      return { label: `${todayDay.title}${todayDay.is_deload ? " (deload)" : ""}`, detail: "today" };
+    }
+    const next = await getNextProgramDay(context.userId, today);
+    if (next) {
+      return {
+        label: `${next.title}${next.is_deload ? " (deload)" : ""}`,
+        detail: next.date === today ? "today" : next.date,
+      };
+    }
     const { getTodayTraining } = await import("@/lib/schedule.server");
     return getTodayTraining(context.userId, data);
+  });
+
+export const getProgramFull = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) => z.object({ date: z.string().nullable() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { getActiveProgram } = await import("@/lib/program.server");
+    return getActiveProgram(context.userId, data.date ?? undefined);
+  });
+
+export const getDashboard = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { getDashboardData } = await import("@/lib/dashboard.server");
+    return getDashboardData(context.userId);
+  });
+
+export const toggleSessionSet = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        set_id: z.string(),
+        completed: z.boolean(),
+        weight_kg: z.number().nullable().optional(),
+        reps: z.number().int().nullable().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { markSetDone } = await import("@/lib/workout-session.server");
+    const r = await markSetDone(context.userId, data.set_id, {
+      completed: data.completed,
+      weight_kg: data.weight_kg,
+      reps: data.reps,
+    });
+    return r.session;
+  });
+
+export const logWeight = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ weight_kg: z.number().min(25).max(400) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { eq } = await import("drizzle-orm");
+    const { getDb } = await import("@/db/db.server");
+    const { weightLogs, profiles } = await import("@/db/schema");
+    const db = getDb();
+    await db.insert(weightLogs).values({ user_id: context.userId, weight_kg: data.weight_kg });
+    await db.update(profiles).set({ weight_kg: data.weight_kg }).where(eq(profiles.id, context.userId));
+    return { ok: true };
   });
 
 export const resetWorkspace = createServerFn({ method: "POST" })

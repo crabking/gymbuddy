@@ -186,6 +186,7 @@ export async function getActiveProgram(userId: string, today?: string) {
   }
   return {
     ...program,
+    deload_weeks: (program.deload_weeks as number[]) ?? [],
     days: days.map((d) => ({ ...d, exercises: byDay.get(d.id) ?? [] })),
   };
 }

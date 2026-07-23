@@ -14,11 +14,13 @@ import {
   resetWorkspace,
   getActiveWorkoutSession,
   toggleSessionExercise,
+  toggleSessionSet,
   completeActiveSession,
   getNutritionToday,
   getTodayTrainingInfo,
 } from "@/lib/gym-buddy.functions";
 import { getCurrentUser, logout } from "@/lib/auth.functions";
+import { TabBar } from "@/components/TabBar";
 import { toast } from "sonner";
 import {
   LogOut,
@@ -361,6 +363,24 @@ function ChatScreen() {
     if (!busy) {
       void sendMessage({
         text: `__ui_event__ ${done ? "checked off" : "un-checked"} "${name}" in the workout panel`,
+      });
+    }
+  }
+
+  async function toggleSet(
+    setId: string,
+    completed: boolean,
+    exerciseName: string,
+    lastOfExercise: boolean,
+    weight_kg?: number | null,
+    reps?: number | null,
+  ) {
+    await toggleSessionSet({ data: { set_id: setId, completed, weight_kg, reps } });
+    await qc.invalidateQueries({ queryKey: ["workout-session"] });
+    // Only ping the coach when a whole exercise wraps (avoids per-set spam).
+    if (completed && lastOfExercise && !busy) {
+      void sendMessage({
+        text: `__ui_event__ finished all sets of "${exerciseName}" in the workout panel`,
       });
     }
   }
@@ -809,7 +829,12 @@ function ChatScreen() {
       {!inOnboarding && (
         <div className="border-t border-border bg-card/40 px-3 py-2">
           {session ? (
-            <WorkoutPanel session={session} onToggle={toggleExercise} onFinish={finishWorkout} />
+            <WorkoutPanel
+              session={session}
+              onToggle={toggleExercise}
+              onToggleSet={toggleSet}
+              onFinish={finishWorkout}
+            />
           ) : (
             <button
               onClick={startWorkout}
@@ -823,7 +848,7 @@ function ChatScreen() {
       )}
 
       {/* Composer */}
-      <div className="border-t border-border bg-background px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+      <div className="border-t border-border bg-background px-3 pb-3 pt-3">
         <div className="flex items-end gap-2">
           <input
             ref={cameraRef}
@@ -878,6 +903,8 @@ function ChatScreen() {
           </button>
         </div>
       </div>
+
+      <TabBar />
 
       {/* History drawer */}
       {showHistory && (
@@ -995,15 +1022,26 @@ function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minute
 function WorkoutPanel({
   session,
   onToggle,
+  onToggleSet,
   onFinish,
 }: {
   session: WorkoutSession;
   onToggle: (name: string, done: boolean) => void;
+  onToggleSet: (
+    setId: string,
+    completed: boolean,
+    exerciseName: string,
+    lastOfExercise: boolean,
+    weight_kg?: number | null,
+    reps?: number | null,
+  ) => void;
   onFinish: () => void;
 }) {
   const allDone = session.total > 0 && session.done === session.total;
+  const [expanded, setExpanded] = useState<string | null>(session.next?.id ?? null);
+
   return (
-    <div className="rounded-xl border border-border bg-background p-2.5">
+    <div className="max-h-[38dvh] overflow-y-auto rounded-xl border border-border bg-background p-2.5">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
           <Dumbbell className="h-3.5 w-3.5 text-primary" /> {session.title}
@@ -1012,28 +1050,61 @@ function WorkoutPanel({
           {session.done}/{session.total}
         </span>
       </div>
-      <div className="flex flex-col gap-0.5">
-        {session.exercises.map((e) => (
-          <button
-            key={e.id}
-            onClick={() => onToggle(e.name, !e.completed)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition hover:bg-secondary/50"
-          >
-            <span
-              className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
-                e.completed
-                  ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
-                  : "border-border"
-              }`}
-            >
-              {e.completed && <Check className="h-3 w-3" strokeWidth={3} />}
-            </span>
-            <span className={e.completed ? "text-muted-foreground line-through" : "text-foreground"}>
-              {e.name}
-              {e.target ? ` — ${e.target}` : ""}
-            </span>
-          </button>
-        ))}
+      <div className="flex flex-col gap-1">
+        {session.exercises.map((e) => {
+          const hasSets = e.sets.length > 0;
+          const doneSets = e.sets.filter((s) => s.completed).length;
+          const open = expanded === e.id;
+          return (
+            <div key={e.id} className="rounded-lg border border-border/60 bg-card/50">
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <button
+                  onClick={() => onToggle(e.name, !e.completed)}
+                  aria-label={`Toggle ${e.name}`}
+                  className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                    e.completed
+                      ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+                      : "border-border"
+                  }`}
+                >
+                  {e.completed && <Check className="h-3 w-3" strokeWidth={3} />}
+                </button>
+                <button
+                  onClick={() => setExpanded(open ? null : e.id)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left text-xs"
+                >
+                  <span
+                    className={`truncate ${e.completed ? "text-muted-foreground line-through" : "text-foreground"}`}
+                  >
+                    {e.name}
+                    {e.target ? ` — ${e.target}` : ""}
+                  </span>
+                  {hasSets && (
+                    <span className="shrink-0 font-display text-[10px] font-bold text-muted-foreground">
+                      {doneSets}/{e.sets.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+              {open && hasSets && (
+                <div className="flex flex-col gap-1 border-t border-border/60 px-2 py-1.5">
+                  {e.sets.map((s) => {
+                    const remainingAfter = e.sets.filter((x) => !x.completed && x.id !== s.id).length;
+                    return (
+                      <SetRow
+                        key={s.id}
+                        set={s}
+                        onToggle={(completed, weight, reps) =>
+                          onToggleSet(s.id, completed, e.name, remainingAfter === 0, weight, reps)
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       {allDone && (
         <button
@@ -1043,6 +1114,57 @@ function WorkoutPanel({
           Finish workout 🎉
         </button>
       )}
+    </div>
+  );
+}
+
+function SetRow({
+  set,
+  onToggle,
+}: {
+  set: WorkoutSession["exercises"][number]["sets"][number];
+  onToggle: (completed: boolean, weight_kg?: number | null, reps?: number | null) => void;
+}) {
+  const [weight, setWeight] = useState(set.weight_kg != null ? String(set.weight_kg) : "");
+  const [reps, setReps] = useState(set.reps != null ? String(set.reps) : "");
+
+  const commit = (completed: boolean) => {
+    const w = weight.trim() ? parseFloat(weight.replace(",", ".")) : null;
+    const r = reps.trim() ? parseInt(reps, 10) : null;
+    onToggle(completed, Number.isFinite(w as number) ? w : null, Number.isFinite(r as number) ? r : null);
+  };
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-8 shrink-0 font-display text-[10px] font-bold text-muted-foreground">
+        S{set.set_index}
+      </span>
+      <input
+        value={weight}
+        onChange={(e) => setWeight(e.target.value)}
+        inputMode="decimal"
+        placeholder="kg"
+        className="h-7 w-16 rounded-md border border-border bg-background px-2 text-center text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+      />
+      <span className="text-muted-foreground">×</span>
+      <input
+        value={reps}
+        onChange={(e) => setReps(e.target.value)}
+        inputMode="numeric"
+        placeholder={set.target_reps ?? "reps"}
+        className="h-7 w-14 rounded-md border border-border bg-background px-2 text-center text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+      />
+      <button
+        onClick={() => commit(!set.completed)}
+        aria-label={`Toggle set ${set.set_index}`}
+        className={`ml-auto grid h-7 w-9 shrink-0 place-items-center rounded-md border transition ${
+          set.completed
+            ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+            : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+        }`}
+      >
+        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+      </button>
     </div>
   );
 }
