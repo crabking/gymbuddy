@@ -12,6 +12,7 @@ import {
   getWorkspaceFiles,
   updateProfile,
   resetOnboarding,
+  resetWorkspace,
 } from "@/lib/gym-buddy.functions";
 import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { toast } from "sonner";
@@ -809,6 +810,7 @@ function SettingsDrawer({
 
   const qc = useQueryClient();
   const updateFn = useServerFn(updateProfile);
+  const resetWsFn = useServerFn(resetWorkspace);
   const status_ = setupStatus(profile);
   const savedSchedule = workspaceFile(workspaceFiles, "schedule/current.md");
   const savedPlan = workspaceFile(workspaceFiles, "plans/current.md");
@@ -821,6 +823,17 @@ function SettingsDrawer({
       await updateFn({ data: patch });
       await qc.invalidateQueries({ queryKey: ["profile"] });
       toast.success("Saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  async function resetWs() {
+    if (!confirm("Clear the agent's entire workspace (all files)? Your profile and login stay.")) return;
+    try {
+      await resetWsFn({ data: undefined });
+      await qc.invalidateQueries({ queryKey: ["workspace-files"] });
+      toast.success("Workspace cleared");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     }
@@ -877,6 +890,13 @@ function SettingsDrawer({
                   empty="No saved memory notes yet."
                 />
               </div>
+              <button
+                onClick={resetWs}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-display text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground transition hover:border-red-500/60 hover:text-red-400"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Reset workspace
+              </button>
             </Section>
           )}
 

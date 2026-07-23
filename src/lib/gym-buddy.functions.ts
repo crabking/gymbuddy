@@ -153,6 +153,14 @@ export const updateProfile = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const resetWorkspace = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { wipe } = await import("@/lib/workspace.server");
+    await wipe(context.userId);
+    return { ok: true };
+  });
+
 export const resetOnboarding = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .handler(async ({ context }) => {

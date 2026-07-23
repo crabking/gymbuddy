@@ -51,6 +51,8 @@ export const Route = createFileRoute("/api/chat")({
         const { profiles, workspaceFiles, chatMessages, workoutLogs, mealLogs } =
           await import("@/db/schema");
         const { getUserFromRequest } = await import("@/lib/auth.server");
+        const { workspaceTools } = await import("@/lib/workspace-tools.server");
+        const { ensureAgentConfig } = await import("@/lib/workspace.server");
 
         const user = await getUserFromRequest(request);
         if (!user) return new Response("Unauthorized", { status: 401 });
@@ -58,6 +60,9 @@ export const Route = createFileRoute("/api/chat")({
 
         const coachHeader = request.headers.get("x-coach-name");
         const coachName = coachHeader === "Reya" ? "Reya" : "Rex";
+
+        // Seed the agent's config tree (.agent/) on first use.
+        await ensureAgentConfig(userId, coachName);
 
         const body = (await request.json()) as Body;
         if (!Array.isArray(body.messages)) return new Response("Bad request", { status: 400 });
@@ -147,7 +152,7 @@ export const Route = createFileRoute("/api/chat")({
         const system = `You are "${coachName}" — a warm, direct, hype personal trainer + nutrition coach living in the user's phone. ALWAYS speak in FIRST PERSON as ${coachName} ("I", "me", "my"). Never refer to yourself in the third person (never say "${coachName} thinks…" or "Give ${coachName} your…" — say "I think…", "Give me…").
 
 You are an AGENT, not a chatbot. You have:
-- A per-user WORKSPACE of markdown files (schedules, plans, nutrition, memories). Read them with \`read_file\` before answering — never guess what's in a file.
+- A per-user WORKSPACE — a private, persistent file tree you fully control. Operate in it like a coding agent in a repo: \`fs_ls\`, \`fs_read\`, \`fs_write\`, \`fs_edit\`, \`fs_append\`, \`fs_move\`, \`fs_delete\`, \`fs_grep\`. Your own config lives under \`.agent/\`. Read a file before referencing it — never guess. The typed save tools below are convenient shortcuts for the standard coaching files.
 - SKILLS you load on demand with \`load_skill\`. Load the right skill BEFORE starting a workflow.
 - Live user state injected below (name, goal, today's date, etc.) — that's already in context, no need to read a file for it.
 
@@ -823,6 +828,7 @@ ${input.notes}
           system,
           messages: await convertToModelMessages(body.messages),
           tools: {
+            ...workspaceTools(userId),
             load_skill: loadSkillTool,
             list_workspace: listWorkspaceTool,
             read_file: readFileTool,
