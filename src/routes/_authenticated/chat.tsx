@@ -42,6 +42,8 @@ import {
   Target,
   Flame,
   Play,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import coachMale from "@/assets/coach-rex-male-face.jpg";
 import coachFemale from "@/assets/coach-rex-female-face.jpg";
@@ -1172,7 +1174,7 @@ function SetRow({
 function SettingsDrawer({
   profile,
   workspaceFiles,
-  section,
+  section: _section,
   onClose,
   isAdmin,
   onAdminReset,
@@ -1184,16 +1186,11 @@ function SettingsDrawer({
   isAdmin?: boolean;
   onAdminReset?: () => void;
 }) {
-
   const qc = useQueryClient();
   const updateFn = useServerFn(updateProfile);
   const resetWsFn = useServerFn(resetWorkspace);
-  const status_ = setupStatus(profile);
-  const savedSchedule = workspaceFile(workspaceFiles, "schedule/current.md");
-  const savedPlan = workspaceFile(workspaceFiles, "plans/current.md");
-  const savedNutrition = workspaceFile(workspaceFiles, "nutrition/targets.md");
-  const savedMemory = workspaceFile(workspaceFiles, "memory/notes.md");
-  const hasWorkspace = !!(savedSchedule || savedPlan || savedNutrition || savedMemory);
+  const [doc, setDoc] = useState<{ title: string; file: WorkspaceFile } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
 
   async function save(patch: Record<string, unknown>) {
     try {
@@ -1216,373 +1213,189 @@ function SettingsDrawer({
     }
   }
 
+  const docs = [
+    { key: "schedule", title: "Weekly schedule", icon: CalendarDays, file: workspaceFile(workspaceFiles, "schedule/current.md") },
+    { key: "plan", title: "Workout plan", icon: Dumbbell, file: workspaceFile(workspaceFiles, "plans/current.md") },
+    { key: "nutrition", title: "Nutrition targets", icon: Target, file: workspaceFile(workspaceFiles, "nutrition/targets.md") },
+    { key: "memory", title: "Memory notes", icon: Brain, file: workspaceFile(workspaceFiles, "memory/notes.md") },
+  ];
+
+  const fmtUpdated = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-3xl border-t border-border bg-card"
+        className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-background"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
-            {section === "all" ? "Settings" : "Set up"}
-          </div>
+        <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
+          {doc ? (
+            <button
+              onClick={() => setDoc(null)}
+              className="flex items-center gap-1 font-display text-sm font-bold uppercase tracking-widest text-foreground"
+            >
+              <ChevronLeft className="h-4 w-4" /> {doc.title}
+            </button>
+          ) : (
+            <div className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
+              Settings
+            </div>
+          )}
           <button
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary"
+            className="grid h-8 w-8 place-items-center rounded-sm text-muted-foreground hover:bg-secondary"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <p className="mb-4 text-xs text-muted-foreground">
-            Saved items show here so you can verify what your coach actually created.
-          </p>
 
-          {section === "all" && (
-            <Section icon={FileText} title="Saved workspace" done={hasWorkspace} defaultOpen>
-              <div className="grid gap-3">
-                <WorkspacePreview
-                  title="Weekly schedule"
-                  icon={CalendarDays}
-                  file={savedSchedule}
-                  empty="No saved schedule yet."
-                />
-                <WorkspacePreview
-                  title="Workout plan"
-                  icon={Dumbbell}
-                  file={savedPlan}
-                  empty="No saved workout plan yet."
-                />
-                <WorkspacePreview
-                  title="Nutrition targets"
-                  icon={Target}
-                  file={savedNutrition}
-                  empty="No saved nutrition targets yet."
-                />
-                <WorkspacePreview
-                  title="Memory notes"
-                  icon={Brain}
-                  file={savedMemory}
-                  empty="No saved memory notes yet."
-                />
-              </div>
-              <button
-                onClick={resetWs}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-display text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground transition hover:border-red-500/60 hover:text-red-400"
-              >
-                <RefreshCw className="h-3 w-3" />
-                Reset workspace
-              </button>
-            </Section>
-          )}
-
-          {(section === "all" || section === "profile") && (
-            <Section
-              icon={User}
-              title="Basics"
-              done={status_.profile}
-              defaultOpen={section === "profile"}
-            >
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Name">
-                  <Text
-                    value={profile.display_name ?? ""}
-                    onSave={(v) => save({ display_name: v })}
-                    placeholder="Your name"
-                  />
-                </Field>
-                <Field label="Goal">
-                  <Text
-                    value={profile.goal ?? ""}
-                    onSave={(v) => save({ goal: v })}
-                    placeholder="e.g. hypertrophy"
-                  />
-                </Field>
-                <Field label="Days / week">
-                  <Text
-                    value={profile.days_per_week?.toString() ?? ""}
-                    onSave={(v) => save({ days_per_week: v ? Number(v) : null })}
-                    placeholder="4"
-                    inputMode="numeric"
-                  />
-                </Field>
-                <Field label="Session (min)">
-                  <Text
-                    value={profile.session_minutes?.toString() ?? ""}
-                    onSave={(v) => save({ session_minutes: v ? Number(v) : null })}
-                    placeholder="60"
-                    inputMode="numeric"
-                  />
-                </Field>
-                <Field label="Equipment">
-                  <Text
-                    value={profile.equipment ?? ""}
-                    onSave={(v) => save({ equipment: v })}
-                    placeholder="full_gym"
-                  />
-                </Field>
-                <Field label="Diet style">
-                  <Text
-                    value={profile.diet_style ?? ""}
-                    onSave={(v) => save({ diet_style: v })}
-                    placeholder="omnivore"
-                  />
-                </Field>
-              </div>
-              <Field label="Injuries / limits" full>
-                <Text
-                  value={profile.injuries ?? ""}
-                  onSave={(v) => save({ injuries: v || null })}
-                  placeholder="e.g. tweaky left shoulder"
-                />
-              </Field>
-            </Section>
-          )}
-
-          {(section === "all" || section === "schedule") && (
-            <Section
-              icon={CalendarDays}
-              title="Schedule"
-              done={!!savedSchedule}
-              defaultOpen={section === "schedule"}
-            >
-              <p className="mb-2 text-xs text-muted-foreground">
-                Even a rough weekly rhythm helps — mornings vs evenings, rest days, busy days.
-              </p>
-              <Textarea
-                value={profile.schedule_note ?? ""}
-                onSave={(v) => save({ schedule_note: v || null })}
-                placeholder="Mon/Wed/Fri lifts before work, Sat long run, Sun rest…"
-              />
-              <WorkspacePreview
-                title="Saved schedule document"
-                icon={FileText}
-                file={savedSchedule}
-                empty="When your coach saves the schedule, it appears here."
-              />
-            </Section>
-          )}
-
-          {section === "all" && (
-            <Section icon={Dumbbell} title="Workout plan" done={!!savedPlan}>
-              <WorkspacePreview
-                title="Saved workout plan"
-                icon={FileText}
-                file={savedPlan}
-                empty="No plan saved yet. Your coach should pitch one first, then save it after you confirm duration and details."
-              />
-            </Section>
-          )}
-
-          {(section === "all" || section === "music") && (
-            <Section
-              icon={Music}
-              title="Music"
-              done={status_.music}
-              defaultOpen={section === "music"}
-            >
-              <p className="mb-2 text-xs text-muted-foreground">
-                Pick your service — full playback integration coming soon.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {["spotify", "apple_music", "youtube_music", "none"].map((s) => (
+        <div className="flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {doc ? (
+            <div className="prose prose-sm prose-invert max-w-full text-[13px] leading-relaxed prose-headings:mb-2 prose-headings:mt-4 prose-p:my-1.5 prose-li:my-0.5 prose-strong:text-foreground">
+              <ReactMarkdown>{doc.file.content}</ReactMarkdown>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <SettingsGroup label="Coach documents">
+                {docs.map((d) => (
                   <button
-                    key={s}
-                    onClick={() => save({ music_service: s })}
-                    className={`rounded-xl border p-3 text-sm font-semibold capitalize ${
-                      profile.music_service === s
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "border-border bg-background text-muted-foreground"
-                    }`}
+                    key={d.key}
+                    onClick={() => d.file && setDoc({ title: d.title, file: d.file })}
+                    disabled={!d.file}
+                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left disabled:cursor-default"
                   >
-                    {s.replace("_", " ")}
+                    <d.icon
+                      className={`h-4 w-4 shrink-0 ${d.file ? "text-emerald-400" : "text-muted-foreground/50"}`}
+                    />
+                    <span className="flex-1 text-sm font-medium text-foreground">{d.title}</span>
+                    {d.file ? (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        {fmtUpdated(d.file.updated_at)}
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/60">Not created</span>
+                    )}
                   </button>
                 ))}
-              </div>
-            </Section>
-          )}
+              </SettingsGroup>
 
-          {(section === "all" || section === "meals") && (
-            <Section
-              icon={UtensilsCrossed}
-              title="Meals"
-              done={status_.meals}
-              defaultOpen={section === "meals"}
-            >
-              <p className="mb-2 text-xs text-muted-foreground">
-                Preferences, allergies, foods you cook a lot. Snap meal photos in chat to log macros.
-              </p>
-              <Textarea
-                value={profile.meal_preferences ?? ""}
-                onSave={(v) => save({ meal_preferences: v || null })}
-                placeholder="High protein, no dairy, love oats & chicken, hate fish…"
-              />
-              <WorkspacePreview
-                title="Saved nutrition document"
-                icon={FileText}
-                file={savedNutrition}
-                empty="When your coach locks calories and macros, they appear here."
-              />
-            </Section>
-          )}
+              <SettingsGroup label="Profile">
+                <EditRow label="Name" value={profile.display_name} open={editing === "display_name"} onToggle={() => setEditing(editing === "display_name" ? null : "display_name")}>
+                  <Text value={profile.display_name ?? ""} onSave={(v) => save({ display_name: v })} placeholder="Your name" />
+                </EditRow>
+                <EditRow label="Goal" value={profile.goal} open={editing === "goal"} onToggle={() => setEditing(editing === "goal" ? null : "goal")}>
+                  <Text value={profile.goal ?? ""} onSave={(v) => save({ goal: v })} placeholder="e.g. hypertrophy + strength" />
+                </EditRow>
+                <EditRow label="Days / week" value={profile.days_per_week != null ? String(profile.days_per_week) : null} open={editing === "dpw"} onToggle={() => setEditing(editing === "dpw" ? null : "dpw")}>
+                  <Text value={profile.days_per_week?.toString() ?? ""} onSave={(v) => save({ days_per_week: v ? Number(v) : null })} placeholder="4" inputMode="numeric" />
+                </EditRow>
+                <EditRow label="Session length" value={profile.session_minutes ? `${profile.session_minutes} min` : null} open={editing === "sm"} onToggle={() => setEditing(editing === "sm" ? null : "sm")}>
+                  <Text value={profile.session_minutes?.toString() ?? ""} onSave={(v) => save({ session_minutes: v ? Number(v) : null })} placeholder="60" inputMode="numeric" />
+                </EditRow>
+                <EditRow label="Equipment" value={profile.equipment} open={editing === "eq"} onToggle={() => setEditing(editing === "eq" ? null : "eq")}>
+                  <Text value={profile.equipment ?? ""} onSave={(v) => save({ equipment: v })} placeholder="full_gym" />
+                </EditRow>
+                <EditRow label="Diet style" value={profile.diet_style} open={editing === "diet"} onToggle={() => setEditing(editing === "diet" ? null : "diet")}>
+                  <Text value={profile.diet_style ?? ""} onSave={(v) => save({ diet_style: v })} placeholder="omnivore" />
+                </EditRow>
+                <EditRow label="Injuries / limits" value={profile.injuries} open={editing === "inj"} onToggle={() => setEditing(editing === "inj" ? null : "inj")}>
+                  <Text value={profile.injuries ?? ""} onSave={(v) => save({ injuries: v || null })} placeholder="e.g. tweaky left shoulder" />
+                </EditRow>
+              </SettingsGroup>
 
-          {section === "all" && (
-            <Section icon={Brain} title="Long-term memory" done={!!profile.memory_notes}>
-              <p className="mb-2 text-xs text-muted-foreground">
-                Anything the coach should always remember about you.
-              </p>
-              <Textarea
-                value={profile.memory_notes ?? ""}
-                onSave={(v) => save({ memory_notes: v || null })}
-                placeholder="I train fasted, prefer barbell over machines, coach in Spanish sometimes…"
-              />
-            </Section>
-          )}
+              <SettingsGroup label="Preferences">
+                <EditRow label="Music" value={profile.music_service?.replace("_", " ")} open={editing === "music"} onToggle={() => setEditing(editing === "music" ? null : "music")}>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {["spotify", "apple_music", "youtube_music", "none"].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => save({ music_service: s })}
+                        className={`rounded-sm border px-3 py-2 text-xs font-semibold capitalize ${
+                          profile.music_service === s
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border bg-card text-muted-foreground"
+                        }`}
+                      >
+                        {s.replace("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+                </EditRow>
+                <EditRow label="Meal preferences" value={profile.meal_preferences} open={editing === "meals"} onToggle={() => setEditing(editing === "meals" ? null : "meals")}>
+                  <Textarea value={profile.meal_preferences ?? ""} onSave={(v) => save({ meal_preferences: v || null })} placeholder="High protein, no dairy…" />
+                </EditRow>
+                <EditRow label="Schedule note" value={profile.schedule_note} open={editing === "sched"} onToggle={() => setEditing(editing === "sched" ? null : "sched")}>
+                  <Textarea value={profile.schedule_note ?? ""} onSave={(v) => save({ schedule_note: v || null })} placeholder="Mon/Wed/Fri lifts before work…" />
+                </EditRow>
+                <EditRow label="Coach memory" value={profile.memory_notes} open={editing === "mem"} onToggle={() => setEditing(editing === "mem" ? null : "mem")}>
+                  <Textarea value={profile.memory_notes ?? ""} onSave={(v) => save({ memory_notes: v || null })} placeholder="Anything the coach should always remember…" />
+                </EditRow>
+              </SettingsGroup>
 
-          {section === "all" && isAdmin && onAdminReset && (
-            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/5 p-4">
-              <div className="mb-1 font-display text-[11px] font-bold uppercase tracking-[0.18em] text-red-400">
-                Admin · Danger zone
-              </div>
-              <p className="mb-3 text-xs text-muted-foreground">
-                Wipe your profile, memory, plans, logs, and chat history. You'll restart onboarding from scratch.
-              </p>
-              <button
-                onClick={onAdminReset}
-                className="inline-flex items-center gap-2 rounded-lg border border-red-500/60 bg-red-500/15 px-3 py-2 font-display text-[11px] font-bold uppercase tracking-[0.15em] text-red-400 transition hover:bg-red-500/25 hover:text-red-300"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Reset everything
-              </button>
+              <SettingsGroup label="Danger zone">
+                <button onClick={resetWs} className="flex w-full items-center gap-3 px-3.5 py-3 text-left">
+                  <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
+                  <span className="flex-1 text-sm font-medium text-red-400">Reset workspace</span>
+                  <span className="text-xs text-muted-foreground/70">Files only</span>
+                </button>
+                {isAdmin && onAdminReset && (
+                  <button onClick={onAdminReset} className="flex w-full items-center gap-3 px-3.5 py-3 text-left">
+                    <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
+                    <span className="flex-1 text-sm font-medium text-red-400">Reset everything</span>
+                    <span className="text-xs text-muted-foreground/70">Profile + data</span>
+                  </button>
+                )}
+              </SettingsGroup>
             </div>
           )}
-
         </div>
       </div>
     </div>
   );
 }
 
-function WorkspacePreview({
-  title,
-  icon: Icon,
-  file,
-  empty,
-}: {
-  title: string;
-  icon: typeof User;
-  file: WorkspaceFile | null;
-  empty: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const preview = file?.content
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .slice(0, 6)
-    .join("\n");
-
+function SettingsGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-card/60 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <div
-            className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${
-              file ? "bg-emerald-500/15 text-emerald-400" : "bg-secondary text-muted-foreground"
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-foreground">
-              {title}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {file ? `Saved · ${file.path}` : empty}
-            </div>
-          </div>
-        </div>
-        {file && (
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            className="shrink-0 rounded-lg border border-border px-2.5 py-1 font-display text-[9px] font-bold uppercase tracking-widest text-muted-foreground transition hover:border-primary hover:text-primary"
-          >
-            {open ? "Hide" : "Read"}
-          </button>
-        )}
-      </div>
-      {file && (
-        <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background p-3 text-xs leading-relaxed text-muted-foreground">
-          {open ? file.content : preview}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function Section({
-  icon: Icon,
-  title,
-  done,
-  defaultOpen,
-  children,
-}: {
-  icon: typeof User;
-  title: string;
-  done: boolean;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? false);
-  return (
-    <div className="mb-3 rounded-2xl border border-border bg-background">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-4 py-3"
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`grid h-8 w-8 place-items-center rounded-lg ${
-              done ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-          </div>
-          <div className="font-display text-sm font-bold text-foreground">{title}</div>
-        </div>
-        <div
-          className={`text-[10px] font-bold uppercase tracking-widest ${
-            done ? "text-emerald-400" : "text-red-400"
-          }`}
-        >
-          {done ? "Set" : "Not set"}
-        </div>
-      </button>
-      {open && <div className="border-t border-border px-4 py-3">{children}</div>}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-  full,
-}: {
-  label: string;
-  children: React.ReactNode;
-  full?: boolean;
-}) {
-  return (
-    <div className={full ? "col-span-2 mt-2" : ""}>
-      <div className="mb-1 font-display text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+    <section>
+      <div className="mb-1.5 px-1 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </div>
-      {children}
-    </div>
+      <div className="divide-y divide-border/60 rounded-sm border border-border bg-card">{children}</div>
+    </section>
   );
 }
 
+function EditRow({
+  label,
+  value,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string;
+  value: string | null | undefined;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button onClick={onToggle} className="flex w-full items-center gap-3 px-3.5 py-3 text-left">
+        <span className="shrink-0 text-sm text-foreground">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
+          {value || "—"}
+        </span>
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+      {open && <div className="px-3.5 pb-3">{children}</div>}
+    </div>
+  );
+}
 function Text({
   value,
   onSave,
