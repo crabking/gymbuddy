@@ -193,7 +193,15 @@ export async function bufferBoundedMutationBody(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new Request(request, { body });
+  // Nitro can hand this wrapper a Request from a different JS realm. Passing
+  // that object back into Node's native Request constructor is not portable
+  // (Undici tries to read realm-specific internals). Reconstruct from the
+  // standard request fields instead.
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body,
+  });
 }
 
 export default {

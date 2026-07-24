@@ -9,7 +9,9 @@ import viteReact from "@vitejs/plugin-react";
 // `node .output/server/index.mjs` (see Dockerfile).
 export default defineConfig(async ({ command, mode }) => {
   const appVersion =
-    process.env.SOURCE_COMMIT ?? process.env.COOLIFY_GIT_COMMIT_SHA ?? Date.now().toString(36);
+    [process.env.SOURCE_COMMIT, process.env.COOLIFY_GIT_COMMIT_SHA]
+      .map((value) => value?.trim())
+      .find(Boolean) ?? Date.now().toString(36);
   const plugins: PluginOption[] = [
     tailwindcss(),
     tanstackStart({

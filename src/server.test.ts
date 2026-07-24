@@ -30,4 +30,28 @@ describe("server request body cap", () => {
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(413);
   });
+
+  it("reconstructs a request-like object without relying on same-realm Request internals", async () => {
+    const original = new Request("https://coach.test/action?source=phone", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: "session=opaque",
+      },
+      body: '{"safe":true}',
+    });
+    const foreignRequest = {
+      method: original.method,
+      url: original.url,
+      headers: original.headers,
+      body: original.body,
+    } as Request;
+
+    const result = await bufferBoundedMutationBody(foreignRequest, 64);
+
+    expect(result).toBeInstanceOf(Request);
+    expect((result as Request).url).toBe("https://coach.test/action?source=phone");
+    expect((result as Request).headers.get("cookie")).toBe("session=opaque");
+    expect(await (result as Request).text()).toBe('{"safe":true}');
+  });
 });
