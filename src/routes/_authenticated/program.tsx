@@ -203,14 +203,6 @@ function ProgramPage() {
                           {s.label}
                         </span>
                       </div>
-                      <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                        {day.exercises
-                          .map(
-                            (e) =>
-                              `${e.name} ${e.sets}×${e.rep_range}${e.target_weight_kg ? ` @ ${e.target_weight_kg}kg` : ""}`,
-                          )
-                          .join(" · ")}
-                      </div>
                     </button>
                   );
                 })}

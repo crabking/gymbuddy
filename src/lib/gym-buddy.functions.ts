@@ -248,6 +248,13 @@ export const toggleSessionSet = createServerFn({ method: "POST" })
     return r.session;
   });
 
+export const seedDemoDashboard = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { seedDemoData } = await import("@/lib/demo-data.server");
+    return seedDemoData(context.userId);
+  });
+
 export const logWeight = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .inputValidator((input: unknown) =>

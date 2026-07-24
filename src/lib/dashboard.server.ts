@@ -162,6 +162,12 @@ export async function getDashboardData(userId: string, days = 90) {
       sessions.filter((s) => s.status === "completed").map((s) => weekKey(s.session_date)),
     );
     let cursor = weekKey(localStr(new Date()));
+    // The current week doesn't break the streak while it's still in progress.
+    if (!weeksWithSession.has(cursor)) {
+      const d = new Date(`${cursor}T00:00:00`);
+      d.setDate(d.getDate() - 7);
+      cursor = localStr(d);
+    }
     while (weeksWithSession.has(cursor)) {
       streakWeeks++;
       const d = new Date(`${cursor}T00:00:00`);

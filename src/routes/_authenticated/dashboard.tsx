@@ -15,8 +15,8 @@ import {
   ReferenceLine,
   Legend,
 } from "recharts";
-import { Flame, Dumbbell, Scale, Trophy, Plus, CheckCircle2, XCircle } from "lucide-react";
-import { getDashboard, logWeight } from "@/lib/gym-buddy.functions";
+import { Flame, Dumbbell, Scale, Trophy, Plus, CheckCircle2, XCircle, FlaskConical } from "lucide-react";
+import { getDashboard, logWeight, seedDemoDashboard } from "@/lib/gym-buddy.functions";
 import { TabBar } from "@/components/TabBar";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { toast } from "sonner";
@@ -105,6 +105,21 @@ function DashboardPage() {
     [data],
   );
 
+  const [seeding, setSeeding] = useState(false);
+  async function seedDemo() {
+    if (!confirm("Load ~3 weeks of demo data (sessions, meals, weights) into your dashboard?")) return;
+    setSeeding(true);
+    try {
+      const r = await seedDemoDashboard({ data: undefined });
+      await qc.invalidateQueries();
+      toast.success(`Loaded ${r.sessions} sessions, ${r.meals} meals, ${r.weights} weigh-ins`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Seeding failed");
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   async function submitWeight() {
     const kg = parseFloat(weightInput.replace(",", "."));
     if (!kg || kg < 25 || kg > 400) return toast.error("Enter a weight in kg");
@@ -117,8 +132,21 @@ function DashboardPage() {
   return (
     <div className="flex h-dvh flex-col bg-background">
       <header className="border-b border-border bg-card px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <h1 className="font-display text-lg font-bold text-foreground">Dashboard</h1>
-        <p className="text-[11px] text-muted-foreground">Your training, tracked.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-lg font-bold text-foreground">Dashboard</h1>
+            <p className="text-[11px] text-muted-foreground">Your training, tracked.</p>
+          </div>
+          <button
+            onClick={seedDemo}
+            disabled={seeding}
+            className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            aria-label="Load test data"
+            title="Load 3 weeks of test data"
+          >
+            <FlaskConical className={`h-4 w-4 ${seeding ? "animate-pulse" : ""}`} />
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
