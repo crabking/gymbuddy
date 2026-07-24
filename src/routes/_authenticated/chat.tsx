@@ -42,11 +42,8 @@ import {
   UtensilsCrossed,
   Brain,
   Dumbbell,
-  FileText,
-  Target,
   Flame,
   Play,
-  ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import { COACH_IMAGES } from "@/lib/coach-assets";
@@ -933,8 +930,6 @@ function ChatScreen() {
       {openSection && (
         <SettingsDrawer
           profile={profile as Profile}
-          workspaceFiles={workspaceFiles ?? []}
-          section={openSection}
           onClose={() => {
             setOpenSection(null);
             if (search.settings) {
@@ -1175,15 +1170,11 @@ function SetRow({
 
 function SettingsDrawer({
   profile,
-  workspaceFiles,
-  section: _section,
   onClose,
   isAdmin,
   onAdminReset,
 }: {
   profile: Profile;
-  workspaceFiles: WorkspaceFile[];
-  section: SetupKey | "all";
   onClose: () => void;
   isAdmin?: boolean;
   onAdminReset?: () => void;
@@ -1196,7 +1187,6 @@ function SettingsDrawer({
     queryKey: ["memories"],
     queryFn: () => getMemories({ data: undefined }),
   });
-  const [doc, setDoc] = useState<{ title: string; file: WorkspaceFile } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "workspace" | "everything">(null);
   const { canInstall, isInstalled } = usePwaInstall();
@@ -1235,30 +1225,6 @@ function SettingsDrawer({
     }
   }
 
-  const docs = [
-    {
-      key: "schedule",
-      title: "Weekly schedule",
-      icon: CalendarDays,
-      file: workspaceFile(workspaceFiles, "schedule/current.md"),
-    },
-    {
-      key: "plan",
-      title: "Workout plan",
-      icon: Dumbbell,
-      file: workspaceFile(workspaceFiles, "plans/current.md"),
-    },
-    {
-      key: "nutrition",
-      title: "Nutrition targets",
-      icon: Target,
-      file: workspaceFile(workspaceFiles, "nutrition/targets.md"),
-    },
-  ];
-
-  const fmtUpdated = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -1266,18 +1232,9 @@ function SettingsDrawer({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-          {doc ? (
-            <button
-              onClick={() => setDoc(null)}
-              className="flex items-center gap-1 font-display text-sm font-bold uppercase tracking-widest text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" /> {doc.title}
-            </button>
-          ) : (
-            <div className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
-              Settings
-            </div>
-          )}
+          <div className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
+            Settings
+          </div>
           <button
             onClick={onClose}
             className="grid h-8 w-8 place-items-center rounded-sm text-muted-foreground hover:bg-secondary"
@@ -1288,233 +1245,180 @@ function SettingsDrawer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {doc ? (
-            <div className="prose prose-sm prose-invert max-w-full text-[13px] leading-relaxed prose-headings:mb-2 prose-headings:mt-4 prose-p:my-1.5 prose-li:my-0.5 prose-strong:text-foreground">
-              <ReactMarkdown>{doc.file.content}</ReactMarkdown>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <SettingsGroup label="Coach documents">
-                {docs.map((d) => (
-                  <button
-                    key={d.key}
-                    onClick={() => d.file && setDoc({ title: d.title, file: d.file })}
-                    disabled={!d.file}
-                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left disabled:cursor-default"
-                  >
-                    <d.icon
-                      className={`h-4 w-4 shrink-0 ${d.file ? "text-emerald-400" : "text-muted-foreground/50"}`}
-                    />
-                    <span className="flex-1 text-sm font-medium text-foreground">{d.title}</span>
-                    {d.file ? (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        {fmtUpdated(d.file.updated_at)}
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground/60">Not created</span>
-                    )}
-                  </button>
-                ))}
-              </SettingsGroup>
-
-              <SettingsGroup label="Permanent memory">
-                <div className="max-h-64 overflow-y-auto overscroll-contain">
-                  {memories.length === 0 ? (
-                    <div className="flex items-center gap-3 px-3.5 py-4 text-sm text-muted-foreground">
-                      <Brain className="h-4 w-4 shrink-0" />
-                      Nothing remembered yet
-                    </div>
-                  ) : (
-                    memories.map((memory) => (
-                      <div
-                        key={memory.id}
-                        className="flex items-start gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0"
-                      >
-                        <Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-display text-[9px] font-bold uppercase tracking-[0.14em] text-primary">
-                            {memory.topic}
-                          </div>
-                          <div className="mt-0.5 text-sm leading-snug text-foreground">
-                            {memory.content}
-                          </div>
+          <div className="flex flex-col gap-4">
+            <SettingsGroup label="Permanent memory">
+              <div className="border-b border-border/60 px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
+                Your coach automatically remembers important preferences, goals, and achievements.
+              </div>
+              <div className="max-h-64 overflow-y-auto overscroll-contain">
+                {memories.length === 0 ? (
+                  <div className="flex items-center gap-3 px-3.5 py-4 text-sm text-muted-foreground">
+                    <Brain className="h-4 w-4 shrink-0" />
+                    Nothing remembered yet
+                  </div>
+                ) : (
+                  memories.map((memory) => (
+                    <div
+                      key={memory.id}
+                      className="flex items-start gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0"
+                    >
+                      <Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[9px] font-bold uppercase tracking-[0.14em] text-primary">
+                          {memory.topic}
                         </div>
-                        <button
-                          onClick={() => void forgetMemory(memory.id)}
-                          className="grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400"
-                          aria-label={`Forget ${memory.content}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
+                        <div className="mt-0.5 text-sm leading-snug text-foreground">
+                          {memory.content}
+                        </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              </SettingsGroup>
+                      <button
+                        onClick={() => void forgetMemory(memory.id)}
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400"
+                        aria-label={`Forget ${memory.content}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </SettingsGroup>
 
-              <SettingsGroup label="Profile">
-                <EditRow
-                  label="Name"
-                  value={profile.display_name}
-                  open={editing === "display_name"}
-                  onToggle={() => setEditing(editing === "display_name" ? null : "display_name")}
-                >
-                  <Text
-                    value={profile.display_name ?? ""}
-                    onSave={(v) => save({ display_name: v })}
-                    placeholder="Your name"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Goal"
-                  value={profile.goal}
-                  open={editing === "goal"}
-                  onToggle={() => setEditing(editing === "goal" ? null : "goal")}
-                >
-                  <Text
-                    value={profile.goal ?? ""}
-                    onSave={(v) => save({ goal: v })}
-                    placeholder="e.g. hypertrophy + strength"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Days / week"
-                  value={profile.days_per_week != null ? String(profile.days_per_week) : null}
-                  open={editing === "dpw"}
-                  onToggle={() => setEditing(editing === "dpw" ? null : "dpw")}
-                >
-                  <Text
-                    value={profile.days_per_week?.toString() ?? ""}
-                    onSave={(v) => save({ days_per_week: v ? Number(v) : null })}
-                    placeholder="4"
-                    inputMode="numeric"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Session length"
-                  value={profile.session_minutes ? `${profile.session_minutes} min` : null}
-                  open={editing === "sm"}
-                  onToggle={() => setEditing(editing === "sm" ? null : "sm")}
-                >
-                  <Text
-                    value={profile.session_minutes?.toString() ?? ""}
-                    onSave={(v) => save({ session_minutes: v ? Number(v) : null })}
-                    placeholder="60"
-                    inputMode="numeric"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Equipment"
-                  value={profile.equipment}
-                  open={editing === "eq"}
-                  onToggle={() => setEditing(editing === "eq" ? null : "eq")}
-                >
-                  <Text
-                    value={profile.equipment ?? ""}
-                    onSave={(v) => save({ equipment: v })}
-                    placeholder="full_gym"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Diet style"
-                  value={profile.diet_style}
-                  open={editing === "diet"}
-                  onToggle={() => setEditing(editing === "diet" ? null : "diet")}
-                >
-                  <Text
-                    value={profile.diet_style ?? ""}
-                    onSave={(v) => save({ diet_style: v })}
-                    placeholder="omnivore"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Injuries / limits"
-                  value={profile.injuries}
-                  open={editing === "inj"}
-                  onToggle={() => setEditing(editing === "inj" ? null : "inj")}
-                >
-                  <Text
-                    value={profile.injuries ?? ""}
-                    onSave={(v) => save({ injuries: v || null })}
-                    placeholder="e.g. tweaky left shoulder"
-                  />
-                </EditRow>
-              </SettingsGroup>
+            <SettingsGroup label="Profile">
+              <EditRow
+                label="Name"
+                value={profile.display_name}
+                open={editing === "display_name"}
+                onToggle={() => setEditing(editing === "display_name" ? null : "display_name")}
+              >
+                <Text
+                  value={profile.display_name ?? ""}
+                  onSave={(v) => save({ display_name: v })}
+                  placeholder="Your name"
+                />
+              </EditRow>
+              <EditRow
+                label="Goal"
+                value={profile.goal}
+                open={editing === "goal"}
+                onToggle={() => setEditing(editing === "goal" ? null : "goal")}
+              >
+                <Text
+                  value={profile.goal ?? ""}
+                  onSave={(v) => save({ goal: v })}
+                  placeholder="e.g. hypertrophy + strength"
+                />
+              </EditRow>
+              <EditRow
+                label="Days / week"
+                value={profile.days_per_week != null ? String(profile.days_per_week) : null}
+                open={editing === "dpw"}
+                onToggle={() => setEditing(editing === "dpw" ? null : "dpw")}
+              >
+                <Text
+                  value={profile.days_per_week?.toString() ?? ""}
+                  onSave={(v) => save({ days_per_week: v ? Number(v) : null })}
+                  placeholder="4"
+                  inputMode="numeric"
+                />
+              </EditRow>
+              <EditRow
+                label="Session length"
+                value={profile.session_minutes ? `${profile.session_minutes} min` : null}
+                open={editing === "sm"}
+                onToggle={() => setEditing(editing === "sm" ? null : "sm")}
+              >
+                <Text
+                  value={profile.session_minutes?.toString() ?? ""}
+                  onSave={(v) => save({ session_minutes: v ? Number(v) : null })}
+                  placeholder="60"
+                  inputMode="numeric"
+                />
+              </EditRow>
+              <EditRow
+                label="Equipment"
+                value={profile.equipment}
+                open={editing === "eq"}
+                onToggle={() => setEditing(editing === "eq" ? null : "eq")}
+              >
+                <Text
+                  value={profile.equipment ?? ""}
+                  onSave={(v) => save({ equipment: v })}
+                  placeholder="full_gym"
+                />
+              </EditRow>
+              <EditRow
+                label="Diet style"
+                value={profile.diet_style}
+                open={editing === "diet"}
+                onToggle={() => setEditing(editing === "diet" ? null : "diet")}
+              >
+                <Text
+                  value={profile.diet_style ?? ""}
+                  onSave={(v) => save({ diet_style: v })}
+                  placeholder="omnivore"
+                />
+              </EditRow>
+              <EditRow
+                label="Injuries / limits"
+                value={profile.injuries}
+                open={editing === "inj"}
+                onToggle={() => setEditing(editing === "inj" ? null : "inj")}
+              >
+                <Text
+                  value={profile.injuries ?? ""}
+                  onSave={(v) => save({ injuries: v || null })}
+                  placeholder="e.g. tweaky left shoulder"
+                />
+              </EditRow>
+            </SettingsGroup>
 
-              <SettingsGroup label="Preferences">
-                <Link to="/coaches" className="flex w-full items-center gap-3 px-3.5 py-3">
-                  <Dumbbell className="h-4 w-4 shrink-0 text-primary" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium text-foreground">Switch coach</span>
-                    <span className="block text-[11px] text-muted-foreground">
-                      Starts over with a clean profile
-                    </span>
+            <SettingsGroup label="Coach">
+              <Link to="/coaches" className="flex w-full items-center gap-3 px-3.5 py-3">
+                <Dumbbell className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">Switch coach</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Starts over with a clean profile
                   </span>
-                  <span className="font-display text-[10px] font-bold uppercase tracking-wider text-primary">
-                    {getCoach(profile.coach_id).name}
-                  </span>
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                </Link>
-                <EditRow
-                  label="Meal preferences"
-                  value={profile.meal_preferences}
-                  open={editing === "meals"}
-                  onToggle={() => setEditing(editing === "meals" ? null : "meals")}
-                >
-                  <Textarea
-                    value={profile.meal_preferences ?? ""}
-                    onSave={(v) => save({ meal_preferences: v || null })}
-                    placeholder="High protein, no dairy…"
-                  />
-                </EditRow>
-                <EditRow
-                  label="Schedule note"
-                  value={profile.schedule_note}
-                  open={editing === "sched"}
-                  onToggle={() => setEditing(editing === "sched" ? null : "sched")}
-                >
-                  <Textarea
-                    value={profile.schedule_note ?? ""}
-                    onSave={(v) => save({ schedule_note: v || null })}
-                    placeholder="Mon/Wed/Fri lifts before work…"
-                  />
-                </EditRow>
+                </span>
+                <span className="font-display text-[10px] font-bold uppercase tracking-wider text-primary">
+                  {getCoach(profile.coach_id).name}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </Link>
+            </SettingsGroup>
+
+            {canInstall && !isInstalled && (
+              <SettingsGroup label="App">
+                <InstallAppButton
+                  label="Install COACH"
+                  className="flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm font-medium text-primary"
+                />
               </SettingsGroup>
+            )}
 
-              {canInstall && !isInstalled && (
-                <SettingsGroup label="App">
-                  <InstallAppButton
-                    label="Install COACH"
-                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm font-medium text-primary"
-                  />
-                </SettingsGroup>
-              )}
-
-              <SettingsGroup label="Danger zone">
+            <SettingsGroup label="Danger zone">
+              <button
+                onClick={() => setConfirm("workspace")}
+                className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
+              >
+                <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
+                <span className="flex-1 text-sm font-medium text-red-400">Reset workspace</span>
+                <span className="text-xs text-muted-foreground/70">Files only</span>
+              </button>
+              {isAdmin && onAdminReset && (
                 <button
-                  onClick={() => setConfirm("workspace")}
+                  onClick={() => setConfirm("everything")}
                   className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
                 >
                   <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
-                  <span className="flex-1 text-sm font-medium text-red-400">Reset workspace</span>
-                  <span className="text-xs text-muted-foreground/70">Files only</span>
+                  <span className="flex-1 text-sm font-medium text-red-400">Reset everything</span>
+                  <span className="text-xs text-muted-foreground/70">Profile + data</span>
                 </button>
-                {isAdmin && onAdminReset && (
-                  <button
-                    onClick={() => setConfirm("everything")}
-                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
-                  >
-                    <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
-                    <span className="flex-1 text-sm font-medium text-red-400">
-                      Reset everything
-                    </span>
-                    <span className="text-xs text-muted-foreground/70">Profile + data</span>
-                  </button>
-                )}
-              </SettingsGroup>
-            </div>
-          )}
+              )}
+            </SettingsGroup>
+          </div>
         </div>
       </div>
 
@@ -1608,29 +1512,6 @@ function Text({
       onBlur={() => v !== value && onSave(v)}
       placeholder={placeholder}
       className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-    />
-  );
-}
-
-function Textarea({
-  value,
-  onSave,
-  placeholder,
-}: {
-  value: string;
-  onSave: (v: string) => void;
-  placeholder?: string;
-}) {
-  const [v, setV] = useState(value);
-  useEffect(() => setV(value), [value]);
-  return (
-    <textarea
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => v !== value && onSave(v)}
-      placeholder={placeholder}
-      rows={4}
-      className="w-full rounded-lg border border-border bg-card p-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
     />
   );
 }
