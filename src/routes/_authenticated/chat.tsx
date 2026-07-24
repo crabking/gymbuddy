@@ -67,6 +67,61 @@ function useCoachPortrait() {
   };
 }
 
+function useChatViewport() {
+  const [viewport, setViewport] = useState<{
+    height: number | null;
+    keyboardOpen: boolean;
+  }>({ height: null, keyboardOpen: false });
+
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    let largestHeight = Math.round(visualViewport?.height ?? window.innerHeight);
+    let orientationTimer: number | undefined;
+
+    const sync = () => {
+      const height = Math.round(visualViewport?.height ?? window.innerHeight);
+      largestHeight = Math.max(largestHeight, height);
+
+      const active = document.activeElement;
+      const isTyping =
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLInputElement &&
+          !["button", "checkbox", "file", "radio", "submit"].includes(active.type));
+
+      setViewport({
+        height,
+        keyboardOpen: isTyping && largestHeight - height > 100,
+      });
+    };
+
+    const resetOrientationBaseline = () => {
+      window.clearTimeout(orientationTimer);
+      orientationTimer = window.setTimeout(() => {
+        largestHeight = Math.round(visualViewport?.height ?? window.innerHeight);
+        sync();
+      }, 250);
+    };
+
+    sync();
+    visualViewport?.addEventListener("resize", sync);
+    window.addEventListener("resize", sync);
+    window.addEventListener("focusin", sync);
+    window.addEventListener("focusout", sync);
+    window.addEventListener("orientationchange", resetOrientationBaseline);
+
+    return () => {
+      window.clearTimeout(orientationTimer);
+      visualViewport?.removeEventListener("resize", sync);
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("focusin", sync);
+      window.removeEventListener("focusout", sync);
+      window.removeEventListener("orientationchange", resetOrientationBaseline);
+    };
+  }, []);
+
+  return viewport;
+}
+
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const pad2 = (n: number) => String(n).padStart(2, "0");
 /** "YYYY-MM-DD|Weekday|HH:MM" in the user's local timezone. */
@@ -232,6 +287,7 @@ function ChatScreen() {
     return () => clearInterval(t);
   }, []);
   const coach = useCoachPortrait();
+  const { height: viewportHeight, keyboardOpen } = useChatViewport();
 
   const [openSection, setOpenSection] = useState<SetupKey | "all" | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -444,10 +500,17 @@ function ChatScreen() {
   ];
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
+    <div
+      className="flex min-h-0 flex-col overflow-hidden bg-background"
+      style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
+    >
       {/* Header */}
-      <header className="border-b border-border bg-card px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="mb-2.5 flex items-center justify-between gap-2">
+      <header
+        className={`shrink-0 border-b border-border bg-card px-3 pt-[max(0.5rem,env(safe-area-inset-top))] ${
+          keyboardOpen ? "pb-2" : "pb-3"
+        }`}
+      >
+        <div className={`${keyboardOpen ? "" : "mb-2.5"} flex items-center justify-between gap-2`}>
           <div className="flex items-center gap-2.5">
             <img
               src={coach.portrait}
@@ -507,7 +570,7 @@ function ChatScreen() {
         </div>
 
         {/* Setup progress steps — only during onboarding */}
-        {inOnboarding && (
+        {inOnboarding && !keyboardOpen && (
           <>
             <div className="flex items-center gap-2">
               {steps.map((s, i) => {
@@ -566,7 +629,7 @@ function ChatScreen() {
           </>
         )}
 
-        {!inOnboarding && buildDoneCount < buildTotalSteps && (
+        {!inOnboarding && !keyboardOpen && buildDoneCount < buildTotalSteps && (
           <>
             <div className="flex items-center gap-2">
               {buildSteps.map((s, i) => {
@@ -626,16 +689,18 @@ function ChatScreen() {
         )}
 
         {/* Date & time — clear, on its own line */}
-        <div className="mt-2 text-xs font-semibold text-foreground">
-          {clock.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-          <span className="font-normal text-muted-foreground">
-            {" · "}
-            {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        </div>
+        {!keyboardOpen && (
+          <div className="mt-2 text-xs font-semibold text-foreground">
+            {clock.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            <span className="font-normal text-muted-foreground">
+              {" · "}
+              {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
+        )}
 
         {/* Today's calories — always visible up top once onboarded */}
-        {!inOnboarding && nutrition && (
+        {!inOnboarding && !keyboardOpen && nutrition && (
           <div className="mt-2.5 flex items-center gap-2">
             <Flame className="h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
@@ -665,6 +730,7 @@ function ChatScreen() {
 
         {/* Session bar — live session (lit + timer) or the next one up */}
         {!inOnboarding &&
+          !keyboardOpen &&
           (session ? (
             <SessionTimerBar
               session={session}
@@ -684,7 +750,11 @@ function ChatScreen() {
 
 
       {/* Single-message stage */}
-      <main className="flex flex-1 flex-col justify-center overflow-hidden px-5 py-6">
+      <main
+        className={`flex min-h-0 flex-1 flex-col justify-center overflow-hidden px-5 ${
+          keyboardOpen ? "py-3" : "py-6"
+        }`}
+      >
         {!latest && (
           <div className="mx-auto max-w-md text-center">
             {inOnboarding ? (
@@ -700,7 +770,7 @@ function ChatScreen() {
         {latest && (
           <div
             key={latest.id}
-            className="mx-auto flex w-full max-w-md flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
+            className="mx-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-4 overflow-y-auto overscroll-contain py-1 animate-in fade-in slide-in-from-bottom-2 duration-300"
           >
             {latest.role === "assistant" ? (
               <div className="flex flex-col items-center gap-3 text-center">
@@ -783,7 +853,7 @@ function ChatScreen() {
       )}
 
       {/* Live workout module — coach is connected in real time */}
-      {!inOnboarding && (
+      {!inOnboarding && !keyboardOpen && (
         <div className="border-t border-border bg-card/40 px-3 py-2">
           {session ? (
             <WorkoutPanel
@@ -805,7 +875,11 @@ function ChatScreen() {
       )}
 
       {/* Composer */}
-      <div className="border-t border-border bg-background px-3 pb-3 pt-3">
+      <div
+        className={`shrink-0 border-t border-border bg-background px-3 pt-3 ${
+          keyboardOpen ? "pb-2" : "pb-3"
+        }`}
+      >
         <div className="flex items-end gap-2">
           <input
             ref={cameraRef}
@@ -848,7 +922,7 @@ function ChatScreen() {
             }}
             rows={1}
             placeholder={`Ask ${coach.name}…`}
-            className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-border bg-card px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-border bg-card px-4 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none sm:text-[15px]"
           />
           <button
             onClick={busy ? () => stop() : submit}
@@ -861,7 +935,7 @@ function ChatScreen() {
         </div>
       </div>
 
-      <TabBar />
+      {!keyboardOpen && <TabBar />}
 
       {/* History drawer */}
       {showHistory && (
