@@ -1,7 +1,6 @@
 import { useEffect } from "react";
+import { APP_VERSION } from "@/lib/app-version";
 import { initPwaInstall } from "@/lib/pwa-install";
-
-declare const __APP_VERSION__: string;
 
 export function PwaRegistration() {
   useEffect(() => {
@@ -21,7 +20,7 @@ export function PwaRegistration() {
         const response = await fetch(`/version.json?t=${now}`, { cache: "no-store" });
         if (response.ok) {
           const payload = (await response.json()) as { version?: string };
-          if (payload.version && payload.version !== __APP_VERSION__) {
+          if (payload.version && payload.version !== APP_VERSION) {
             reloading = true;
             window.location.reload();
             return;

@@ -4,6 +4,7 @@ import { useState } from "react";
 import coachMale from "@/assets/coach-rex-male.jpg";
 import coachFemale from "@/assets/coach-rex-female.jpg";
 import { InstallAppButton } from "@/components/InstallAppButton";
+import { VersionTag } from "@/components/VersionTag";
 
 type CoachGender = "male" | "female";
 
@@ -112,8 +113,11 @@ function Landing() {
       {/* Bottom content */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-5 p-6 pl-20 sm:p-10 sm:pl-24">
         <div>
-          <div className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
-            Meet your coach
+          <div className="flex items-center gap-2">
+            <span className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
+              Meet your coach
+            </span>
+            <VersionTag />
           </div>
           <div className="mt-1 flex items-end justify-between gap-4">
             <h1 className="font-display text-6xl font-bold leading-none tracking-tight text-foreground sm:text-7xl">

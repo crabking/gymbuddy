@@ -24,6 +24,7 @@ import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { TabBar } from "@/components/TabBar";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { InstallAppButton } from "@/components/InstallAppButton";
+import { VersionTag } from "@/components/VersionTag";
 import { usePwaInstall } from "@/lib/pwa-install";
 import { toast } from "sonner";
 import {
@@ -523,25 +524,28 @@ function ChatScreen() {
             />
             <div className="flex flex-col leading-tight">
               <span className="font-display text-sm font-bold text-foreground">{coach.name}</span>
-              {inOnboarding ? (
-                <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-primary">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+              <div className="flex items-center gap-2">
+                {inOnboarding ? (
+                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-primary">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                      </span>
+                      Onboarding · {doneCount}/{totalSteps}
                     </span>
-                    Onboarding · {doneCount}/{totalSteps}
                   </span>
-                </span>
-              ) : buildDoneCount < buildTotalSteps ? (
-                <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
-                  Build · {buildDoneCount}/{buildTotalSteps}
-                </span>
-              ) : (
-                <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
-                  Coach online
-                </span>
-              )}
+                ) : buildDoneCount < buildTotalSteps ? (
+                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
+                    Build · {buildDoneCount}/{buildTotalSteps}
+                  </span>
+                ) : (
+                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
+                    Coach online
+                  </span>
+                )}
+                <VersionTag />
+              </div>
             </div>
 
           </div>
