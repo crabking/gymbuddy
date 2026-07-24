@@ -53,11 +53,15 @@ import coachMale from "@/assets/coach-rex-male-face.jpg";
 import coachFemale from "@/assets/coach-rex-female-face.jpg";
 
 function useCoachPortrait() {
-  const [gender, setGender] = useState<"male" | "female">("male");
-  useEffect(() => {
-    const saved = localStorage.getItem("rex.coach");
-    if (saved === "male" || saved === "female") setGender(saved);
-  }, []);
+  const [gender] = useState<"male" | "female">(() => {
+    if (typeof window === "undefined") return "male";
+    try {
+      const saved = localStorage.getItem("rex.coach");
+      return saved === "female" ? "female" : "male";
+    } catch {
+      return "male";
+    }
+  });
   return {
     portrait: gender === "female" ? coachFemale : coachMale,
     name: gender === "female" ? "Reya" : "Rex",
