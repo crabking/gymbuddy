@@ -23,12 +23,15 @@ ENV PORT=3000
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY --from=build /app/.output ./.output
-COPY --from=build /app/drizzle ./drizzle
-COPY --from=build /app/src/db/seed.mjs ./seed.mjs
-COPY docker/migrate.mjs ./migrate.mjs
-COPY docker/start.sh ./start.sh
+COPY --chown=node:node --from=build /app/.output ./.output
+COPY --chown=node:node --from=build /app/drizzle ./drizzle
+COPY --chown=node:node --from=build /app/src/db/seed.mjs ./seed.mjs
+COPY --chown=node:node docker/migrate.mjs ./migrate.mjs
+COPY --chown=node:node docker/start.sh ./start.sh
 RUN chmod +x ./start.sh
 
 EXPOSE 3000
+USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/version.json').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["./start.sh"]

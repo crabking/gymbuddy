@@ -1,11 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  convertToModelMessages,
-  streamText,
-  tool,
-  stepCountIs,
-  type UIMessage,
-} from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { getChatModel } from "@/lib/ai-provider.server";
 
@@ -22,11 +16,13 @@ const SKILLS: Record<string, { description: string; content: string }> = {
     content: onboardingSkill,
   },
   "schedule-builder": {
-    description: "Build/update the user's weekly training schedule and save to schedule/current.md.",
+    description:
+      "Build/update the user's weekly training schedule and save to schedule/current.md.",
     content: scheduleBuilderSkill,
   },
   "workout-planner": {
-    description: "Full workout-plan authoring skill — template library, exercise substitution rules, systematic mesocycle design via calc_program_timeline / calc_starting_weights / substitute_exercise / shift_schedule_weeks. Load BEFORE building or modifying any training plan.",
+    description:
+      "Full workout-plan authoring skill — template library, exercise substitution rules, systematic mesocycle design via calc_program_timeline / calc_starting_weights / substitute_exercise / shift_schedule_weeks. Load BEFORE building or modifying any training plan.",
     content: workoutPlannerSkill,
   },
   "meal-planner": {
@@ -39,18 +35,104 @@ const SKILLS: Record<string, { description: string; content: string }> = {
   },
 };
 
-type Body = { messages?: UIMessage[] };
+type Body = { messages: UIMessage[] };
+
+const MAX_CHAT_BODY_BYTES = 32 * 1024 * 1024;
+const MAX_CHAT_MESSAGES = 120;
+const MAX_TEXT_PART_CHARS = 40_000;
+const MAX_TOTAL_TEXT_CHARS = 300_000;
+const MAX_IMAGE_DATA_URL_CHARS = 11 * 1024 * 1024;
+
+const ChatBodySchema = z.object({
+  messages: z
+    .array(
+      z
+        .object({
+          id: z.string().max(256).optional(),
+          role: z.enum(["user", "assistant"]),
+          parts: z.array(z.object({ type: z.string().min(1).max(80) }).passthrough()).max(100),
+        })
+        .passthrough(),
+    )
+    .min(1)
+    .max(MAX_CHAT_MESSAGES),
+});
+
+function isSafeChatBody(input: unknown): input is Body {
+  const parsed = ChatBodySchema.safeParse(input);
+  if (!parsed.success) return false;
+
+  let totalTextChars = 0;
+  let imageParts = 0;
+
+  for (const message of parsed.data.messages) {
+    for (const part of message.parts) {
+      if (part.type === "text") {
+        if (typeof part.text !== "string" || part.text.length > MAX_TEXT_PART_CHARS) {
+          return false;
+        }
+        totalTextChars += part.text.length;
+        if (totalTextChars > MAX_TOTAL_TEXT_CHARS) return false;
+      }
+
+      if (part.type === "file") {
+        imageParts += 1;
+        if (imageParts > 9) return false;
+        if (
+          typeof part.mediaType !== "string" ||
+          !part.mediaType.startsWith("image/") ||
+          typeof part.url !== "string" ||
+          !part.url.startsWith("data:image/") ||
+          part.url.length > MAX_IMAGE_DATA_URL_CHARS
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
 
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const { getUserFromRequest } = await import("@/lib/auth.server");
+        const { readJsonBody, RequestBodyError, takeRateLimit } =
+          await import("@/lib/security.server");
+
+        const user = await getUserFromRequest(request);
+        if (!user) return new Response("Unauthorized", { status: 401 });
+        const userId = user.id;
+
+        const chatLimit = takeRateLimit(`chat:${userId}`, 30, 10 * 60_000);
+        if (!chatLimit.allowed) {
+          return new Response("Too many chat requests. Please wait a moment.", {
+            status: 429,
+            headers: { "Retry-After": String(chatLimit.retryAfterSeconds) },
+          });
+        }
+
+        let rawBody: unknown;
+        try {
+          rawBody = await readJsonBody(request, MAX_CHAT_BODY_BYTES);
+        } catch (error) {
+          if (error instanceof RequestBodyError) {
+            return new Response(error.message, { status: error.status });
+          }
+          throw error;
+        }
+        if (!isSafeChatBody(rawBody)) return new Response("Bad request", { status: 400 });
+        const body = rawBody;
+
+        if (!process.env.AI_API_KEY) return new Response("AI service unavailable", { status: 503 });
+
         // Server-only modules loaded here so `pg` never enters the client bundle.
         const { and, eq, asc, desc } = await import("drizzle-orm");
         const { getDb } = await import("@/db/db.server");
         const { profiles, workspaceFiles, chatMessages, workoutLogs, mealLogs, weightLogs } =
           await import("@/db/schema");
-        const { getUserFromRequest } = await import("@/lib/auth.server");
         const { workspaceTools } = await import("@/lib/workspace-tools.server");
         const { ensureAgentConfig } = await import("@/lib/workspace.server");
         const {
@@ -66,25 +148,12 @@ export const Route = createFileRoute("/api/chat")({
         const { getActiveProgram, summarizeProgram, generateProgram, adjustProgramExercise } =
           await import("@/lib/program.server");
 
-        const user = await getUserFromRequest(request);
-        if (!user) return new Response("Unauthorized", { status: 401 });
-        const userId = user.id;
-
         const db = getDb();
-        const [profile] = await db
-          .select()
-          .from(profiles)
-          .where(eq(profiles.id, userId))
-          .limit(1);
+        const [profile] = await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1);
         const coachName = profile?.coach_gender === "female" ? "Reya" : "Rex";
 
         // Seed the agent's config tree (.agent/) on first use.
         await ensureAgentConfig(userId, coachName);
-
-        const body = (await request.json()) as Body;
-        if (!Array.isArray(body.messages)) return new Response("Bad request", { status: 400 });
-
-        if (!process.env.AI_API_KEY) return new Response("Missing AI_API_KEY", { status: 500 });
 
         const persistChatHistory = async (messages: UIMessage[]) => {
           const retained = messages.slice(-100).flatMap((message) => {
@@ -93,9 +162,7 @@ export const Route = createFileRoute("/api/chat")({
                 ? [{ type: "text" as const, text: part.text }]
                 : [],
             );
-            return textParts.length > 0
-              ? [{ role: message.role, parts: textParts }]
-              : [];
+            return textParts.length > 0 ? [{ role: message.role, parts: textParts }] : [];
           });
           const createdAt = Date.now();
 
@@ -413,19 +480,30 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
           inputSchema: z.object({
             mode: z
               .enum(["weekday", "rolling"])
-              .describe("'weekday' = fixed days of the week. 'rolling' = label-free 'Day 1..N' the user slots in as they go, crossover between weeks is fine."),
-            sessions_per_week: z.number().int().describe("How many training sessions per week (e.g. 4)."),
+              .describe(
+                "'weekday' = fixed days of the week. 'rolling' = label-free 'Day 1..N' the user slots in as they go, crossover between weeks is fine.",
+              ),
+            sessions_per_week: z
+              .number()
+              .int()
+              .describe("How many training sessions per week (e.g. 4)."),
             days: z.array(
               z.object({
                 label: z
                   .string()
-                  .describe("For weekday mode: 'Mon'..'Sun'. For rolling mode: 'Day 1', 'Day 2', ..."),
+                  .describe(
+                    "For weekday mode: 'Mon'..'Sun'. For rolling mode: 'Day 1', 'Day 2', ...",
+                  ),
                 focus: z.string().describe("e.g. 'Upper (push)', 'Rest', 'Legs', 'Yoga'"),
                 time_of_day: z.string().describe("e.g. 'morning', '17:30', 'flexible'"),
               }),
             ),
             session_minutes: z.number().int(),
-            notes: z.string().describe("Constraints or preferences, e.g. 'flexible order, crossover between weeks is fine'"),
+            notes: z
+              .string()
+              .describe(
+                "Constraints or preferences, e.g. 'flexible order, crossover between weeks is fine'",
+              ),
           }),
           execute: async (input) => {
             const rows = input.days
@@ -451,7 +529,8 @@ ${input.notes}
             return {
               ok: true,
               path: "schedule/current.md",
-              next_step: "Tell the user the schedule is saved and visible in Settings. Then pitch the best workout-plan template in 2–3 sentences and ask if they want to run it.",
+              next_step:
+                "Tell the user the schedule is saved and visible in Settings. Then pitch the best workout-plan template in 2–3 sentences and ask if they want to run it.",
             };
           },
         });
@@ -490,7 +569,8 @@ ${input.notes}
             return {
               ok: true,
               path: "nutrition/targets.md",
-              next_step: "Tell the user the nutrition targets are saved and visible in Settings, and that their setup is complete.",
+              next_step:
+                "Tell the user the nutrition targets are saved and visible in Settings, and that their setup is complete.",
             };
           },
         });
@@ -620,7 +700,10 @@ ${input.notes}
           description:
             "Start a LIVE workout session with realism guardrails (one session/day, program-aware). If today has a program day, call with NO exercises — it auto-loads them with per-set targets. For ad-hoc sessions pass an explicit list. If refused, relay the coach_note like a real coach; pass override_reason ONLY when the user gives a genuine real-world reason.",
           inputSchema: z.object({
-            title: z.string().nullable().describe("Optional override title; defaults to the program day"),
+            title: z
+              .string()
+              .nullable()
+              .describe("Optional override title; defaults to the program day"),
             exercises: z
               .array(
                 z.object({
@@ -633,7 +716,10 @@ ${input.notes}
               )
               .nullable()
               .describe("Only for ad-hoc sessions; null to use today's program day"),
-            override_reason: z.string().nullable().describe("Real-world justification to bypass a guardrail; null normally"),
+            override_reason: z
+              .string()
+              .nullable()
+              .describe("Real-world justification to bypass a guardrail; null normally"),
           }),
           execute: async ({ title, exercises, override_reason }) => {
             const r = await startSession(userId, {
@@ -671,7 +757,10 @@ ${input.notes}
           description:
             "Complete the active workout session. Enforces duration realism — a planned session finished implausibly fast is refused; relay the coach_note and ask what actually happened. Pass override_reason only for genuine explanations (e.g. trained offline earlier).",
           inputSchema: z.object({
-            override_reason: z.string().nullable().describe("Genuine reason to accept an implausible duration; null normally"),
+            override_reason: z
+              .string()
+              .nullable()
+              .describe("Genuine reason to accept an implausible duration; null normally"),
           }),
           execute: async ({ override_reason }) => {
             const r = await completeSession(userId, {
@@ -707,8 +796,14 @@ ${input.notes}
                         name: z.string(),
                         sets: z.number().int(),
                         rep_range: z.string().describe("e.g. '6–8'"),
-                        start_weight_kg: z.number().nullable().describe("From calc_starting_weights; null for bodyweight"),
-                        increment_kg: z.number().nullable().describe("Progression step, e.g. 2.5 upper / 5 lower"),
+                        start_weight_kg: z
+                          .number()
+                          .nullable()
+                          .describe("From calc_starting_weights; null for bodyweight"),
+                        increment_kg: z
+                          .number()
+                          .nullable()
+                          .describe("Progression step, e.g. 2.5 upper / 5 lower"),
                         increment_every_weeks: z.number().int().nullable().describe("Default 2"),
                         notes: z.string().nullable(),
                       }),
@@ -768,11 +863,20 @@ ${input.notes}
           description:
             "Calculate a systematic mesocycle structure for a training program. Given a goal, timeline in weeks, days/week and experience, returns weekly phases (accumulation / intensification / deload / peak), volume+intensity targets per phase, and realistic progression rate toward the goal. ALWAYS call this before writing a plan — do not invent progression numbers.",
           inputSchema: z.object({
-            goal: z.string().describe("hypertrophy | strength | fat_loss | powerlifting | bodybuilding | general | glute_focus | hybrid — free-form, can combine with ' + '"),
+            goal: z
+              .string()
+              .describe(
+                "hypertrophy | strength | fat_loss | powerlifting | bodybuilding | general | glute_focus | hybrid — free-form, can combine with ' + '",
+              ),
             timeline_weeks: z.number().int().min(2).max(104),
             days_per_week: z.number().int().min(1).max(7),
             experience: z.string().describe("beginner | intermediate | advanced"),
-            target: z.string().nullable().describe("Concrete target if given, e.g. '+4kg lean mass', 'bench 100kg', '-8kg fat'"),
+            target: z
+              .string()
+              .nullable()
+              .describe(
+                "Concrete target if given, e.g. '+4kg lean mass', 'bench 100kg', '-8kg fat'",
+              ),
           }),
           execute: ({ goal, timeline_weeks, days_per_week, experience, target }) => {
             const exp = experience.toLowerCase();
@@ -787,21 +891,44 @@ ${input.notes}
             for (let w = deloadEvery; w < timeline_weeks; w += deloadEvery) deloadWeeks.push(w);
 
             // Build mesocycle phases
-            const phases: Array<{ weeks: string; name: string; volume: string; intensity_rpe: string; focus: string }> = [];
+            const phases: Array<{
+              weeks: string;
+              name: string;
+              volume: string;
+              intensity_rpe: string;
+              focus: string;
+            }> = [];
             let cursor = 1;
             const totalMesos = Math.max(1, Math.floor(timeline_weeks / deloadEvery));
             for (let m = 0; m < totalMesos; m++) {
               const end = Math.min(cursor + deloadEvery - 2, timeline_weeks - 1);
               const phaseName =
-                m === totalMesos - 1 && isStrength ? "peak / intensification"
-                : m % 2 === 0 ? "accumulation"
-                : "intensification";
+                m === totalMesos - 1 && isStrength
+                  ? "peak / intensification"
+                  : m % 2 === 0
+                    ? "accumulation"
+                    : "intensification";
               phases.push({
                 weeks: `${cursor}–${end}`,
                 name: phaseName,
-                volume: phaseName === "accumulation" ? "high (MEV→MAV)" : phaseName.includes("peak") ? "low" : "moderate",
-                intensity_rpe: phaseName === "accumulation" ? "7–8" : phaseName.includes("peak") ? "8.5–9.5" : "8–9",
-                focus: phaseName === "accumulation" ? "add sets/reps weekly" : phaseName.includes("peak") ? "top-set load, drop volume" : "load ↑, volume ↓",
+                volume:
+                  phaseName === "accumulation"
+                    ? "high (MEV→MAV)"
+                    : phaseName.includes("peak")
+                      ? "low"
+                      : "moderate",
+                intensity_rpe:
+                  phaseName === "accumulation"
+                    ? "7–8"
+                    : phaseName.includes("peak")
+                      ? "8.5–9.5"
+                      : "8–9",
+                focus:
+                  phaseName === "accumulation"
+                    ? "add sets/reps weekly"
+                    : phaseName.includes("peak")
+                      ? "top-set load, drop volume"
+                      : "load ↑, volume ↓",
               });
               if (end + 1 < timeline_weeks) {
                 phases.push({
@@ -827,14 +954,18 @@ ${input.notes}
             // Realistic progression rate
             let realistic_rate = "";
             if (isHyper) {
-              const perMonth = exp.includes("beginner") ? "0.7–1.0 kg lean/month"
-                : exp.includes("intermediate") ? "0.3–0.5 kg lean/month"
-                : "0.1–0.25 kg lean/month";
+              const perMonth = exp.includes("beginner")
+                ? "0.7–1.0 kg lean/month"
+                : exp.includes("intermediate")
+                  ? "0.3–0.5 kg lean/month"
+                  : "0.1–0.25 kg lean/month";
               realistic_rate = `Lean mass gain: ${perMonth}. Over ${timeline_weeks} wks ≈ ${(timeline_weeks / 4).toFixed(1)} months.`;
             } else if (isStrength) {
-              const perMeso = exp.includes("beginner") ? "+10–20 kg squat, +5–10 kg bench per 12 wks"
-                : exp.includes("intermediate") ? "+5–10 kg squat, +2.5–5 kg bench per 12 wks"
-                : "+2.5–5 kg squat, +1–2.5 kg bench per 12 wks";
+              const perMeso = exp.includes("beginner")
+                ? "+10–20 kg squat, +5–10 kg bench per 12 wks"
+                : exp.includes("intermediate")
+                  ? "+5–10 kg squat, +2.5–5 kg bench per 12 wks"
+                  : "+2.5–5 kg squat, +1–2.5 kg bench per 12 wks";
               realistic_rate = `Strength: ${perMeso}.`;
             } else if (isFatLoss) {
               realistic_rate = `Fat loss: 0.5–1% bodyweight/wk sustainable. Over ${timeline_weeks} wks ≈ ${(timeline_weeks * 0.5).toFixed(0)}–${(timeline_weeks * 1).toFixed(0)}% BW.`;
@@ -845,7 +976,8 @@ ${input.notes}
               main_lifts: isStrength
                 ? "Top-set +2.5 kg upper / +5 kg lower each session it hits target reps @ RPE ≤ 8."
                 : "When all sets hit top of rep range for 2 sessions in a row: +2.5 kg upper / +5 kg lower.",
-              accessories: "Add 1 rep/session until top of range, then +2.5 kg and reset to bottom of range.",
+              accessories:
+                "Add 1 rep/session until top of range, then +2.5 kg and reset to bottom of range.",
               weekly_volume: isHyper
                 ? "Add ~1 working set per major muscle per week within a mesocycle, reset at deload."
                 : "Sets fixed within mesocycle; intensity waves handle progression.",
@@ -871,12 +1003,23 @@ ${input.notes}
             sex: z.string(),
             bodyweight_kg: z.number(),
             experience: z.string(),
-            lifts: z.array(z.enum([
-              "back_squat", "front_squat", "hack_squat", "leg_press",
-              "deadlift", "romanian_deadlift", "hip_thrust",
-              "bench_press", "incline_bench", "overhead_press",
-              "barbell_row", "pull_up", "lat_pulldown",
-            ])),
+            lifts: z.array(
+              z.enum([
+                "back_squat",
+                "front_squat",
+                "hack_squat",
+                "leg_press",
+                "deadlift",
+                "romanian_deadlift",
+                "hip_thrust",
+                "bench_press",
+                "incline_bench",
+                "overhead_press",
+                "barbell_row",
+                "pull_up",
+                "lat_pulldown",
+              ]),
+            ),
           }),
           execute: ({ sex, bodyweight_kg, experience, lifts }) => {
             const s = sex.toLowerCase();
@@ -884,16 +1027,34 @@ ${input.notes}
             const exp = experience.toLowerCase();
             // Multipliers = fraction of bodyweight for a working set (~RPE 7-8, ~5-8 reps)
             const baseMale: Record<string, number> = {
-              back_squat: 1.0, front_squat: 0.75, hack_squat: 1.1, leg_press: 2.0,
-              deadlift: 1.25, romanian_deadlift: 1.0, hip_thrust: 1.3,
-              bench_press: 0.8, incline_bench: 0.65, overhead_press: 0.5,
-              barbell_row: 0.75, pull_up: 0, lat_pulldown: 0.6,
+              back_squat: 1.0,
+              front_squat: 0.75,
+              hack_squat: 1.1,
+              leg_press: 2.0,
+              deadlift: 1.25,
+              romanian_deadlift: 1.0,
+              hip_thrust: 1.3,
+              bench_press: 0.8,
+              incline_bench: 0.65,
+              overhead_press: 0.5,
+              barbell_row: 0.75,
+              pull_up: 0,
+              lat_pulldown: 0.6,
             };
             const baseFemale: Record<string, number> = {
-              back_squat: 0.7, front_squat: 0.5, hack_squat: 0.8, leg_press: 1.5,
-              deadlift: 0.9, romanian_deadlift: 0.75, hip_thrust: 1.2,
-              bench_press: 0.4, incline_bench: 0.32, overhead_press: 0.28,
-              barbell_row: 0.45, pull_up: 0, lat_pulldown: 0.4,
+              back_squat: 0.7,
+              front_squat: 0.5,
+              hack_squat: 0.8,
+              leg_press: 1.5,
+              deadlift: 0.9,
+              romanian_deadlift: 0.75,
+              hip_thrust: 1.2,
+              bench_press: 0.4,
+              incline_bench: 0.32,
+              overhead_press: 0.28,
+              barbell_row: 0.45,
+              pull_up: 0,
+              lat_pulldown: 0.4,
             };
             const scale = exp.includes("beginner") ? 0.55 : exp.includes("advanced") ? 1.15 : 0.85;
             const table = isMale ? baseMale : baseFemale;
@@ -904,9 +1065,10 @@ ${input.notes}
               const rounded = Math.max(20, Math.round(raw / 2.5) * 2.5);
               out[lift] = {
                 working_kg: rounded,
-                note: lift === "pull_up"
-                  ? "Bodyweight; use assist band if <5 reps, add weight if >10."
-                  : `~${(mult * scale).toFixed(2)}× bodyweight, working set @ RPE 7–8, 5–8 reps.`,
+                note:
+                  lift === "pull_up"
+                    ? "Bodyweight; use assist band if <5 reps, add weight if >10."
+                    : `~${(mult * scale).toFixed(2)}× bodyweight, working set @ RPE 7–8, 5–8 reps.`,
               };
             }
             return { ok: true, sex, bodyweight_kg, experience, weights: out };
@@ -918,62 +1080,200 @@ ${input.notes}
             "Get 2-3 concrete substitute exercises for a lift the user dislikes or can't do. Returns options with equipment need + trade-off. ALWAYS use this before swapping an exercise — never lazy-swap or silently drop.",
           inputSchema: z.object({
             exercise: z.string().describe("Exercise to replace, e.g. 'back squat'"),
-            reason: z.string().describe("dislike | boredom | injury:<area> | no_equipment:<what> | form_issue"),
+            reason: z
+              .string()
+              .describe("dislike | boredom | injury:<area> | no_equipment:<what> | form_issue"),
           }),
           execute: ({ exercise, reason }) => {
-            const key = exercise.toLowerCase().replace(/[^a-z ]/g, "").trim();
-            const map: Record<string, Array<{ name: string; equipment: string; tradeoff: string }>> = {
+            const key = exercise
+              .toLowerCase()
+              .replace(/[^a-z ]/g, "")
+              .trim();
+            const map: Record<
+              string,
+              Array<{ name: string; equipment: string; tradeoff: string }>
+            > = {
               "back squat": [
-                { name: "Hack squat", equipment: "hack squat machine", tradeoff: "Quad-biased, easier on lower back, less core." },
-                { name: "Front squat", equipment: "barbell + rack", tradeoff: "Quad-biased, upright torso, wrist mobility needed." },
-                { name: "Belt squat", equipment: "belt squat machine", tradeoff: "Zero spinal load, great for back-sensitive lifters." },
-                { name: "Bulgarian split squat + heavy leg press combo", equipment: "DBs + leg press", tradeoff: "Unilateral + machine — matches BB squat volume without the bar." },
+                {
+                  name: "Hack squat",
+                  equipment: "hack squat machine",
+                  tradeoff: "Quad-biased, easier on lower back, less core.",
+                },
+                {
+                  name: "Front squat",
+                  equipment: "barbell + rack",
+                  tradeoff: "Quad-biased, upright torso, wrist mobility needed.",
+                },
+                {
+                  name: "Belt squat",
+                  equipment: "belt squat machine",
+                  tradeoff: "Zero spinal load, great for back-sensitive lifters.",
+                },
+                {
+                  name: "Bulgarian split squat + heavy leg press combo",
+                  equipment: "DBs + leg press",
+                  tradeoff: "Unilateral + machine — matches BB squat volume without the bar.",
+                },
               ],
-              "deadlift": [
-                { name: "Trap-bar deadlift", equipment: "trap bar", tradeoff: "More quad, easier on lower back, similar posterior chain." },
-                { name: "Romanian deadlift + heavy back extension", equipment: "barbell / GHR", tradeoff: "Hamstring/glute focus, less axial load." },
-                { name: "Rack pull (mid-shin)", equipment: "barbell + rack", tradeoff: "Heavier loads, shorter ROM, back-focused." },
-                { name: "Sumo deadlift", equipment: "barbell", tradeoff: "Shorter ROM, more adductor/glute, less lower back." },
+              deadlift: [
+                {
+                  name: "Trap-bar deadlift",
+                  equipment: "trap bar",
+                  tradeoff: "More quad, easier on lower back, similar posterior chain.",
+                },
+                {
+                  name: "Romanian deadlift + heavy back extension",
+                  equipment: "barbell / GHR",
+                  tradeoff: "Hamstring/glute focus, less axial load.",
+                },
+                {
+                  name: "Rack pull (mid-shin)",
+                  equipment: "barbell + rack",
+                  tradeoff: "Heavier loads, shorter ROM, back-focused.",
+                },
+                {
+                  name: "Sumo deadlift",
+                  equipment: "barbell",
+                  tradeoff: "Shorter ROM, more adductor/glute, less lower back.",
+                },
               ],
               "bench press": [
-                { name: "Dumbbell bench press", equipment: "DBs + bench", tradeoff: "Bigger ROM, shoulder-friendly, less absolute load." },
-                { name: "Low-incline barbell bench", equipment: "BB + adjustable bench", tradeoff: "Shifts stress off shoulder, still heavy." },
-                { name: "Machine chest press", equipment: "chest press machine", tradeoff: "Fixed path, safe to failure, less stabilizer work." },
-                { name: "Weighted dips", equipment: "dip station + belt", tradeoff: "Great chest+tri, only if shoulders are healthy." },
+                {
+                  name: "Dumbbell bench press",
+                  equipment: "DBs + bench",
+                  tradeoff: "Bigger ROM, shoulder-friendly, less absolute load.",
+                },
+                {
+                  name: "Low-incline barbell bench",
+                  equipment: "BB + adjustable bench",
+                  tradeoff: "Shifts stress off shoulder, still heavy.",
+                },
+                {
+                  name: "Machine chest press",
+                  equipment: "chest press machine",
+                  tradeoff: "Fixed path, safe to failure, less stabilizer work.",
+                },
+                {
+                  name: "Weighted dips",
+                  equipment: "dip station + belt",
+                  tradeoff: "Great chest+tri, only if shoulders are healthy.",
+                },
               ],
               "overhead press": [
-                { name: "Seated DB shoulder press", equipment: "DBs + bench", tradeoff: "Bigger ROM, less lower-back stress." },
-                { name: "Landmine press", equipment: "landmine / corner", tradeoff: "Shoulder-friendly angle, great for impingement." },
-                { name: "Machine shoulder press", equipment: "machine", tradeoff: "Stable, easy to progress." },
+                {
+                  name: "Seated DB shoulder press",
+                  equipment: "DBs + bench",
+                  tradeoff: "Bigger ROM, less lower-back stress.",
+                },
+                {
+                  name: "Landmine press",
+                  equipment: "landmine / corner",
+                  tradeoff: "Shoulder-friendly angle, great for impingement.",
+                },
+                {
+                  name: "Machine shoulder press",
+                  equipment: "machine",
+                  tradeoff: "Stable, easy to progress.",
+                },
               ],
               "barbell row": [
-                { name: "Chest-supported T-bar row", equipment: "T-bar / chest-supported machine", tradeoff: "Zero lower-back load, pure back." },
-                { name: "Seal row", equipment: "bench + BB", tradeoff: "Fully supported, strict, great hypertrophy." },
-                { name: "Single-arm DB row", equipment: "DB + bench", tradeoff: "Unilateral, low back-friendly." },
+                {
+                  name: "Chest-supported T-bar row",
+                  equipment: "T-bar / chest-supported machine",
+                  tradeoff: "Zero lower-back load, pure back.",
+                },
+                {
+                  name: "Seal row",
+                  equipment: "bench + BB",
+                  tradeoff: "Fully supported, strict, great hypertrophy.",
+                },
+                {
+                  name: "Single-arm DB row",
+                  equipment: "DB + bench",
+                  tradeoff: "Unilateral, low back-friendly.",
+                },
               ],
               "pull up": [
-                { name: "Lat pulldown", equipment: "cable stack", tradeoff: "Scalable load, same movement pattern." },
-                { name: "Assisted pull-up (band or machine)", equipment: "band or assist machine", tradeoff: "Same movement, progresses to bodyweight." },
-                { name: "Inverted row", equipment: "bar or rings", tradeoff: "Horizontal pull, easier scaling." },
+                {
+                  name: "Lat pulldown",
+                  equipment: "cable stack",
+                  tradeoff: "Scalable load, same movement pattern.",
+                },
+                {
+                  name: "Assisted pull-up (band or machine)",
+                  equipment: "band or assist machine",
+                  tradeoff: "Same movement, progresses to bodyweight.",
+                },
+                {
+                  name: "Inverted row",
+                  equipment: "bar or rings",
+                  tradeoff: "Horizontal pull, easier scaling.",
+                },
               ],
-              "lunges": [
-                { name: "Bulgarian split squat", equipment: "bench + DBs", tradeoff: "More stable, higher load, brutal on quads/glutes." },
-                { name: "Reverse lunges", equipment: "DBs", tradeoff: "Less knee stress than forward lunges." },
-                { name: "Step-ups", equipment: "box + DBs", tradeoff: "Knee-friendly, glute-biased with high step." },
+              lunges: [
+                {
+                  name: "Bulgarian split squat",
+                  equipment: "bench + DBs",
+                  tradeoff: "More stable, higher load, brutal on quads/glutes.",
+                },
+                {
+                  name: "Reverse lunges",
+                  equipment: "DBs",
+                  tradeoff: "Less knee stress than forward lunges.",
+                },
+                {
+                  name: "Step-ups",
+                  equipment: "box + DBs",
+                  tradeoff: "Knee-friendly, glute-biased with high step.",
+                },
               ],
               "hip thrust": [
-                { name: "Single-leg hip thrust", equipment: "bench", tradeoff: "Unilateral, no bar needed." },
-                { name: "Cable pull-through", equipment: "cable + rope", tradeoff: "Hip-hinge glute pattern, low back-friendly." },
-                { name: "45° back extension (glute bias)", equipment: "back-ext bench", tradeoff: "Glute+hamstring, huge ROM." },
-                { name: "Machine glute drive", equipment: "glute drive machine", tradeoff: "Best of both — set up fast, heavy load." },
+                {
+                  name: "Single-leg hip thrust",
+                  equipment: "bench",
+                  tradeoff: "Unilateral, no bar needed.",
+                },
+                {
+                  name: "Cable pull-through",
+                  equipment: "cable + rope",
+                  tradeoff: "Hip-hinge glute pattern, low back-friendly.",
+                },
+                {
+                  name: "45° back extension (glute bias)",
+                  equipment: "back-ext bench",
+                  tradeoff: "Glute+hamstring, huge ROM.",
+                },
+                {
+                  name: "Machine glute drive",
+                  equipment: "glute drive machine",
+                  tradeoff: "Best of both — set up fast, heavy load.",
+                },
               ],
             };
             const options = map[key] ?? [
-              { name: "Machine variant of the same pattern", equipment: "any relevant machine", tradeoff: "Fixed path, easier progression." },
-              { name: "Dumbbell variant", equipment: "DBs", tradeoff: "Bigger ROM, unilateral option." },
-              { name: "Unilateral variant", equipment: "varies", tradeoff: "Fixes imbalances, less absolute load." },
+              {
+                name: "Machine variant of the same pattern",
+                equipment: "any relevant machine",
+                tradeoff: "Fixed path, easier progression.",
+              },
+              {
+                name: "Dumbbell variant",
+                equipment: "DBs",
+                tradeoff: "Bigger ROM, unilateral option.",
+              },
+              {
+                name: "Unilateral variant",
+                equipment: "varies",
+                tradeoff: "Fixes imbalances, less absolute load.",
+              },
             ];
-            return { ok: true, exercise, reason, options, note: "Ask the user which they prefer and confirm they have the equipment before locking it in." };
+            return {
+              ok: true,
+              exercise,
+              reason,
+              options,
+              note: "Ask the user which they prefer and confirm they have the equipment before locking it in.",
+            };
           },
         });
 
@@ -983,17 +1283,32 @@ ${input.notes}
           inputSchema: z.object({
             start_date: z.string().describe("YYYY-MM-DD of original plan start"),
             timeline_weeks: z.number().int().min(2).max(104),
-            skip_weeks: z.number().int().min(0).describe("How many weeks the user is skipping starting this week"),
+            skip_weeks: z
+              .number()
+              .int()
+              .min(0)
+              .describe("How many weeks the user is skipping starting this week"),
             insert_deload: z.boolean().describe("Insert an extra deload this week"),
             days_per_week: z.number().int().min(1).max(7),
             experience: z.string(),
           }),
-          execute: ({ start_date, timeline_weeks, skip_weeks, insert_deload, days_per_week, experience }) => {
+          execute: ({
+            start_date,
+            timeline_weeks,
+            skip_weeks,
+            insert_deload,
+            days_per_week,
+            experience,
+          }) => {
             const start = new Date(start_date);
             const shift = skip_weeks + (insert_deload ? 1 : 0);
             const newTotal = timeline_weeks + shift;
             const end = new Date(start.getTime() + newTotal * 7 * 86400000);
-            const deloadEvery = experience.toLowerCase().includes("advanced") ? 4 : experience.toLowerCase().includes("intermediate") ? 5 : 6;
+            const deloadEvery = experience.toLowerCase().includes("advanced")
+              ? 4
+              : experience.toLowerCase().includes("intermediate")
+                ? 5
+                : 6;
             const deloadWeeks: number[] = [];
             for (let w = deloadEvery; w < newTotal; w += deloadEvery) deloadWeeks.push(w);
             return {
@@ -1003,11 +1318,12 @@ ${input.notes}
               added_weeks: shift,
               deload_weeks: deloadWeeks,
               total_sessions: days_per_week * newTotal,
-              note: skip_weeks > 0
-                ? `Skipping ${skip_weeks} wk → shift everything forward. When you resume, restart at RPE −1 for the first week to re-acclimate.`
-                : insert_deload
-                ? "Extra deload added — treat this week as -40% volume, RPE 6."
-                : "No change.",
+              note:
+                skip_weeks > 0
+                  ? `Skipping ${skip_weeks} wk → shift everything forward. When you resume, restart at RPE −1 for the first week to re-acclimate.`
+                  : insert_deload
+                    ? "Extra deload added — treat this week as -40% volume, RPE 6."
+                    : "No change.",
             };
           },
         });
@@ -1046,7 +1362,7 @@ ${input.notes}
             shift_schedule_weeks: shiftScheduleWeeksTool,
           },
 
-          stopWhen: stepCountIs(50),
+          stopWhen: stepCountIs(25),
         });
 
         return result.toUIMessageStreamResponse({
