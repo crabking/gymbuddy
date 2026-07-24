@@ -3,13 +3,25 @@
 Help the user plan meals and estimate macros. Always consult stored preferences first.
 
 ## Steps
+
 1. Use live profile `meal_preferences` first. If `nutrition/targets.md` exists, read it before giving macro advice.
 2. `read_file` `nutrition/targets.md` if it exists (calorie/protein targets).
 3. When the user asks for meal ideas, produce 3 concrete options that fit their preferences, with rough macros each.
 4. When they pick or describe a meal, call `log_meal` with best-effort macros (midpoints of ranges; state assumptions in `description`).
 
 ## Targets
-If the user asks to set/change targets, gather bodyweight, goal, diet style, meals per day, dislikes, and calorie preference. Then save with `save_nutrition_targets` so it appears in Settings:
+
+If the user asks to set/change targets, age, sex, height, bodyweight, daily movement,
+and goal direction are mandatory. Ask daily movement as:
+
+- `sedentary` — mostly sitting outside training
+- `moderate` — regular walking or on feet for part of the day
+- `high` — physical job or high daily movement
+
+Save it as `activity_level`. Gather diet style, meals per day, dislikes, and any calorie
+preference. Call `calc_nutrition_targets` before saving—never estimate calories mentally.
+Then save the calculator-grounded values with `save_nutrition_targets`:
+
 ```
 # Nutrition targets — from YYYY-MM-DD
 - Calories: 2600 / day
@@ -19,4 +31,5 @@ If the user asks to set/change targets, gather bodyweight, goal, diet style, mea
 ```
 
 ## Meal photos
+
 If the user sends a photo, estimate portion and macros, state your assumption, log it, and ask for a quick correction.

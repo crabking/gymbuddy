@@ -287,6 +287,9 @@ export const Route = createFileRoute("/api/chat")({
           height_cm: profile?.height_cm ?? null,
           weight_kg: profile?.weight_kg ?? null,
           sex: profile?.sex ?? null,
+          preferred_language: profile?.preferred_language ?? null,
+          daily_movement: profile?.activity_level ?? null,
+          recent_training_baseline: profile?.recent_training_baseline ?? null,
           diet_style: profile?.diet_style ?? null,
           schedule_note: profile?.schedule_note ?? null,
           meal_preferences_short: profile?.meal_preferences ?? null,
@@ -313,6 +316,15 @@ Before every visible reply, silently ask: "Could this response unmistakably come
 ${coachName}, even with the name removed?" If not, rewrite it in character. Safety and
 factual accuracy always remain intact, but you express them in ${coachName}'s own voice.
 
+## LANGUAGE
+The user's saved language is \`${profile?.preferred_language ?? "not chosen yet"}\`.
+- \`sv\`: speak natural Swedish while preserving ${coachName}'s full personality.
+- \`en\`: speak English.
+- During onboarding, if no language is saved, ask "English or svenska?" before any
+  other setup question and save the answer immediately.
+- If the user explicitly asks to switch language later, follow them and update
+  \`preferred_language\`.
+
 You are an AGENT, not a chatbot. You have:
 - A per-user WORKSPACE — a private, persistent file tree you fully control. Operate in it like a coding agent in a repo: \`fs_ls\`, \`fs_read\`, \`fs_write\`, \`fs_edit\`, \`fs_append\`, \`fs_move\`, \`fs_delete\`, \`fs_grep\`. Your own config lives under \`.agent/\`. Read a file before referencing it — never guess. The typed save tools below are convenient shortcuts for the standard coaching files.
 - SKILLS you load on demand with \`load_skill\`. Load the right skill BEFORE starting a workflow.
@@ -329,10 +341,11 @@ You are an AGENT, not a chatbot. You have:
 
 ## Plan-proposal protocol (CRITICAL — do NOT skip)
 When the user asks for a workout plan, or you're recommending one, you MUST go step-by-step. Do NOT jump straight to writing the plan.
-1. **Pitch (TLDR, 2–3 sentences MAX).** Name the plan (e.g. "Upper/Lower 4-day"), one line on why it fits them, one line on the vibe (frequency + focus). End with a yes/no: "Want to run this one?" Do NOT list exercises, sets, reps, or weights yet.
-2. **If yes → ask duration.** One question only: "How long do you want to run it — 8, 12, or 16 weeks?" (Adjust options to their goal.) Wait for the answer.
-3. **Ask anything else you still need** (bodyweight for starting loads, equipment gaps, injuries) — one short question at a time. Never a wall of questions.
-4. **THEN build.** Load \`workout-planner\`, call the calculators, then call \`generate_program\` with the full week template — the engine materializes EVERY dated week/day/exercise into the Program tab. Reply with a TLDR summary only ("Program's live — 16 weeks, 4 days, deloads week 5 and 10. Check the Program tab. Ready for Monday?"). Do NOT paste the full plan in chat.
+1. **Baseline before pitch.** If recent_training_baseline is missing, ask for one or two recent workouts (weights, sets × reps, length, frequency, difficulty). Save it. If none, save the explicit conservative-baseline note. Never guess.
+2. **Pitch (TLDR, 2–3 sentences MAX).** Name the plan (e.g. "Upper/Lower 4-day"), one line on why it fits their schedule and recent workload, one line on the vibe (frequency + focus). End with a yes/no: "Want to run this one?" Do NOT list exercises, sets, reps, or weights yet.
+3. **If yes → ask duration.** One question only: "How long do you want to run it — 8, 12, or 16 weeks?" (Adjust options to their goal.) Wait for the answer.
+4. **Ask anything else you still need** (bodyweight for starting loads, equipment gaps, injuries) — one short question at a time. Never a wall of questions.
+5. **THEN build.** Load \`workout-planner\`, call the calculators with any reported recent working sets, then call \`generate_program\` with the full week template — the engine materializes EVERY dated week/day/exercise into the Program tab. Reply with a TLDR summary only ("Program's live — 16 weeks, 4 days, deloads week 5 and 10. Check the Program tab. Ready for Monday?"). Do NOT paste the full plan in chat.
 
 Same idea for meals, schedules, memories: pitch briefly → confirm → gather what's missing → then act. Never surprise-dump.
 
@@ -348,9 +361,9 @@ Current build checklist from workspace:
 
 ## Typed save tools — pre-flight checklist (CRITICAL)
 Each save tool below has REQUIRED fields. You cannot call them until every field is filled from real user data. If ANY field is missing, ASK THE USER (one short question at a time) — never guess, never pass placeholders, never say "I'll figure it out". These are your checklists:
-- **generate_program** → needs: name, goal, experience, start_date, weeks, session_minutes, deload_weeks (from calc_program_timeline), progression_rules, why, and week_template (one full week: per-day title/focus + exercises with sets, rep_range, start_weight_kg from calc_starting_weights, increment_kg, increment_every_weeks).
+- **generate_program** → needs: name, goal, experience, recent_training_baseline, start_date, weeks, session_minutes, deload_weeks (from calc_program_timeline), progression_rules, why, and week_template (one full week: per-day title/focus + exercises with sets, rep_range, start_weight_kg grounded by recent workouts and calc_starting_weights, increment_kg, increment_every_weeks).
 - **save_schedule** → needs: mode ('weekday' OR 'rolling'), sessions_per_week, days[] (label + focus + time_of_day), session_minutes, notes. Default to 'rolling' with labels 'Day 1', 'Day 2'... unless the user explicitly wants fixed weekdays. Rolling is label-free — the user slots sessions in as they go and crossover between weeks is fine.
-- **save_nutrition_targets** → needs: daily_calories, protein_g, carbs_g, fat_g, meals_per_day, diet_style, dislikes, notes.
+- **save_nutrition_targets** → first needs age, sex, height, bodyweight, daily_movement (sedentary|moderate|high), and goal_direction. Call \`calc_nutrition_targets\`, then save its grounded calories/macros plus meals_per_day, diet_style, dislikes, and notes.
 
 Rule: before ANY save call, mentally tick every required field. Missing one? Ask for it. Only call the tool when the checklist is 100% complete.
 
@@ -547,7 +560,7 @@ ${input.notes}
 
         const saveNutritionTargetsTool = tool({
           description:
-            "Save the user's nutrition targets to nutrition/targets.md. Every field REQUIRED. Ask the user for anything missing (bodyweight, activity, goal, diet style) before calling.",
+            "Save the user's nutrition targets. Every field is required and calories/macros must come from calc_nutrition_targets using confirmed age, sex, height, bodyweight, daily movement and goal direction.",
           inputSchema: z.object({
             daily_calories: z.number().int(),
             protein_g: z.number().int(),
@@ -580,7 +593,7 @@ ${input.notes}
               ok: true,
               path: "nutrition/targets.md",
               next_step:
-                "Tell the user the nutrition targets are saved and visible in Settings, and that their setup is complete.",
+                "Tell the user the nutrition targets are saved, and that their setup is complete.",
             };
           },
         });
@@ -598,7 +611,7 @@ ${input.notes}
 
         const updateProfileTool = tool({
           description:
-            "Save live user state (name, goal, physical stats, preferences). Only pass fields the user confirmed. goal accepts MULTIPLE goals joined with ' + '. Standard tokens: equipment (full_gym|home_gym|dumbbells_only|bodyweight), sex (male|female|other), diet_style (omnivore|vegetarian|vegan|pescatarian|other), experience (beginner|intermediate|advanced).",
+            "Save live user state (name, goal, physical stats, language, daily movement, recent training and preferences). Only pass fields the user confirmed. goal accepts MULTIPLE goals joined with ' + '. Standard tokens: preferred_language (en|sv), activity_level (sedentary|moderate|high), equipment (full_gym|home_gym|dumbbells_only|bodyweight), sex (male|female|other), diet_style (omnivore|vegetarian|vegan|pescatarian|other), experience (beginner|intermediate|advanced).",
           inputSchema: z.object({
             display_name: z.string().nullable(),
             goal: z.string().nullable(),
@@ -611,6 +624,9 @@ ${input.notes}
             weight_kg: z.number().nullable(),
             age: z.number().int().nullable(),
             sex: z.string().nullable(),
+            preferred_language: z.enum(["en", "sv"]).nullable(),
+            activity_level: z.enum(["sedentary", "moderate", "high"]).nullable(),
+            recent_training_baseline: z.string().max(4000).nullable(),
             diet_style: z.string().nullable(),
             daily_calorie_target: z.number().int().nullable(),
             schedule_note: z.string().nullable(),
@@ -629,9 +645,42 @@ ${input.notes}
 
         const completeOnboardingTool = tool({
           description:
-            "Mark onboarding complete. Only after basics + schedule + meals are all saved.",
+            "Mark onboarding complete only after language, physical/calorie inputs, daily movement, recent-training baseline, schedule and meals are saved.",
           inputSchema: z.object({}),
           execute: async () => {
+            const [current] = await db
+              .select({
+                preferred_language: profiles.preferred_language,
+                display_name: profiles.display_name,
+                goal: profiles.goal,
+                experience: profiles.experience,
+                days_per_week: profiles.days_per_week,
+                session_minutes: profiles.session_minutes,
+                equipment: profiles.equipment,
+                height_cm: profiles.height_cm,
+                weight_kg: profiles.weight_kg,
+                age: profiles.age,
+                sex: profiles.sex,
+                activity_level: profiles.activity_level,
+                recent_training_baseline: profiles.recent_training_baseline,
+                schedule_note: profiles.schedule_note,
+                diet_style: profiles.diet_style,
+                meal_preferences: profiles.meal_preferences,
+                daily_calorie_target: profiles.daily_calorie_target,
+              })
+              .from(profiles)
+              .where(eq(profiles.id, userId))
+              .limit(1);
+            if (!current) return { ok: false, error: "Profile not found." };
+            const missing = Object.entries(current)
+              .filter(([, value]) => value == null || value === "")
+              .map(([key]) => key);
+            if (missing.length > 0) {
+              return {
+                ok: false,
+                error: `Onboarding is incomplete. Ask for and save: ${missing.join(", ")}.`,
+              };
+            }
             await db
               .update(profiles)
               .set({ onboarding_completed: true })
@@ -987,9 +1036,62 @@ ${input.notes}
           },
         });
 
+        const calcNutritionTargetsTool = tool({
+          description:
+            "Calculate a grounded starting calorie and macro target with Mifflin-St Jeor using age, sex, height, bodyweight and daily movement. Always use this before save_nutrition_targets; never invent calorie targets.",
+          inputSchema: z.object({
+            age: z.number().int().min(13).max(100),
+            sex: z.enum(["male", "female", "other"]),
+            height_cm: z.number().min(100).max(260),
+            weight_kg: z.number().min(30).max(300),
+            activity_level: z
+              .enum(["sedentary", "moderate", "high"])
+              .describe(
+                "sedentary = mostly sitting; moderate = regular walking/on feet part of day; high = physical job or high daily movement",
+              ),
+            goal_direction: z.enum(["lose", "maintain", "gain"]),
+          }),
+          execute: ({ age, sex, height_cm, weight_kg, activity_level, goal_direction }) => {
+            const sexAdjustment = sex === "male" ? 5 : sex === "female" ? -161 : -78;
+            const bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + sexAdjustment;
+            const activityMultiplier = {
+              sedentary: 1.2,
+              moderate: 1.5,
+              high: 1.75,
+            }[activity_level];
+            const tdee = bmr * activityMultiplier;
+            const goalMultiplier =
+              goal_direction === "lose" ? 0.85 : goal_direction === "gain" ? 1.08 : 1;
+            const dailyCalories = Math.max(1200, Math.round((tdee * goalMultiplier) / 25) * 25);
+            const proteinG = Math.min(
+              Math.round(weight_kg * 1.8),
+              Math.floor((dailyCalories * 0.35) / 4),
+            );
+            const fatG = Math.min(
+              Math.round(weight_kg * 0.8),
+              Math.floor((dailyCalories * 0.3) / 9),
+            );
+            const carbsG = Math.max(50, Math.round((dailyCalories - proteinG * 4 - fatG * 9) / 4));
+
+            return {
+              ok: true,
+              formula: "Mifflin-St Jeor",
+              inputs: { age, sex, height_cm, weight_kg, activity_level, goal_direction },
+              bmr: Math.round(bmr),
+              estimated_tdee: Math.round(tdee),
+              daily_calories: dailyCalories,
+              protein_g: proteinG,
+              carbs_g: carbsG,
+              fat_g: fatG,
+              guidance:
+                "Use as a starting estimate. Reassess against the 2–3 week bodyweight trend and real adherence.",
+            };
+          },
+        });
+
         const calcStartingWeightsTool = tool({
           description:
-            "Estimate realistic starting working weights (top set, ~RPE 7-8) for the main compound lifts based on sex, bodyweight and experience. Use this instead of guessing. Returns kg for a working set at ~5-8 reps.",
+            "Calculate realistic starting working weights (~RPE 7-8) for main lifts. Pass any recent working sets the user reported; observed performance takes priority over bodyweight estimates. Use this instead of guessing.",
           inputSchema: z.object({
             sex: z.string(),
             bodyweight_kg: z.number(),
@@ -1011,8 +1113,19 @@ ${input.notes}
                 "lat_pulldown",
               ]),
             ),
+            recent_working_sets: z
+              .array(
+                z.object({
+                  lift: z.string().describe("Canonical lift id matching a requested lift"),
+                  weight_kg: z.number().positive(),
+                  reps: z.number().int().min(1).max(50),
+                  rpe: z.number().min(1).max(10).nullable(),
+                }),
+              )
+              .max(20)
+              .default([]),
           }),
-          execute: ({ sex, bodyweight_kg, experience, lifts }) => {
+          execute: ({ sex, bodyweight_kg, experience, lifts, recent_working_sets }) => {
             const s = sex.toLowerCase();
             const isMale = s.startsWith("m");
             const exp = experience.toLowerCase();
@@ -1049,13 +1162,34 @@ ${input.notes}
             };
             const scale = exp.includes("beginner") ? 0.55 : exp.includes("advanced") ? 1.15 : 0.85;
             const table = isMale ? baseMale : baseFemale;
-            const out: Record<string, { working_kg: number; note: string }> = {};
+            const out: Record<
+              string,
+              { working_kg: number; source: "recent_workout" | "bodyweight_estimate"; note: string }
+            > = {};
             for (const lift of lifts) {
+              const observed = recent_working_sets.find((set) => set.lift === lift);
+              if (observed) {
+                const estimatedOneRepMax =
+                  observed.weight_kg * (1 + Math.min(observed.reps, 15) / 30);
+                const repAdjusted =
+                  observed.reps >= 5 && observed.reps <= 8
+                    ? observed.weight_kg
+                    : estimatedOneRepMax * 0.75;
+                const effortAdjustment =
+                  observed.rpe == null || observed.rpe <= 8 ? 1 : observed.rpe >= 9.5 ? 0.9 : 0.95;
+                out[lift] = {
+                  working_kg: Math.max(0, Math.round((repAdjusted * effortAdjustment) / 2.5) * 2.5),
+                  source: "recent_workout",
+                  note: `Grounded in ${observed.weight_kg}kg × ${observed.reps}${observed.rpe ? ` @ RPE ${observed.rpe}` : ""}; start conservatively and adjust from live performance.`,
+                };
+                continue;
+              }
               const mult = table[lift] ?? 0.5;
               const raw = mult * bodyweight_kg * scale;
-              const rounded = Math.max(20, Math.round(raw / 2.5) * 2.5);
+              const rounded = lift === "pull_up" ? 0 : Math.max(2.5, Math.round(raw / 2.5) * 2.5);
               out[lift] = {
                 working_kg: rounded,
+                source: "bodyweight_estimate",
                 note:
                   lift === "pull_up"
                     ? "Bodyweight; use assist band if <5 reps, add weight if >10."
@@ -1348,6 +1482,7 @@ ${input.notes}
               : {}),
             calc_program_timeline: calcProgramTimelineTool,
             calc_starting_weights: calcStartingWeightsTool,
+            calc_nutrition_targets: calcNutritionTargetsTool,
             substitute_exercise: substituteExerciseTool,
             shift_schedule_weeks: shiftScheduleWeeksTool,
           },

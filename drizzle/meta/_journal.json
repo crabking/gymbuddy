@@ -57,6 +57,13 @@
       "when": 1784908806337,
       "tag": "0007_skinny_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784911241535,
+      "tag": "0008_awesome_giant_girl",
+      "breakpoints": true
     }
   ]
 }

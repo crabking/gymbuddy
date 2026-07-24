@@ -133,6 +133,7 @@ const TOOL_LABELS: Record<string, string> = {
   log_meal: "logging that meal…",
   calc_program_timeline: "structuring the mesocycle…",
   calc_starting_weights: "calibrating your starting loads…",
+  calc_nutrition_targets: "calculating your calorie target…",
   substitute_exercise: "finding a swap…",
   shift_schedule_weeks: "reshuffling the weeks…",
 };
@@ -212,14 +213,32 @@ function ChatGate() {
 type Profile = NonNullable<Awaited<ReturnType<typeof getProfile>>>;
 type WorkspaceFile = Awaited<ReturnType<typeof getWorkspaceFiles>>[number];
 
-type SetupKey = "profile" | "schedule" | "meals";
+type SetupKey = "profile" | "schedule" | "baseline" | "meals";
 type BuildKey = "schedule" | "plan" | "meals";
 
 function setupStatus(profile: Profile) {
   return {
-    profile: !!(profile.goal && profile.days_per_week && profile.experience),
+    profile: !!(
+      profile.preferred_language &&
+      profile.display_name &&
+      profile.goal &&
+      profile.experience &&
+      profile.days_per_week &&
+      profile.session_minutes &&
+      profile.equipment &&
+      profile.age &&
+      profile.height_cm &&
+      profile.weight_kg &&
+      profile.sex
+    ),
     schedule: !!profile.schedule_note,
-    meals: !!profile.meal_preferences,
+    baseline: !!profile.recent_training_baseline,
+    meals: !!(
+      profile.activity_level &&
+      profile.diet_style &&
+      profile.meal_preferences &&
+      profile.daily_calorie_target
+    ),
   } as Record<SetupKey, boolean>;
 }
 
@@ -493,6 +512,7 @@ function ChatScreen() {
   const steps: Array<{ key: SetupKey; label: string; Icon: typeof User }> = [
     { key: "profile", label: "Basics", Icon: User },
     { key: "schedule", label: "Schedule", Icon: CalendarDays },
+    { key: "baseline", label: "Baseline", Icon: Dumbbell },
     { key: "meals", label: "Meals", Icon: UtensilsCrossed },
   ];
 
