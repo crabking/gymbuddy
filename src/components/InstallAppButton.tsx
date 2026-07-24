@@ -23,7 +23,7 @@ export function InstallAppButton({
         setInstalling(true);
         try {
           const outcome = await install();
-          if (outcome === "accepted") toast.success("Gym Buddy installed");
+          if (outcome === "accepted") toast.success("COACH installed");
         } catch {
           toast.error("Could not open the install prompt");
         } finally {

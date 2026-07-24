@@ -17,7 +17,7 @@ import { TabBar } from "@/components/TabBar";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 
 export const Route = createFileRoute("/_authenticated/program")({
-  head: () => ({ meta: [{ title: "Program — Gym Buddy" }] }),
+  head: () => ({ meta: [{ title: "Program — COACH" }] }),
   component: ProgramPage,
 });
 

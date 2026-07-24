@@ -23,7 +23,7 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard — Gym Buddy" }] }),
+  head: () => ({ meta: [{ title: "Dashboard — COACH" }] }),
   component: DashboardPage,
 });
 

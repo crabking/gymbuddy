@@ -19,10 +19,10 @@ export const Route = createFileRoute("/auth")({
       : {},
   head: () => ({
     meta: [
-      { title: "Sign in — Gym Buddy" },
-      { name: "description", content: "Sign in to your Gym Buddy account." },
-      { property: "og:title", content: "Sign in — Gym Buddy" },
-      { property: "og:description", content: "Sign in to your Gym Buddy account." },
+      { title: "Sign in — COACH" },
+      { name: "description", content: "Sign in to your COACH account." },
+      { property: "og:title", content: "Sign in — COACH" },
+      { property: "og:description", content: "Sign in to your COACH account." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -68,7 +68,7 @@ function AuthPage() {
           <div className="flex items-center gap-2">
             <Link to="/" className="flex items-center gap-2 text-sm font-semibold text-primary">
               <Dumbbell className="h-5 w-5" />
-              GYM BUDDY
+              COACH
             </Link>
             <VersionTag />
           </div>

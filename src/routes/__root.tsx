@@ -82,14 +82,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "Gym Buddy" },
-      { title: "Gym Buddy — your AI trainer in your pocket" },
+      { name: "apple-mobile-web-app-title", content: "COACH" },
+      { title: "COACH — your AI trainer in your pocket" },
       {
         name: "description",
         content:
-          "Chat with your AI gym buddy. Custom workout plans, calorie tracking, and progressive overload — all in one super clean mobile app.",
+          "Chat with your AI coach. Custom workout plans, calorie tracking, and progressive overload — all in one clean mobile app.",
       },
-      { property: "og:title", content: "Gym Buddy — your AI trainer in your pocket" },
+      { property: "og:title", content: "COACH — your AI trainer in your pocket" },
       {
         property: "og:description",
         content:

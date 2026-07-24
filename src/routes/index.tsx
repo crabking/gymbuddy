@@ -53,13 +53,13 @@ const FEATURES: Feature[] = [
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Gym Buddy — your complete AI fitness coach" },
+      { title: "COACH — your complete AI fitness coach" },
       {
         name: "description",
         content:
           "One AI coach for workouts, personalized training plans, photo calorie tracking, progress dashboards, and permanent memory.",
       },
-      { property: "og:title", content: "Gym Buddy — your complete AI fitness coach" },
+      { property: "og:title", content: "COACH — your complete AI fitness coach" },
       {
         property: "og:description",
         content:
@@ -79,10 +79,10 @@ function Landing() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-8">
           <Link to="/" className="flex items-center gap-2.5">
             <span className="grid h-7 w-7 place-items-center bg-primary font-display text-[10px] font-black text-primary-foreground">
-              GB
+              C
             </span>
             <span className="hidden font-display text-sm font-black uppercase tracking-[0.08em] min-[430px]:inline">
-              Gym Buddy
+              COACH
             </span>
             <VersionTag />
           </Link>
@@ -111,7 +111,7 @@ function Landing() {
               Every part of fitness.
             </h1>
             <p className="mt-3 max-w-md text-xs leading-snug text-muted-foreground sm:text-sm lg:mt-6 lg:text-lg lg:leading-relaxed">
-              Gym Buddy stays with you through the whole process—from planning the workout to
+              COACH stays with you through the whole process—from planning the workout to
               tracking the result.
             </p>
           </div>

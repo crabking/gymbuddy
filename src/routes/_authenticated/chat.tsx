@@ -166,12 +166,12 @@ function deriveActivity(
 export const Route = createFileRoute("/_authenticated/chat")({
   head: () => ({
     meta: [
-      { title: "Gym Buddy — coach session" },
+      { title: "COACH — session" },
       {
         name: "description",
         content: "Talk with your AI gym coach, review saved schedules, workout plans, nutrition targets, and training memory.",
       },
-      { property: "og:title", content: "Gym Buddy — coach session" },
+      { property: "og:title", content: "COACH — session" },
       {
         property: "og:description",
         content: "Your AI gym coach session with saved plans, schedules, nutrition targets, and live training support.",
@@ -308,7 +308,7 @@ function ChatScreen() {
 
   const qc = useQueryClient();
   const { messages, sendMessage, status, stop, setMessages } = useChat({
-    id: "gym-buddy",
+    id: "coach",
     messages: initialMessages as UIMessage[],
     transport,
     onError: (err) => toast.error(err.message || "Chat failed"),
@@ -1405,7 +1405,7 @@ function SettingsDrawer({
               {canInstall && !isInstalled && (
                 <SettingsGroup label="App">
                   <InstallAppButton
-                    label="Install Gym Buddy"
+                    label="Install COACH"
                     className="flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm font-medium text-primary"
                   />
                 </SettingsGroup>

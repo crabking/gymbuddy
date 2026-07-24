@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Gym Buddy",
-  "short_name": "Gym Buddy",
+  "name": "COACH",
+  "short_name": "COACH",
   "description": "Your AI personal trainer, workout planner, and nutrition coach.",
   "start_url": "/chat",
   "scope": "/",
