@@ -18,6 +18,7 @@ import {
 import { Flame, Dumbbell, Scale, Trophy, Plus, CheckCircle2, XCircle, FlaskConical } from "lucide-react";
 import { getDashboard, logWeight, seedDemoDashboard } from "@/lib/gym-buddy.functions";
 import { TabBar } from "@/components/TabBar";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { toast } from "sonner";
 
@@ -106,8 +107,8 @@ function DashboardPage() {
   );
 
   const [seeding, setSeeding] = useState(false);
+  const [confirmSeed, setConfirmSeed] = useState(false);
   async function seedDemo() {
-    if (!confirm("Load ~3 weeks of demo data (sessions, meals, weights) into your dashboard?")) return;
     setSeeding(true);
     try {
       const r = await seedDemoDashboard({ data: undefined });
@@ -138,9 +139,9 @@ function DashboardPage() {
             <p className="text-[11px] text-muted-foreground">Your training, tracked.</p>
           </div>
           <button
-            onClick={seedDemo}
+            onClick={() => setConfirmSeed(true)}
             disabled={seeding}
-            className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50"
             aria-label="Load test data"
             title="Load 3 weeks of test data"
           >
@@ -455,6 +456,18 @@ function DashboardPage() {
           </>
         )}
       </main>
+
+      <ConfirmModal
+        open={confirmSeed}
+        title="Load test data?"
+        body="Adds ~3 weeks of demo sessions, meals, and weigh-ins to your dashboard."
+        confirmLabel="Load"
+        onCancel={() => setConfirmSeed(false)}
+        onConfirm={() => {
+          setConfirmSeed(false);
+          void seedDemo();
+        }}
+      />
 
       <TabBar />
     </div>

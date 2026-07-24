@@ -21,6 +21,7 @@ import {
 } from "@/lib/gym-buddy.functions";
 import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { TabBar } from "@/components/TabBar";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { toast } from "sonner";
 import {
   LogOut,
@@ -336,7 +337,6 @@ function ChatScreen() {
   }
 
   async function fullReset() {
-    if (!confirm("Reset everything — profile, memory, and chat history?")) return;
     await resetFn({ data: undefined });
 
     await qc.cancelQueries();
@@ -1149,6 +1149,7 @@ function SettingsDrawer({
   const resetWsFn = useServerFn(resetWorkspace);
   const [doc, setDoc] = useState<{ title: string; file: WorkspaceFile } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<null | "workspace" | "everything">(null);
 
   async function save(patch: Record<string, unknown>) {
     try {
@@ -1161,7 +1162,6 @@ function SettingsDrawer({
   }
 
   async function resetWs() {
-    if (!confirm("Clear the agent's entire workspace (all files)? Your profile and login stay.")) return;
     try {
       await resetWsFn({ data: undefined });
       await qc.invalidateQueries({ queryKey: ["workspace-files"] });
@@ -1209,7 +1209,7 @@ function SettingsDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {doc ? (
             <div className="prose prose-sm prose-invert max-w-full text-[13px] leading-relaxed prose-headings:mb-2 prose-headings:mt-4 prose-p:my-1.5 prose-li:my-0.5 prose-strong:text-foreground">
               <ReactMarkdown>{doc.file.content}</ReactMarkdown>
@@ -1294,13 +1294,19 @@ function SettingsDrawer({
               </SettingsGroup>
 
               <SettingsGroup label="Danger zone">
-                <button onClick={resetWs} className="flex w-full items-center gap-3 px-3.5 py-3 text-left">
+                <button
+                  onClick={() => setConfirm("workspace")}
+                  className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
+                >
                   <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
                   <span className="flex-1 text-sm font-medium text-red-400">Reset workspace</span>
                   <span className="text-xs text-muted-foreground/70">Files only</span>
                 </button>
                 {isAdmin && onAdminReset && (
-                  <button onClick={onAdminReset} className="flex w-full items-center gap-3 px-3.5 py-3 text-left">
+                  <button
+                    onClick={() => setConfirm("everything")}
+                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
+                  >
                     <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
                     <span className="flex-1 text-sm font-medium text-red-400">Reset everything</span>
                     <span className="text-xs text-muted-foreground/70">Profile + data</span>
@@ -1311,6 +1317,31 @@ function SettingsDrawer({
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirm === "workspace"}
+        title="Reset workspace?"
+        body="Clears all of the agent's files. Your profile and login stay."
+        confirmLabel="Reset"
+        danger
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          void resetWs();
+        }}
+      />
+      <ConfirmModal
+        open={confirm === "everything"}
+        title="Reset everything?"
+        body="Wipes your profile, program, memory, logs, and chat history. You'll restart onboarding from scratch."
+        confirmLabel="Reset all"
+        danger
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          onAdminReset?.();
+        }}
+      />
     </div>
   );
 }
