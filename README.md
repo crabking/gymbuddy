@@ -1,4 +1,4 @@
-# Gym Buddy
+# COACH
 
 A mobile-first AI personal trainer. An agentic coach that writes workout plans,
 builds training schedules, tracks meals and macros, and remembers your progress.
@@ -34,14 +34,17 @@ The production site is an installable web app. It must be served over HTTPS.
 
 See [`.env.example`](.env.example).
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Postgres connection string |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | The login created/refreshed by `db:seed` (and on container start) |
-| `AI_PROVIDER` | `openai` (default, any OpenAI-compatible endpoint) or `anthropic` |
-| `AI_API_KEY` | Key for the chosen provider |
-| `AI_MODEL` | Model id (e.g. `gpt-5.5`, or `claude-sonnet-5`) |
-| `AI_BASE_URL` | OpenAI mode only — override the base URL (OpenAI, OpenRouter, Groq, …) |
+| Variable                         | Purpose                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `DATABASE_URL`                   | Postgres connection string                                              |
+| `DB_POOL_MAX`                    | Maximum database connections used by an app replica (default `10`)      |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | The login created/refreshed by `db:seed` (and on container start)       |
+| `AI_PROVIDER`                    | `openai` (default, any OpenAI-compatible endpoint) or `anthropic`       |
+| `AI_API_KEY`                     | Key for the chosen provider                                             |
+| `PUBLIC_ORIGIN`                  | Canonical production HTTPS origin used for origin checks                |
+| `TRUST_PROXY_HEADERS`            | Enable only behind a trusted proxy that overwrites forwarded IP headers |
+| `AI_MODEL`                       | Model id (e.g. `gpt-5.5`, or `claude-sonnet-5`)                         |
+| `AI_BASE_URL`                    | OpenAI mode only — override the base URL (OpenAI, OpenRouter, Groq, …)  |
 
 ### Database workflow (Drizzle)
 
@@ -83,17 +86,28 @@ a normal deploy keeps the schema and your login up to date automatically.
      (e.g. `postgres://postgres:PASS@<db-service>:5432/postgres`)
    - `ADMIN_EMAIL` / `ADMIN_PASSWORD` = your login
    - `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` (and `AI_BASE_URL` if OpenAI mode)
+   - `PUBLIC_ORIGIN` = the app's one canonical HTTPS URL
+   - `TRUST_PROXY_HEADERS=true` when Coolify is the only route to the container
    - `NODE_ENV=production`
 4. **Port / domain:** the container listens on **3000**. Set the port to `3000`,
-   attach your domain under *Domains*, and Coolify terminates TLS for you — that's
+   attach your domain under _Domains_, and Coolify terminates TLS for you — that's
    what makes it reachable from the outside.
 5. **Deploy.**
+
+Set the Coolify application health check path to `/api/health`. This checks both
+the web process and its Postgres connection; the container uses the same check.
+
+### Backups
+
+Enable scheduled PostgreSQL backups in Coolify and retain multiple daily
+snapshots. For recovery if the server itself is lost, also connect an
+S3-compatible off-server destination. Test a restore periodically.
 
 ### Auto-deploy on git push
 
 In the app's **Webhooks** tab, Coolify shows a GitHub webhook URL and secret.
 Add them to the repo (GitHub → Settings → Webhooks), or connect the GitHub App
-from Coolify's *Sources*. After that, every push to `main` triggers a clean
+from Coolify's _Sources_. After that, every push to `main` triggers a clean
 rebuild + redeploy. (You can also hit the **Deploy Webhook** URL from CI.)
 
 ### Adding more people later
@@ -102,7 +116,7 @@ Change `ADMIN_EMAIL` / `ADMIN_PASSWORD` and redeploy, or open the app's Coolify
 **Terminal** and run:
 
 ```sh
-ADMIN_EMAIL="friend@example.com" ADMIN_PASSWORD="pw" node seed.mjs
+ADMIN_EMAIL="friend@example.com" ADMIN_PASSWORD="a-long-password" node seed.mjs
 ```
 
 ## Notes

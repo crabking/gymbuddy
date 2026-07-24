@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Drawer } from "vaul";
 import { CalendarRange, Check, X, Dumbbell, Moon, ChevronRight, Sparkles } from "lucide-react";
@@ -56,20 +56,35 @@ function statusStyle(day: Day, today: string) {
 
 function ProgramPage() {
   const today = todayStr();
-  const { data: program, isLoading } = useQuery({
+  const {
+    data: program,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["program"],
     queryFn: () => getProgramFull({ data: { date: today } }),
+    refetchInterval: 30_000,
   });
 
   const currentWeek = useMemo(() => {
     if (!program) return 1;
-    const todayDay = program.days.find((d) => d.date >= today);
+    const overdue = program.days.find((d) => d.status === "planned" && d.date <= today);
+    if (overdue) return overdue.week;
+    const todayDay = program.days.find((d) => d.status === "planned" && d.date >= today);
     return todayDay?.week ?? program.weeks;
   }, [program, today]);
 
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const week = selectedWeek ?? currentWeek;
-  const [openDay, setOpenDay] = useState<Day | null>(null);
+  const [openDayId, setOpenDayId] = useState<string | null>(null);
+  const openDay = program?.days.find((day) => day.id === openDayId) ?? null;
+
+  useEffect(() => {
+    setSelectedWeek(null);
+    setOpenDayId(null);
+  }, [program?.id]);
 
   const doneCount = program?.days.filter((d) => d.status === "completed").length ?? 0;
 
@@ -114,8 +129,10 @@ function ProgramPage() {
               return (
                 <button
                   key={w}
+                  type="button"
                   onClick={() => setSelectedWeek(w)}
-                  className={`relative flex h-7 items-center justify-center gap-0.5 rounded-sm border text-[10px] font-bold transition ${
+                  aria-pressed={active}
+                  className={`relative flex h-11 items-center justify-center gap-0.5 rounded-sm border text-[11px] font-bold transition ${
                     active
                       ? "border-primary bg-primary/15 text-primary"
                       : allDone
@@ -142,7 +159,38 @@ function ProgramPage() {
           </div>
         )}
 
-        {!isLoading && !program && (
+        {isError && !program && (
+          <div className="mx-auto mt-16 max-w-xs text-center">
+            <X className="mx-auto h-10 w-10 text-red-400" />
+            <h2 className="mt-3 font-display text-lg font-bold text-foreground">
+              Couldn’t load your program
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your saved program is still on the server. Check your connection and retry.
+            </p>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="mt-5 min-h-11 rounded-xl border border-primary/60 px-5 text-sm font-bold text-primary disabled:opacity-50"
+            >
+              {isFetching ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        )}
+
+        {isError && program && (
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="mb-3 flex min-h-11 w-full items-center justify-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-300 disabled:opacity-50"
+          >
+            Showing last synced program · {isFetching ? "Retrying…" : "Retry sync"}
+          </button>
+        )}
+
+        {!isLoading && !isError && !program && (
           <div className="mx-auto mt-16 max-w-xs text-center">
             <Sparkles className="mx-auto h-10 w-10 text-primary" />
             <h2 className="mt-3 font-display text-lg font-bold text-foreground">No program yet</h2>
@@ -152,7 +200,7 @@ function ProgramPage() {
             </p>
             <Link
               to="/chat"
-              className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
+              className="mt-5 inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground"
             >
               Talk to your coach <ChevronRight className="h-4 w-4" />
             </Link>
@@ -179,7 +227,7 @@ function ProgramPage() {
                   </div>
                   <Link
                     to="/chat"
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-emerald-300"
+                    className="mt-2 inline-flex min-h-11 items-center gap-1 text-xs font-bold text-emerald-300"
                   >
                     Plan the next cycle <ChevronRight className="h-3.5 w-3.5" />
                   </Link>
@@ -203,7 +251,8 @@ function ProgramPage() {
                   return (
                     <button
                       key={day.id}
-                      onClick={() => setOpenDay(day)}
+                      type="button"
+                      onClick={() => setOpenDayId(day.id)}
                       className={`rounded-2xl border ${s.border} bg-card p-3.5 text-left transition active:scale-[0.99]`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -238,7 +287,7 @@ function ProgramPage() {
       </main>
 
       {/* Day detail sheet */}
-      <Drawer.Root open={!!openDay} onOpenChange={(o) => !o && setOpenDay(null)}>
+      <Drawer.Root open={!!openDay} onOpenChange={(o) => !o && setOpenDayId(null)}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
           <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] rounded-t-3xl border-t border-border bg-card outline-none">
@@ -256,7 +305,7 @@ function ProgramPage() {
                     </h3>
                   </div>
                   <Drawer.Close
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground transition hover:text-foreground"
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground transition hover:text-foreground"
                     aria-label="Close workout details"
                   >
                     <X className="h-4 w-4" />
@@ -289,12 +338,13 @@ function ProgramPage() {
                     </div>
                   ))}
                 </div>
-                {openDay.date === today && openDay.status === "planned" && (
+                {openDay.date <= today && openDay.status === "planned" && (
                   <Link
                     to="/chat"
+                    search={{ start: true }}
                     className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-primary-foreground"
                   >
-                    <Dumbbell className="h-4 w-4" /> Start with your coach
+                    <Dumbbell className="h-4 w-4" /> Start due workout
                   </Link>
                 )}
               </div>

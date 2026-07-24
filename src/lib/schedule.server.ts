@@ -1,6 +1,7 @@
 import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import { workspaceFiles, workoutSessions } from "@/db/schema";
+import { addLocalDays, assertIsoDate } from "@/lib/local-date";
 
 // Derives "which training day is today" from the saved schedule + session
 // history, so both the header and the coach are locked into the same reality.
@@ -9,7 +10,10 @@ export type TodayTraining = { label: string; detail: string | null };
 
 export async function getTodayTraining(
   userId: string,
-  opts?: { date?: string | null; weekday?: string | null },
+  opts: {
+    date: string;
+    weekday: "Sunday" | "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+  },
 ): Promise<TodayTraining | null> {
   const db = getDb();
 
@@ -37,10 +41,8 @@ export async function getTodayTraining(
     .map((m) => ({ label: m[1].trim(), focus: m[2].trim().replace(/\s*\([^)]*\)\s*$/, "") }));
   if (!entries.length) return null;
 
-  const now = new Date();
-  const date = opts?.date || now.toISOString().slice(0, 10);
-  const weekday =
-    opts?.weekday || ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][now.getDay()];
+  const date = assertIsoDate(opts.date);
+  const weekday = opts.weekday;
 
   const rolling = entries.some((e) => /^day\s*\d+/i.test(e.label));
   if (!rolling) {
@@ -52,10 +54,16 @@ export async function getTodayTraining(
   }
 
   // Rolling mode: next day = completed sessions since Monday.
-  const d = new Date(`${date}T00:00:00`);
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  const mondayStr = monday.toISOString().slice(0, 10);
+  const weekdayIndex = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ].indexOf(weekday);
+  const mondayStr = addLocalDays(date, -((weekdayIndex + 6) % 7));
   const done = await db
     .select({ id: workoutSessions.id })
     .from(workoutSessions)
@@ -69,7 +77,10 @@ export async function getTodayTraining(
   const trainingDays = entries.filter((e) => /^day\s*\d+/i.test(e.label));
   const idx = done.length;
   if (idx >= trainingDays.length) {
-    return { label: "Rest / recovery", detail: `${idx}/${trainingDays.length} sessions done this week` };
+    return {
+      label: "Rest / recovery",
+      detail: `${idx}/${trainingDays.length} sessions done this week`,
+    };
   }
   const next = trainingDays[idx];
   return {

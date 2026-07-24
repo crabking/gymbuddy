@@ -114,7 +114,14 @@ describe("program lifecycle", () => {
 describe("session completion guard", () => {
   it("refuses a workout with unfinished exercises or sets", () => {
     const issues = getSessionCompletionIssues([
-      { name: "Squat", completed: true, sets: [{ completed: true }, { completed: false }] },
+      {
+        name: "Squat",
+        completed: true,
+        sets: [
+          { completed: true, reps: 5 },
+          { completed: false, reps: null },
+        ],
+      },
       { name: "Row", completed: false, sets: [] },
     ]);
 
@@ -124,8 +131,23 @@ describe("session completion guard", () => {
   it("accepts a fully completed workout", () => {
     expect(
       getSessionCompletionIssues([
-        { name: "Squat", completed: true, sets: [{ completed: true }, { completed: true }] },
+        {
+          name: "Squat",
+          completed: true,
+          sets: [
+            { completed: true, reps: 5 },
+            { completed: true, reps: 5 },
+          ],
+        },
       ]),
     ).toEqual([]);
+  });
+
+  it("rejects a checked set whose actual reps were never captured", () => {
+    expect(
+      getSessionCompletionIssues([
+        { name: "Squat", completed: true, sets: [{ completed: true, reps: null }] },
+      ]),
+    ).toEqual(["Squat has completed sets without actual reps."]);
   });
 });

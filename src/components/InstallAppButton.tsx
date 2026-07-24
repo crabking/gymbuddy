@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import { usePwaInstall } from "@/lib/pwa-install";
+import { usePwaUpdateBlocker } from "@/lib/pwa-update";
 
 export function InstallAppButton({
   className,
@@ -12,6 +13,8 @@ export function InstallAppButton({
 }) {
   const { canInstall, isInstalled, install } = usePwaInstall();
   const [installing, setInstalling] = useState(false);
+  const blockerId = useId();
+  usePwaUpdateBlocker(`pwa-install-prompt-${blockerId}`, installing);
 
   if (!canInstall || isInstalled) return null;
 

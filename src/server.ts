@@ -8,6 +8,15 @@ type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
 
+// Three resized chat photos fit below this cap. Keep the ceiling tight because
+// mutation bodies are buffered once for reliable byte-count enforcement.
+const MAX_MUTATION_BODY_BYTES = 16 * 1024 * 1024;
+const MAX_BUFFERING_MUTATIONS = 8;
+const MAX_BUFFERING_MUTATIONS_PER_ADDRESS = 3;
+
+let bufferingMutations = 0;
+const bufferingMutationsByAddress = new Map<string, number>();
+
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
 async function getServerEntry(): Promise<ServerEntry> {
@@ -112,7 +121,7 @@ function securityRejection(request: Request): Response | null {
 
   if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method.toUpperCase())) {
     const contentLength = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(contentLength) && contentLength > 35 * 1024 * 1024) {
+    if (Number.isFinite(contentLength) && contentLength > MAX_MUTATION_BODY_BYTES) {
       return new Response("Request is too large", { status: 413 });
     }
 
@@ -129,14 +138,87 @@ function securityRejection(request: Request): Response | null {
   return null;
 }
 
+function claimMutationBufferSlot(request: Request): (() => void) | null {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method.toUpperCase()) || !request.body) {
+    return () => undefined;
+  }
+  const address = getClientAddress(request);
+  const addressCount = bufferingMutationsByAddress.get(address) ?? 0;
+  if (
+    bufferingMutations >= MAX_BUFFERING_MUTATIONS ||
+    addressCount >= MAX_BUFFERING_MUTATIONS_PER_ADDRESS
+  ) {
+    return null;
+  }
+  bufferingMutations += 1;
+  bufferingMutationsByAddress.set(address, addressCount + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    bufferingMutations = Math.max(0, bufferingMutations - 1);
+    const current = bufferingMutationsByAddress.get(address) ?? 1;
+    if (current <= 1) bufferingMutationsByAddress.delete(address);
+    else bufferingMutationsByAddress.set(address, current - 1);
+  };
+}
+
+export async function bufferBoundedMutationBody(
+  request: Request,
+  maxBytes = MAX_MUTATION_BODY_BYTES,
+): Promise<Request | Response> {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method.toUpperCase()) || !request.body) {
+    return request;
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("Request body limit exceeded");
+        return new Response("Request is too large", { status: 413 });
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Request(request, { body });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    let releaseMutationSlot: (() => void) | null = null;
     try {
       const rejected = securityRejection(request);
       if (rejected) return applySecurityHeaders(request, rejected);
 
+      releaseMutationSlot = claimMutationBufferSlot(request);
+      if (!releaseMutationSlot) {
+        return applySecurityHeaders(
+          request,
+          new Response("Too many requests are being uploaded", {
+            status: 429,
+            headers: { "Retry-After": "2" },
+          }),
+        );
+      }
+      const boundedRequest = await bufferBoundedMutationBody(request);
+      if (boundedRequest instanceof Response) {
+        return applySecurityHeaders(request, boundedRequest);
+      }
       const handler = await getServerEntry();
-      const response = await handler.fetch(request, env, ctx);
+      const response = await handler.fetch(boundedRequest, env, ctx);
       const normalized = await normalizeCatastrophicSsrResponse(response);
       return applySecurityHeaders(request, preventClientDataCaching(request, normalized));
     } catch (error) {
@@ -148,6 +230,8 @@ export default {
           headers: { "content-type": "text/html; charset=utf-8" },
         }),
       );
+    } finally {
+      releaseMutationSlot?.();
     }
   },
 };

@@ -6,23 +6,31 @@ import { COACH_IDS } from "@/lib/coaches";
 // Server-only modules that pull in `pg` are imported dynamically inside the
 // handlers so they never reach the client bundle.
 
-const LoginSchema = z.object({
-  email: z.string().trim().email().max(254),
-  password: z.string().min(1).max(1024),
-  coach_id: z.enum(COACH_IDS).optional(),
-});
+const LoginSchema = z
+  .object({
+    email: z.string().trim().email().max(254),
+    password: z.string().min(1).max(1024),
+    coach_id: z.enum(COACH_IDS).optional(),
+  })
+  .strict();
 
 export const login = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => LoginSchema.parse(input))
+  .validator((input: unknown) => LoginSchema.parse(input))
   .handler(async ({ data }) => {
     const request = getRequest();
-    const { getClientAddress, privateRateLimitKey, resetRateLimit, takeRateLimit } =
-      await import("./security.server");
+    const {
+      getClientAddress,
+      privateRateLimitKey,
+      resetDistributedRateLimit,
+      takeDistributedRateLimit,
+    } = await import("./security.server");
     const normalizedEmail = data.email.toLowerCase();
     const address = getClientAddress(request);
-    const ipLimit = takeRateLimit(`login-ip:${address}`, 15, 15 * 60_000);
     const emailLimitKey = `login-email:${privateRateLimitKey(normalizedEmail)}`;
-    const emailLimit = takeRateLimit(emailLimitKey, 10, 15 * 60_000);
+    const [ipLimit, emailLimit] = await Promise.all([
+      takeDistributedRateLimit(`login-ip:${address}`, 15, 15 * 60_000),
+      takeDistributedRateLimit(emailLimitKey, 10, 15 * 60_000),
+    ]);
     if (!ipLimit.allowed || !emailLimit.allowed) {
       throw new Error("Too many login attempts. Please wait and try again.");
     }
@@ -45,7 +53,7 @@ export const login = createServerFn({ method: "POST" })
       .where(eq(users.email, normalizedEmail))
       .limit(1);
 
-    const passwordIsValid = verifyPassword(
+    const passwordIsValid = await verifyPassword(
       data.password,
       user?.password_hash ?? DUMMY_PASSWORD_HASH,
     );
@@ -61,7 +69,7 @@ export const login = createServerFn({ method: "POST" })
     await invalidateSession(getCookie(SESSION_COOKIE));
     const { token } = await createSession(user.id);
     setCookie(SESSION_COOKIE, token, sessionCookieOptions());
-    resetRateLimit(emailLimitKey);
+    await resetDistributedRateLimit(emailLimitKey);
     return { ok: true };
   });
 

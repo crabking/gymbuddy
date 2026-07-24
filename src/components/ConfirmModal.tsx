@@ -1,3 +1,5 @@
+import { useEffect, useId, useRef } from "react";
+
 // In-app confirmation dialog — replaces native window.confirm(), which mobile
 // browsers silently suppress after a few dismissals (making buttons feel dead).
 export function ConfirmModal({
@@ -17,29 +19,82 @@ export function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const titleId = useId();
+  const bodyId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const focusTimer = window.setTimeout(() => confirmRef.current?.focus(), 0);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onCancel, open]);
+
   if (!open) return null;
   return (
     <div
       className="fixed inset-0 z-[60] grid place-items-center bg-black/70 p-6 backdrop-blur-sm"
-      onClick={onCancel}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
     >
       <div
+        ref={dialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={body ? bodyId : undefined}
         className="w-full max-w-xs rounded-sm border border-border bg-card p-5"
-        onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="font-display text-base font-bold text-foreground">{title}</h3>
-        {body && <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{body}</p>}
+        <h3 id={titleId} className="font-display text-base font-bold text-foreground">
+          {title}
+        </h3>
+        {body && (
+          <p id={bodyId} className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+            {body}
+          </p>
+        )}
         <div className="mt-4 flex gap-2">
           <button
+            type="button"
             onClick={onCancel}
-            className="flex-1 rounded-sm border border-border py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+            className="min-h-11 flex-1 rounded-sm border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"
           >
             Cancel
           </button>
           <button
+            ref={confirmRef}
+            type="button"
             onClick={onConfirm}
-            className={`flex-1 rounded-sm py-2.5 text-sm font-bold transition active:scale-[0.98] ${
-              danger ? "bg-red-500 text-white hover:bg-red-600" : "bg-primary text-primary-foreground"
+            className={`min-h-11 flex-1 rounded-sm px-3 text-sm font-bold transition active:scale-[0.98] ${
+              danger
+                ? "bg-red-500 text-white hover:bg-red-600"
+                : "bg-primary text-primary-foreground"
             }`}
           >
             {confirmLabel}

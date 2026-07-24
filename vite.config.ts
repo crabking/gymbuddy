@@ -1,6 +1,5 @@
 import { defineConfig, loadEnv, type PluginOption } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-import tsConfigPaths from "vite-tsconfig-paths";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 
@@ -10,12 +9,9 @@ import viteReact from "@vitejs/plugin-react";
 // `node .output/server/index.mjs` (see Dockerfile).
 export default defineConfig(async ({ command, mode }) => {
   const appVersion =
-    process.env.SOURCE_COMMIT ??
-    process.env.COOLIFY_GIT_COMMIT_SHA ??
-    Date.now().toString(36);
+    process.env.SOURCE_COMMIT ?? process.env.COOLIFY_GIT_COMMIT_SHA ?? Date.now().toString(36);
   const plugins: PluginOption[] = [
     tailwindcss(),
-    tsConfigPaths({ projects: ["./tsconfig.json"] }),
     tanstackStart({
       // Redirect the bundled server entry to src/server.ts (our SSR error wrapper).
       server: { entry: "server" },
@@ -72,6 +68,7 @@ export default defineConfig(async ({ command, mode }) => {
       port: 8080,
     },
     resolve: {
+      tsconfigPaths: true,
       alias: { "@": `${process.cwd()}/src` },
       dedupe: [
         "react",

@@ -1,4 +1,4 @@
-import { and, eq, asc, like } from "drizzle-orm";
+import { and, eq, asc, like, sql } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import { workspaceFiles } from "@/db/schema";
 
@@ -33,12 +33,12 @@ const byteLen = (s: string) => Buffer.byteLength(s ?? "", "utf8");
 
 export async function usage(userId: string) {
   const rows = await getDb()
-    .select({ content: workspaceFiles.content })
+    .select({ size_bytes: workspaceFiles.size_bytes })
     .from(workspaceFiles)
     .where(eq(workspaceFiles.user_id, userId));
   return {
     files: rows.length,
-    bytes: rows.reduce((n, r) => n + byteLen(r.content ?? ""), 0),
+    bytes: rows.reduce((n, r) => n + r.size_bytes, 0),
   };
 }
 
@@ -47,7 +47,7 @@ export async function list(userId: string, prefix?: string) {
   const rows = await db
     .select({
       path: workspaceFiles.path,
-      content: workspaceFiles.content,
+      size_bytes: workspaceFiles.size_bytes,
       updated_at: workspaceFiles.updated_at,
     })
     .from(workspaceFiles)
@@ -58,14 +58,18 @@ export async function list(userId: string, prefix?: string) {
     .filter((r) => (clean ? r.path.startsWith(clean) : true))
     .map((r) => ({
       path: r.path,
-      size: byteLen(r.content ?? ""),
+      size: r.size_bytes,
       updated_at: r.updated_at,
     }));
 }
 
 async function getRow(userId: string, path: string) {
   const [row] = await getDb()
-    .select({ content: workspaceFiles.content, updated_at: workspaceFiles.updated_at })
+    .select({
+      content: workspaceFiles.content,
+      size_bytes: workspaceFiles.size_bytes,
+      updated_at: workspaceFiles.updated_at,
+    })
     .from(workspaceFiles)
     .where(and(eq(workspaceFiles.user_id, userId), eq(workspaceFiles.path, path)))
     .limit(1);
@@ -83,30 +87,57 @@ export async function exists(userId: string, path: string) {
   return (await getRow(userId, normalizePath(path))) !== null;
 }
 
-export async function write(userId: string, path: string, content: string) {
+export async function write(
+  userId: string,
+  path: string,
+  content: string,
+  expectedUpdatedAt?: string | null,
+) {
   const p = normalizePath(path);
   const text = content ?? "";
   const size = byteLen(text);
   if (size > MAX_FILE_BYTES) throw new Error(`file too large (max ${MAX_FILE_BYTES} bytes)`);
 
-  const existing = await getRow(userId, p);
-  const u = await usage(userId);
-  if (!existing && u.files >= MAX_TOTAL_FILES) {
-    throw new Error(`workspace file limit reached (${MAX_TOTAL_FILES})`);
-  }
-  const delta = size - (existing ? byteLen(existing.content ?? "") : 0);
-  if (u.bytes + delta > MAX_TOTAL_BYTES) {
-    throw new Error(`workspace storage limit reached (${MAX_TOTAL_BYTES} bytes)`);
-  }
-
   const now = new Date().toISOString();
-  await getDb()
-    .insert(workspaceFiles)
-    .values({ user_id: userId, path: p, content: text, updated_at: now })
-    .onConflictDoUpdate({
-      target: [workspaceFiles.user_id, workspaceFiles.path],
-      set: { content: text, updated_at: now },
-    });
+  const summary = text.split("\n")[0]?.trim().slice(0, 160) ?? "";
+  await getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${"workspace:" + userId}, 0))`,
+    );
+    const rows = await tx
+      .select({
+        path: workspaceFiles.path,
+        size_bytes: workspaceFiles.size_bytes,
+        updated_at: workspaceFiles.updated_at,
+      })
+      .from(workspaceFiles)
+      .where(eq(workspaceFiles.user_id, userId));
+    const existing = rows.find((row) => row.path === p);
+    if (expectedUpdatedAt !== undefined && (existing?.updated_at ?? null) !== expectedUpdatedAt) {
+      throw new Error("workspace file changed; read it again before editing");
+    }
+    if (!existing && rows.length >= MAX_TOTAL_FILES) {
+      throw new Error(`workspace file limit reached (${MAX_TOTAL_FILES})`);
+    }
+    const usedBytes = rows.reduce((total, row) => total + row.size_bytes, 0);
+    if (usedBytes - (existing?.size_bytes ?? 0) + size > MAX_TOTAL_BYTES) {
+      throw new Error(`workspace storage limit reached (${MAX_TOTAL_BYTES} bytes)`);
+    }
+    await tx
+      .insert(workspaceFiles)
+      .values({
+        user_id: userId,
+        path: p,
+        content: text,
+        size_bytes: size,
+        summary,
+        updated_at: now,
+      })
+      .onConflictDoUpdate({
+        target: [workspaceFiles.user_id, workspaceFiles.path],
+        set: { content: text, size_bytes: size, summary, updated_at: now },
+      });
+  });
   return { path: p, size };
 }
 
@@ -117,17 +148,31 @@ export async function edit(
   newStr: string,
   all = false,
 ) {
-  const { content } = await read(userId, path);
+  if (!oldStr) throw new Error("old_string may not be empty");
+  const { content, updated_at: updatedAt } = await read(userId, path);
   if (!content.includes(oldStr)) throw new Error("old_string not found in file");
+  if (all) {
+    let occurrences = 0;
+    let cursor = 0;
+    while ((cursor = content.indexOf(oldStr, cursor)) !== -1) {
+      occurrences += 1;
+      cursor += oldStr.length;
+    }
+    const projected = byteLen(content) + occurrences * (byteLen(newStr) - byteLen(oldStr));
+    if (projected > MAX_FILE_BYTES) {
+      throw new Error(`file too large after edit (max ${MAX_FILE_BYTES} bytes)`);
+    }
+  }
   const updated = all ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
-  return write(userId, path, updated);
+  return write(userId, path, updated, updatedAt);
 }
 
 export async function append(userId: string, path: string, text: string) {
   const p = normalizePath(path);
-  const current = (await getRow(userId, p))?.content ?? "";
+  const row = await getRow(userId, p);
+  const current = row?.content ?? "";
   const joined = current && !current.endsWith("\n") ? `${current}\n${text}` : `${current}${text}`;
-  return write(userId, p, joined);
+  return write(userId, p, joined, row?.updated_at ?? null);
 }
 
 export async function move(userId: string, from: string, to: string) {
@@ -147,12 +192,9 @@ export async function remove(userId: string, path: string) {
 }
 
 export async function grep(userId: string, pattern: string, prefix?: string, limit = 100) {
-  let re: RegExp;
-  try {
-    re = new RegExp(pattern, "i");
-  } catch {
-    throw new Error("invalid regular expression");
-  }
+  const needle = pattern.trim().toLowerCase();
+  if (!needle) throw new Error("search text may not be empty");
+  if (needle.length > 500) throw new Error("search text is too long");
   const db = getDb();
   const clean = prefix ? normalizePath(prefix) + "/" : "";
   const rows = await db
@@ -169,7 +211,7 @@ export async function grep(userId: string, pattern: string, prefix?: string, lim
   for (const r of rows) {
     const lines = (r.content ?? "").split("\n");
     for (let i = 0; i < lines.length; i++) {
-      if (re.test(lines[i])) {
+      if (lines[i].toLowerCase().includes(needle)) {
         matches.push({ path: r.path, line: i + 1, text: lines[i].slice(0, 200) });
         if (matches.length >= limit) return { matches, truncated: true };
       }

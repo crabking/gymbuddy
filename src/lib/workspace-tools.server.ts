@@ -20,7 +20,9 @@ export function workspaceTools(userId: string) {
     fs_ls: tool({
       description:
         "List files in the workspace (optionally under a directory prefix). Returns path, size, and last-updated for each.",
-      inputSchema: z.object({ path: z.string().nullable().describe("Directory prefix, or null for the whole tree") }),
+      inputSchema: z.object({
+        path: z.string().nullable().describe("Directory prefix, or null for the whole tree"),
+      }),
       execute: ({ path }) =>
         wrap(async () => ({ files: await ws.list(userId, path ?? undefined) }))(),
     }),
@@ -52,22 +54,15 @@ export function workspaceTools(userId: string) {
       inputSchema: z.object({ path: z.string(), text: z.string() }),
       execute: ({ path, text }) => wrap(() => ws.append(userId, path, text))(),
     }),
-    fs_move: tool({
-      description: "Move/rename a workspace file from one path to another.",
-      inputSchema: z.object({ from: z.string(), to: z.string() }),
-      execute: ({ from, to }) => wrap(() => ws.move(userId, from, to))(),
-    }),
-    fs_delete: tool({
-      description: "Delete a workspace file by path.",
-      inputSchema: z.object({ path: z.string() }),
-      execute: ({ path }) => wrap(() => ws.remove(userId, path))(),
-    }),
     fs_grep: tool({
       description:
-        "Search the workspace for a regular expression. Returns matching path, line number, and line text.",
+        "Search the workspace for literal text. Returns matching path, line number, and line text.",
       inputSchema: z.object({
         pattern: z.string(),
-        path: z.string().nullable().describe("Directory prefix to limit the search, or null for everything"),
+        path: z
+          .string()
+          .nullable()
+          .describe("Directory prefix to limit the search, or null for everything"),
       }),
       execute: ({ pattern, path }) => wrap(() => ws.grep(userId, pattern, path ?? undefined))(),
     }),

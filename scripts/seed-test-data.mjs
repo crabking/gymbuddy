@@ -36,7 +36,15 @@ const { rows: urows } = await q(
 const uid = urows[0].id;
 
 // wipe previous test data for idempotency
-for (const t of ["workout_sessions", "meal_logs", "weight_logs", "workout_logs", "chat_messages", "workspace_files", "programs"]) {
+for (const t of [
+  "workout_sessions",
+  "meal_logs",
+  "weight_logs",
+  "workout_logs",
+  "chat_messages",
+  "workspace_files",
+  "programs",
+]) {
   await q(`DELETE FROM ${t} WHERE user_id=$1`, [uid]);
 }
 
@@ -63,7 +71,8 @@ const DELOADS = [5, 10, 15];
 
 const template = [
   {
-    title: "Upper Power", focus: "Heavy pressing + pulling",
+    title: "Upper Power",
+    focus: "Heavy pressing + pulling",
     ex: [
       ["Bench press", 4, "4–6", 80, 2.5],
       ["Barbell row", 4, "4–6", 75, 2.5],
@@ -73,7 +82,8 @@ const template = [
     ],
   },
   {
-    title: "Lower Power", focus: "Heavy squat + hinge",
+    title: "Lower Power",
+    focus: "Heavy squat + hinge",
     ex: [
       ["Back squat", 4, "4–6", 110, 5],
       ["Deadlift", 3, "3–5", 140, 5],
@@ -83,7 +93,8 @@ const template = [
     ],
   },
   {
-    title: "Upper Hypertrophy", focus: "Pump work, upper body",
+    title: "Upper Hypertrophy",
+    focus: "Pump work, upper body",
     ex: [
       ["Incline dumbbell press", 4, "8–12", 30, 2.5],
       ["Cable row", 4, "8–12", 60, 2.5],
@@ -93,7 +104,8 @@ const template = [
     ],
   },
   {
-    title: "Lower Hypertrophy", focus: "Volume legs + glutes",
+    title: "Lower Hypertrophy",
+    focus: "Volume legs + glutes",
     ex: [
       ["Front squat", 4, "8–10", 70, 2.5],
       ["Romanian deadlift", 4, "8–10", 90, 5],
@@ -167,10 +179,20 @@ for (let i = 0; i < past.length; i++) {
   const { rows: srows } = await q(
     `INSERT INTO workout_sessions (user_id, session_date, title, status, program_day_id, created_at, completed_at)
      VALUES ($1,$2,$3,'completed',$4,$5,$6) RETURNING id`,
-    [uid, day.date, day.title + (day.isDeload ? " (deload)" : ""), day.id, startTs.toISOString(), endTs.toISOString()],
+    [
+      uid,
+      day.date,
+      day.title + (day.isDeload ? " (deload)" : ""),
+      day.id,
+      startTs.toISOString(),
+      endTs.toISOString(),
+    ],
   );
   const sessionId = srows[0].id;
-  await q(`UPDATE program_days SET status='completed', session_id=$1 WHERE id=$2`, [sessionId, day.id]);
+  await q(`UPDATE program_days SET status='completed', session_id=$1 WHERE id=$2`, [
+    sessionId,
+    day.id,
+  ]);
 
   let setTime = startTs.getTime() + 5 * 60000;
   for (let p = 0; p < exRows.length; p++) {
@@ -179,19 +201,35 @@ for (let i = 0; i < past.length; i++) {
     const { rows: serows } = await q(
       `INSERT INTO session_exercises (session_id, position, name, target, completed, completed_at)
        VALUES ($1,$2,$3,$4,true,$5) RETURNING id`,
-      [sessionId, p, ex.name, `${ex.sets}×${ex.rep_range} @ ${ex.target_weight_kg}kg`, exDone.toISOString()],
+      [
+        sessionId,
+        p,
+        ex.name,
+        `${ex.sets}×${ex.rep_range} @ ${ex.target_weight_kg}kg`,
+        exDone.toISOString(),
+      ],
     );
     const seId = serows[0].id;
     const [lo, hi] = ex.rep_range.split("–").map((x) => parseInt(x, 10));
     for (let s = 1; s <= ex.sets; s++) {
       setTime += (2.6 + Math.random() * 1.4) * 60000;
-      const reps = Math.max(lo || 5, Math.min(hi || 8, (lo || 5) + Math.floor(Math.random() * ((hi || 8) - (lo || 5) + 1))));
+      const reps = Math.max(
+        lo || 5,
+        Math.min(hi || 8, (lo || 5) + Math.floor(Math.random() * ((hi || 8) - (lo || 5) + 1))),
+      );
       // occasional small PR wobble ±2.5
       const wobble = Math.random() < 0.15 ? 2.5 : 0;
       await q(
         `INSERT INTO session_sets (session_exercise_id, set_index, target_reps, weight_kg, reps, completed, completed_at)
          VALUES ($1,$2,$3,$4,$5,true,$6)`,
-        [seId, s, ex.rep_range, (ex.target_weight_kg ?? 0) + wobble, reps, new Date(setTime).toISOString()],
+        [
+          seId,
+          s,
+          ex.rep_range,
+          (ex.target_weight_kg ?? 0) + wobble,
+          reps,
+          new Date(setTime).toISOString(),
+        ],
       );
     }
   }
@@ -245,5 +283,7 @@ const { rows: counts } = await q(
   [uid],
 );
 console.log(`Seeded ${email} (${uid})`);
-console.log(`  program days: ${counts[0].days}, completed sessions: ${counts[0].sessions} (${completedCount} new), meals: ${counts[0].meals}, weights: ${counts[0].weights}`);
+console.log(
+  `  program days: ${counts[0].days}, completed sessions: ${counts[0].sessions} (${completedCount} new), meals: ${counts[0].meals}, weights: ${counts[0].weights}`,
+);
 await pool.end();

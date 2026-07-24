@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#141414" />
+    <title>COACH — offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #141414;
+        color: #f7f7f7;
+      }
+      body {
+        min-height: 100dvh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        box-sizing: border-box;
+        padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+      }
+      main {
+        width: min(100%, 360px);
+        text-align: center;
+      }
+      .mark {
+        width: 52px;
+        height: 52px;
+        margin: 0 auto 18px;
+        display: grid;
+        place-items: center;
+        background: #e8243f;
+        font-weight: 900;
+        font-size: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        text-transform: uppercase;
+      }
+      p {
+        color: #b3b3b3;
+        line-height: 1.5;
+      }
+      button {
+        min-height: 48px;
+        margin-top: 10px;
+        border: 0;
+        padding: 0 22px;
+        background: #e8243f;
+        color: white;
+        font: inherit;
+        font-weight: 800;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">C</div>
+      <h1>You’re offline</h1>
+      <p>COACH keeps account data on the server. Reconnect to safely load your latest workout.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

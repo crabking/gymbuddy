@@ -58,18 +58,18 @@
 /* Dark-first: concrete black + acid lime */
 :root {
   --radius: 1rem;
-  --background: oklch(0.17 0 0);              /* #141414 */
+  --background: oklch(0.17 0 0); /* #141414 */
   --foreground: oklch(0.98 0 0);
-  --card: oklch(0.23 0 0);                    /* #262626 */
+  --card: oklch(0.23 0 0); /* #262626 */
   --card-foreground: oklch(0.98 0 0);
   --popover: oklch(0.23 0 0);
   --popover-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.62 0.24 25);            /* acid lime #d4ff00 */
+  --primary: oklch(0.62 0.24 25); /* acid lime #d4ff00 */
   --primary-foreground: oklch(0.98 0 0);
   --secondary: oklch(0.27 0 0);
   --secondary-foreground: oklch(0.98 0 0);
   --muted: oklch(0.23 0 0);
-  --muted-foreground: oklch(0.72 0 0);        /* #a3a3a3 */
+  --muted-foreground: oklch(0.72 0 0); /* #a3a3a3 */
   --accent: oklch(0.62 0.24 25);
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.62 0.24 25);
@@ -127,7 +127,12 @@
   }
 
   body {
-    font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-family:
+      "DM Sans",
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      sans-serif;
   }
 
   .font-display {

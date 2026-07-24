@@ -23,7 +23,8 @@ export function TabBar() {
             <Link
               key={t.to}
               to={t.to}
-              className="relative flex flex-1 flex-col items-center gap-0.5 py-2"
+              aria-current={active ? "page" : undefined}
+              className="relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
             >
               {active && (
                 <motion.div
@@ -37,7 +38,7 @@ export function TabBar() {
                 strokeWidth={active ? 2.5 : 2}
               />
               <span
-                className={`font-display text-[9px] font-bold uppercase tracking-[0.14em] ${
+                className={`font-display text-[10px] font-bold uppercase tracking-[0.12em] ${
                   active ? "text-primary" : "text-muted-foreground"
                 }`}
               >
@@ -49,8 +50,9 @@ export function TabBar() {
         <Link
           to="/chat"
           search={{ settings: true }}
-          className="relative flex flex-1 flex-col items-center gap-0.5 py-2"
+          className="relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
           aria-label="Settings"
+          aria-current={settingsActive ? "page" : undefined}
         >
           {settingsActive && (
             <motion.div
@@ -64,7 +66,7 @@ export function TabBar() {
             strokeWidth={settingsActive ? 2.5 : 2}
           />
           <span
-            className={`font-display text-[9px] font-bold uppercase tracking-[0.14em] ${
+            className={`font-display text-[10px] font-bold uppercase tracking-[0.12em] ${
               settingsActive ? "text-primary" : "text-muted-foreground"
             }`}
           >

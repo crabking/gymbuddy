@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { eq, lte, sql } from "drizzle-orm";
+import { getDb } from "@/db/db.server";
+import { rateLimitBuckets as dbRateLimitBuckets } from "@/db/schema";
 
 type RateLimitBucket = {
   count: number;
@@ -19,10 +22,15 @@ export class RequestBodyError extends Error {
 }
 
 export function getClientAddress(request: Request): string {
-  const direct =
-    request.headers.get("cf-connecting-ip") ??
-    request.headers.get("x-real-ip") ??
-    request.headers.get("x-forwarded-for")?.split(",")[0];
+  const trustProxy =
+    process.env.TRUST_PROXY_HEADERS === "true" || process.env.TRUST_PROXY_HEADERS === "1";
+  if (!trustProxy) return "untrusted-proxy";
+
+  // Coolify/Traefik owns X-Real-IP. Prefer that single value over client
+  // supplied forwarding chains. If only X-Forwarded-For is available, the
+  // right-most address is the hop appended by the trusted edge proxy.
+  const forwarded = request.headers.get("x-forwarded-for");
+  const direct = request.headers.get("x-real-ip") ?? forwarded?.split(",").at(-1);
   const address = direct?.trim();
   return address && address.length <= 128 ? address : "unknown";
 }
@@ -57,6 +65,76 @@ export function resetRateLimit(key: string): void {
   rateLimitBuckets.delete(key);
 }
 
+/**
+ * Cross-replica fixed-window limiter for expensive or abuse-sensitive routes.
+ * Only a SHA-256 digest of the supplied key is persisted.
+ */
+export async function takeDistributedRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1_000_000) {
+    throw new Error("Invalid rate-limit threshold");
+  }
+  if (!Number.isFinite(windowMs) || windowMs < 1_000 || windowMs > 31 * 24 * 60 * 60_000) {
+    throw new Error("Invalid rate-limit window");
+  }
+
+  const keyHash = privateRateLimitKey(`distributed:${key}`);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const expiresAt = new Date(now.getTime() + windowMs).toISOString();
+  const result = await getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${"rate-limit:" + keyHash}, 0))`,
+    );
+    await tx.delete(dbRateLimitBuckets).where(lte(dbRateLimitBuckets.expires_at, nowIso));
+    const [current] = await tx
+      .select({
+        count: dbRateLimitBuckets.count,
+        expires_at: dbRateLimitBuckets.expires_at,
+      })
+      .from(dbRateLimitBuckets)
+      .where(eq(dbRateLimitBuckets.key_hash, keyHash))
+      .limit(1);
+    if (!current) {
+      await tx.insert(dbRateLimitBuckets).values({
+        key_hash: keyHash,
+        window_start: nowIso,
+        expires_at: expiresAt,
+        count: 1,
+      });
+      return { count: 1, expiresAt };
+    }
+    const [updated] = await tx
+      .update(dbRateLimitBuckets)
+      .set({ count: sql`${dbRateLimitBuckets.count} + 1` })
+      .where(eq(dbRateLimitBuckets.key_hash, keyHash))
+      .returning({
+        count: dbRateLimitBuckets.count,
+        expires_at: dbRateLimitBuckets.expires_at,
+      });
+    return {
+      count: updated?.count ?? current.count + 1,
+      expiresAt: updated?.expires_at ?? current.expires_at,
+    };
+  });
+
+  return {
+    allowed: result.count <= limit,
+    retryAfterSeconds: Math.max(
+      1,
+      Math.ceil((new Date(result.expiresAt).getTime() - Date.now()) / 1_000),
+    ),
+  };
+}
+
+export async function resetDistributedRateLimit(key: string): Promise<void> {
+  const keyHash = privateRateLimitKey(`distributed:${key}`);
+  await getDb().delete(dbRateLimitBuckets).where(eq(dbRateLimitBuckets.key_hash, keyHash));
+}
+
 function pruneRateLimitBuckets(now: number): void {
   if (rateLimitBuckets.size <= MAX_RATE_LIMIT_BUCKETS) return;
 
@@ -89,17 +167,18 @@ export function isUnsafeCrossOriginRequest(request: Request): boolean {
   }
 
   const requestUrl = new URL(request.url);
-  const allowedHosts = new Set(
-    [
-      requestUrl.host,
-      request.headers.get("host"),
-      request.headers.get("x-forwarded-host")?.split(",")[0],
-    ]
-      .map((value) => value?.trim().toLowerCase())
-      .filter((value): value is string => Boolean(value)),
-  );
+  let allowedOrigin = requestUrl.origin;
+  const configuredOrigin = process.env.PUBLIC_ORIGIN?.trim();
+  if (configuredOrigin) {
+    try {
+      allowedOrigin = new URL(configuredOrigin).origin;
+    } catch {
+      console.error("Invalid PUBLIC_ORIGIN; rejecting unsafe request.");
+      return true;
+    }
+  }
 
-  if (!allowedHosts.has(originUrl.host.toLowerCase())) return true;
+  if (originUrl.origin.toLowerCase() !== allowedOrigin.toLowerCase()) return true;
   if (process.env.NODE_ENV === "production" && originUrl.protocol !== "https:") return true;
   return false;
 }

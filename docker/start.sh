@@ -6,7 +6,7 @@ node migrate.mjs
 
 # 2. Seed/refresh the invite login if credentials are provided (idempotent).
 if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
-  node seed.mjs || echo "[start] seed failed (non-fatal), continuing"
+  node seed.mjs
 fi
 
 # 3. Boot the server.

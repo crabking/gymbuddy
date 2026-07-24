@@ -1,12 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  ArrowUpRight,
-  Brain,
-  Camera,
-  Dumbbell,
-  HeartPulse,
-  ListChecks,
-} from "lucide-react";
+import { ArrowUpRight, Brain, Camera, Dumbbell, HeartPulse, ListChecks } from "lucide-react";
 import coverImage from "@/assets/coach-rex-male.jpg";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { VersionTag } from "@/components/VersionTag";
@@ -63,8 +56,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "COACH — your complete AI fitness coach" },
       {
         property: "og:description",
-        content:
-          "Train, plan, eat, track, and improve with one AI coach that remembers you.",
+        content: "Train, plan, eat, track, and improve with one AI coach that remembers you.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -85,7 +77,7 @@ function Landing() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-transparent to-background" />
 
         <header className="absolute inset-x-0 top-0 z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/" className="flex min-h-11 items-center gap-2">
             <span className="grid h-8 w-8 place-items-center bg-primary font-display text-xs font-black text-primary-foreground">
               C
             </span>
@@ -95,7 +87,7 @@ function Landing() {
             <VersionTag />
           </Link>
           <div className="flex items-center gap-2">
-            <InstallAppButton className="flex h-9 items-center gap-1.5 border border-primary/60 bg-background/70 px-3 font-display text-[10px] font-bold uppercase tracking-[0.1em] text-primary backdrop-blur transition active:scale-95" />
+            <InstallAppButton className="flex h-11 items-center gap-1.5 border border-primary/60 bg-background/70 px-3 font-display text-[10px] font-bold uppercase tracking-[0.1em] text-primary backdrop-blur transition active:scale-95" />
           </div>
         </header>
       </section>
@@ -124,10 +116,10 @@ function Landing() {
                   {feature.icon}
                 </span>
                 <div className="min-w-0">
-                  <h2 className="font-display text-[11px] font-black uppercase leading-tight tracking-[0.01em] sm:text-xs">
+                  <h2 className="font-display text-xs font-black uppercase leading-tight tracking-[0.01em] sm:text-[13px]">
                     {feature.title}
                   </h2>
-                  <p className="mt-0.5 truncate text-[9px] leading-tight text-muted-foreground sm:text-[10px] [@media(max-height:600px)]:hidden">
+                  <p className="mt-0.5 truncate text-[10px] leading-tight text-muted-foreground sm:text-[11px] [@media(max-height:600px)]:hidden">
                     {feature.body}
                   </p>
                 </div>

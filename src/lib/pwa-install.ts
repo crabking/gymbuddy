@@ -43,10 +43,21 @@ export function initPwaInstall() {
     notify();
   });
 
-  window.matchMedia("(display-mode: standalone)").addEventListener("change", () => {
+  const displayMode = window.matchMedia("(display-mode: standalone)");
+  const syncDisplayMode = () => {
     installed = detectInstalled();
     notify();
-  });
+  };
+  if (typeof displayMode.addEventListener === "function") {
+    displayMode.addEventListener("change", syncDisplayMode);
+  } else {
+    // Older iOS WebKit exposes the legacy MediaQueryList listener API.
+    (
+      displayMode as unknown as {
+        addListener: (listener: (event: MediaQueryListEvent) => void) => void;
+      }
+    ).addListener(syncDisplayMode);
+  }
 }
 
 export function usePwaInstall() {

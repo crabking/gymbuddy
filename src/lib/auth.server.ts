@@ -1,11 +1,14 @@
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
-import { eq, lt } from "drizzle-orm";
+import { randomBytes, scrypt, scryptSync, timingSafeEqual, createHash } from "node:crypto";
+import { promisify } from "node:util";
+import { desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import { users, sessions, type User } from "@/db/schema";
 
 export const SESSION_COOKIE = "gb_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // one login per week
+const MAX_SESSIONS_PER_USER = 10;
 const SCRYPT_KEYLEN = 64;
+const scryptAsync = promisify(scrypt);
 export const DUMMY_PASSWORD_HASH = hashPassword(randomBytes(32).toString("base64url"));
 
 // --- Password hashing (Node scrypt, no native deps) ---
@@ -16,7 +19,7 @@ export function hashPassword(password: string): string {
   return `scrypt:${salt}:${hash}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, salt, hashHex] = stored.split(":");
   if (
     scheme !== "scrypt" ||
@@ -27,7 +30,7 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
   const expected = Buffer.from(hashHex, "hex");
   try {
-    const actual = scryptSync(password, salt, expected.length);
+    const actual = (await scryptAsync(password, salt, expected.length)) as Buffer;
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   } catch {
     return false;
@@ -45,13 +48,23 @@ export async function createSession(userId: string): Promise<{ token: string; ex
   const id = sha256(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   const db = getDb();
-  await db.delete(sessions).where(lt(sessions.expires_at, new Date()));
-  await db.insert(sessions).values({ id, user_id: userId, expires_at: expiresAt });
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"auth:" + userId}, 0))`);
+    await tx.delete(sessions).where(lt(sessions.expires_at, new Date()));
+    await tx.insert(sessions).values({ id, user_id: userId, expires_at: expiresAt });
+    const rows = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.user_id, userId))
+      .orderBy(desc(sessions.created_at));
+    const stale = rows.slice(MAX_SESSIONS_PER_USER).map((row) => row.id);
+    if (stale.length) await tx.delete(sessions).where(inArray(sessions.id, stale));
+  });
   return { token, expiresAt };
 }
 
 export async function validateSessionToken(token: string | undefined | null): Promise<User | null> {
-  if (!token) return null;
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const id = sha256(token);
   const db = getDb();
   const [row] = await db
@@ -76,10 +89,14 @@ export async function validateSessionToken(token: string | undefined | null): Pr
 }
 
 export async function invalidateSession(token: string | undefined | null): Promise<void> {
-  if (!token) return;
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
   await getDb()
     .delete(sessions)
     .where(eq(sessions.id, sha256(token)));
+}
+
+export async function invalidateAllSessions(userId: string): Promise<void> {
+  await getDb().delete(sessions).where(eq(sessions.user_id, userId));
 }
 
 // --- Request helpers ---

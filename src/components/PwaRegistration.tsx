@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { APP_VERSION } from "@/lib/app-version";
 import { initPwaInstall } from "@/lib/pwa-install";
+import { isPwaUpdateBlocked, subscribePwaUpdateBlockers } from "@/lib/pwa-update";
 
 export function PwaRegistration() {
   useEffect(() => {
@@ -9,7 +10,15 @@ export function PwaRegistration() {
 
     let registration: ServiceWorkerRegistration | null = null;
     let reloading = false;
+    let reloadRequested = false;
     let lastCheck = 0;
+    let hasController = Boolean(navigator.serviceWorker.controller);
+
+    const reloadWhenSafe = () => {
+      if (!reloadRequested || reloading || isPwaUpdateBlocked()) return;
+      reloading = true;
+      window.location.reload();
+    };
 
     const checkForUpdate = async (force = false) => {
       const now = Date.now();
@@ -21,8 +30,8 @@ export function PwaRegistration() {
         if (response.ok) {
           const payload = (await response.json()) as { version?: string };
           if (payload.version && payload.version !== APP_VERSION) {
-            reloading = true;
-            window.location.reload();
+            reloadRequested = true;
+            reloadWhenSafe();
             return;
           }
         }
@@ -39,9 +48,12 @@ export function PwaRegistration() {
 
     const register = async () => {
       try {
-        registration = await navigator.serviceWorker.register("/sw.js", {
-          updateViaCache: "none",
-        });
+        registration = await navigator.serviceWorker.register(
+          `/sw.js?v=${encodeURIComponent(APP_VERSION)}`,
+          {
+            updateViaCache: "none",
+          },
+        );
         await checkForUpdate(true);
       } catch (error) {
         console.error("Service worker registration failed", error);
@@ -49,9 +61,14 @@ export function PwaRegistration() {
     };
 
     const onControllerChange = () => {
-      if (reloading) return;
-      reloading = true;
-      window.location.reload();
+      // The first install claims this page too, but the page already contains
+      // the current build. Only an actual controller replacement needs reload.
+      if (!hasController) {
+        hasController = true;
+        return;
+      }
+      reloadRequested = true;
+      reloadWhenSafe();
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void checkForUpdate();
@@ -59,6 +76,7 @@ export function PwaRegistration() {
 
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
     document.addEventListener("visibilitychange", onVisibilityChange);
+    const unsubscribeBlockers = subscribePwaUpdateBlockers(reloadWhenSafe);
 
     let waitingForLoad = false;
     if (document.readyState === "complete") {
@@ -72,6 +90,7 @@ export function PwaRegistration() {
       if (waitingForLoad) window.removeEventListener("load", register);
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      unsubscribeBlockers();
     };
   }, []);
 

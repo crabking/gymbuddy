@@ -1,13 +1,17 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, Dumbbell } from "lucide-react";
+import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth.functions";
 import { getProfile, switchCoach } from "@/lib/gym-buddy.functions";
 import { COACH_IMAGES } from "@/lib/coach-assets";
 import { COACHES, DEFAULT_COACH_ID, getCoach, type CoachId, type CoachLevel } from "@/lib/coaches";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { VersionTag } from "@/components/VersionTag";
+import { clearAccountCache, isUnauthorizedError } from "@/lib/client-session";
+import { usePwaUpdateBlocker } from "@/lib/pwa-update";
 
 export const Route = createFileRoute("/coaches")({
   head: () => ({
@@ -54,6 +58,7 @@ const IMAGE_CROP: Record<CoachId, string> = {
 
 function CoachSelect() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const getCurrentUserFn = useServerFn(getCurrentUser);
   const getProfileFn = useServerFn(getProfile);
   const switchCoachFn = useServerFn(switchCoach);
@@ -61,26 +66,49 @@ function CoachSelect() {
   const [currentCoachId, setCurrentCoachId] = useState<CoachId | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [pendingCoachId, setPendingCoachId] = useState<CoachId | null>(null);
+  usePwaUpdateBlocker("coach-switch", saving);
 
   useEffect(() => {
-    getCurrentUserFn({ data: undefined })
-      .then(async (user) => {
-        if (!user) return;
+    let active = true;
+    setAuthReady(false);
+    setLoadError(null);
+
+    void (async () => {
+      try {
+        const user = await getCurrentUserFn({ data: undefined });
+        if (!active) return;
+        if (!user) {
+          setSignedIn(false);
+          setCurrentCoachId(null);
+          return;
+        }
         setSignedIn(true);
         const profile = await getProfileFn({ data: undefined });
-        if (!profile?.coach_id) return;
+        if (!active || !profile?.coach_id) return;
         const coachId = getCoach(profile.coach_id).id;
         setCurrentCoachId(coachId);
         setSelectedId(coachId);
-      })
-      .catch(() => setSignedIn(false))
-      .finally(() => setAuthReady(true));
-  }, [getCurrentUserFn, getProfileFn]);
+      } catch (error) {
+        if (!active) return;
+        setLoadError(error instanceof Error ? error.message : "Could not load your account");
+      } finally {
+        if (active) setAuthReady(true);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [getCurrentUserFn, getProfileFn, retryNonce]);
 
   async function activateCoach(coachId: CoachId) {
-    if (!authReady || saving) return;
+    if (!authReady || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       if (signedIn) {
@@ -91,13 +119,21 @@ function CoachSelect() {
       } else {
         await navigate({ to: "/auth", search: { coach: coachId } });
       }
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        await clearAccountCache(queryClient);
+        window.location.replace(`/auth?coach=${encodeURIComponent(coachId)}`);
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Could not select that coach");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
   function chooseCoach(coachId: CoachId) {
-    if (!authReady || saving) return;
+    if (!authReady || savingRef.current) return;
     if (signedIn && currentCoachId && coachId !== currentCoachId) {
       setPendingCoachId(coachId);
       return;
@@ -107,11 +143,11 @@ function CoachSelect() {
 
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="mx-auto flex h-12 w-full max-w-5xl shrink-0 items-center justify-between border-b border-border px-3 pt-[env(safe-area-inset-top)] sm:px-5">
+      <header className="mx-auto flex min-h-12 w-full max-w-5xl shrink-0 items-center justify-between border-b border-border px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-5">
         <Link
           to="/"
           aria-label="Back"
-          className="grid h-8 w-8 place-items-center text-muted-foreground transition hover:text-foreground"
+          className="grid h-11 w-11 place-items-center text-muted-foreground transition hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -122,13 +158,13 @@ function CoachSelect() {
           </span>
           <VersionTag />
         </div>
-        <span className="w-8" />
+        <span className="w-11" />
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-5">
         <div className="mb-1.5 flex shrink-0 items-end justify-between gap-3 px-0.5">
           <div>
-            <p className="font-display text-[8px] font-bold uppercase tracking-[0.22em] text-primary">
+            <p className="font-display text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
               Pick your intensity
             </p>
             <h1 className="font-display text-lg font-black uppercase leading-none sm:text-2xl">
@@ -141,6 +177,19 @@ function CoachSelect() {
             <span className="text-red-400">Advanced</span>
           </div>
         </div>
+
+        {loadError && (
+          <div className="mb-1.5 flex min-h-11 shrink-0 items-center gap-2 border border-red-500/40 bg-red-500/10 px-2.5 text-[11px] text-red-200">
+            <span className="min-w-0 flex-1 truncate">Could not verify your account.</span>
+            <button
+              type="button"
+              onClick={() => setRetryNonce((value) => value + 1)}
+              className="min-h-11 shrink-0 px-2 font-bold uppercase tracking-wide text-red-300"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         <div className="grid min-h-0 flex-1 grid-cols-3 grid-rows-2 gap-1.5 sm:gap-2">
           {COACHES.map((coach) => {
@@ -191,7 +240,7 @@ function CoachSelect() {
                     {coach.name}
                   </span>
                   <span
-                    className={`mt-1 line-clamp-2 text-[9px] leading-[1.2] text-white/80 sm:text-[10px] ${
+                    className={`mt-1 line-clamp-2 text-[11px] leading-[1.25] text-white/85 sm:text-xs ${
                       active ? "block" : "hidden sm:group-hover:block"
                     }`}
                   >
@@ -200,9 +249,9 @@ function CoachSelect() {
                   {active && (
                     <button
                       type="button"
-                      disabled={saving || !authReady}
+                      disabled={saving || !authReady || !!loadError}
                       onClick={() => void chooseCoach(coach.id)}
-                      className={`pointer-events-auto mt-1.5 flex h-8 w-full items-center justify-between gap-1 px-2 font-display text-[9px] font-black uppercase tracking-wide transition active:scale-[0.98] disabled:opacity-60 sm:text-[10px] ${TRAIN_BUTTON[coach.level]}`}
+                      className={`pointer-events-auto mt-1.5 flex min-h-11 w-full items-center justify-between gap-1 px-2 font-display text-[10px] font-black uppercase tracking-wide transition active:scale-[0.98] disabled:opacity-60 sm:text-[11px] ${TRAIN_BUTTON[coach.level]}`}
                     >
                       <span>{!authReady ? "Loading…" : saving ? "Saving…" : "Train with"}</span>
                       <ArrowUpRight className="h-3 w-3 shrink-0" />

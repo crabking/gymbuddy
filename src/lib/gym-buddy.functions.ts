@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireAuth } from "@/lib/auth-middleware";
-import { COACH_IDS, getCoach } from "@/lib/coaches";
+import { COACH_IDS } from "@/lib/coaches";
 import { z } from "zod";
 
 // Server-only db modules are imported dynamically inside handlers so `pg` never
@@ -60,7 +60,7 @@ export const getMemories = createServerFn({ method: "GET" })
 
 export const removeMemory = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { deleteMemory } = await import("@/lib/memory.server");
     await deleteMemory(context.userId, data.id);
@@ -92,90 +92,106 @@ export const getWorkspaceFiles = createServerFn({ method: "GET" })
 
 /* -------------------- onboarding & profile updates -------------------- */
 
-const OnboardingSchema = z.object({
-  display_name: z.string().min(1).max(80),
-  goal: z.string().min(1),
-  experience: z.string().min(1),
-  days_per_week: z.number().int().min(1).max(7),
-  session_minutes: z.number().int().min(15).max(240),
-  equipment: z.string().min(1),
-  injuries: z.string().max(500).optional().default(""),
-  height_cm: z.number().min(100).max(260),
-  weight_kg: z.number().min(30).max(300),
-  age: z.number().int().min(13).max(100),
-  sex: z.string().min(1),
-  preferred_language: z.enum(["en", "sv"]),
-  activity_level: z.enum(["sedentary", "moderate", "high"]),
-  recent_training_baseline: z.string().min(1).max(4000),
-  diet_style: z.string().min(1),
-  daily_calorie_target: z.number().int().min(1000).max(6000).optional().nullable(),
-});
+const OnboardingSchema = z
+  .object({
+    expected_data_epoch: z.number().int().min(0),
+    display_name: z.string().min(1).max(80),
+    goal: z.string().min(1).max(1_000),
+    experience: z.enum(["beginner", "intermediate", "advanced"]),
+    days_per_week: z.number().int().min(1).max(7),
+    session_minutes: z.number().int().min(15).max(240),
+    equipment: z.string().min(1).max(500),
+    injuries: z.string().max(500).optional().default(""),
+    height_cm: z.number().min(100).max(260),
+    weight_kg: z.number().min(30).max(300),
+    age: z.number().int().min(13).max(100),
+    sex: z.enum(["male", "female", "other"]),
+    preferred_language: z.enum(["en", "sv"]),
+    activity_level: z.enum(["sedentary", "moderate", "high"]),
+    recent_training_baseline: z.string().min(1).max(4000),
+    diet_style: z.string().min(1).max(100),
+    daily_calorie_target: z.number().int().min(1000).max(6000).optional().nullable(),
+  })
+  .strict();
 
 export const saveOnboarding = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) => OnboardingSchema.parse(input))
+  .validator((input: unknown) => OnboardingSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
     const { profiles } = await import("@/db/schema");
-    await getDb()
-      .update(profiles)
-      .set({
-        display_name: data.display_name,
-        goal: data.goal,
-        experience: data.experience,
-        days_per_week: data.days_per_week,
-        session_minutes: data.session_minutes,
-        equipment: data.equipment,
-        injuries: data.injuries || null,
-        height_cm: data.height_cm,
-        weight_kg: data.weight_kg,
-        age: data.age,
-        sex: data.sex,
-        preferred_language: data.preferred_language,
-        activity_level: data.activity_level,
-        recent_training_baseline: data.recent_training_baseline,
-        diet_style: data.diet_style,
-        daily_calorie_target: data.daily_calorie_target ?? null,
-        onboarding_completed: true,
-      })
-      .where(eq(profiles.id, context.userId));
+    const { requireExpectedDataEpoch } = await import("@/lib/account-epoch.server");
+    await getDb().transaction(async (tx) => {
+      await requireExpectedDataEpoch(tx, context.userId, data.expected_data_epoch);
+      await tx
+        .update(profiles)
+        .set({
+          display_name: data.display_name,
+          goal: data.goal,
+          experience: data.experience,
+          days_per_week: data.days_per_week,
+          session_minutes: data.session_minutes,
+          equipment: data.equipment,
+          injuries: data.injuries || null,
+          height_cm: data.height_cm,
+          weight_kg: data.weight_kg,
+          age: data.age,
+          sex: data.sex,
+          preferred_language: data.preferred_language,
+          activity_level: data.activity_level,
+          recent_training_baseline: data.recent_training_baseline,
+          diet_style: data.diet_style,
+          daily_calorie_target: data.daily_calorie_target ?? null,
+          onboarding_completed: true,
+        })
+        .where(eq(profiles.id, context.userId));
+    });
     return { ok: true };
   });
 
-const ProfilePatchSchema = z.object({
-  display_name: z.string().max(80).optional(),
-  goal: z.string().optional(),
-  experience: z.string().optional(),
-  days_per_week: z.number().int().min(1).max(7).nullable().optional(),
-  session_minutes: z.number().int().min(15).max(240).nullable().optional(),
-  equipment: z.string().optional(),
-  injuries: z.string().max(500).nullable().optional(),
-  height_cm: z.number().nullable().optional(),
-  weight_kg: z.number().nullable().optional(),
-  age: z.number().int().nullable().optional(),
-  sex: z.string().optional(),
-  preferred_language: z.enum(["en", "sv"]).nullable().optional(),
-  activity_level: z.enum(["sedentary", "moderate", "high"]).nullable().optional(),
-  recent_training_baseline: z.string().max(4000).nullable().optional(),
-  diet_style: z.string().optional(),
-  daily_calorie_target: z.number().int().nullable().optional(),
-  schedule_note: z.string().max(2000).nullable().optional(),
-  meal_preferences: z.string().max(2000).nullable().optional(),
-  coach_id: z.enum(COACH_IDS).optional(),
-});
+const ProfilePatchSchema = z
+  .object({
+    expected_data_epoch: z.number().int().min(0),
+    display_name: z.string().trim().min(1).max(80).optional(),
+    goal: z.string().trim().min(1).max(500).optional(),
+    experience: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+    days_per_week: z.number().int().min(1).max(7).nullable().optional(),
+    session_minutes: z.number().int().min(15).max(240).nullable().optional(),
+    equipment: z.string().trim().min(1).max(500).optional(),
+    injuries: z.string().max(500).nullable().optional(),
+    height_cm: z.number().min(100).max(260).nullable().optional(),
+    weight_kg: z.number().min(25).max(400).nullable().optional(),
+    age: z.number().int().min(13).max(120).nullable().optional(),
+    sex: z.enum(["male", "female", "other"]).optional(),
+    preferred_language: z.enum(["en", "sv"]).nullable().optional(),
+    activity_level: z.enum(["sedentary", "moderate", "high"]).nullable().optional(),
+    recent_training_baseline: z.string().max(4000).nullable().optional(),
+    diet_style: z.string().trim().min(1).max(100).optional(),
+    daily_calorie_target: z.number().int().min(1000).max(6000).nullable().optional(),
+    schedule_note: z.string().max(2000).nullable().optional(),
+    meal_preferences: z.string().max(2000).nullable().optional(),
+    timezone: z.string().trim().min(1).max(64).nullable().optional(),
+  })
+  .strict();
 
 export const updateProfile = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) => ProfilePatchSchema.parse(input))
+  .validator((input: unknown) => ProfilePatchSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const patch = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
-    if (data.coach_id) patch.coach_gender = getCoach(data.coach_id).gender;
+    const { expected_data_epoch: expectedDataEpoch, ...profileFields } = data;
+    const patch = Object.fromEntries(
+      Object.entries(profileFields).filter(([, v]) => v !== undefined),
+    );
     if (Object.keys(patch).length === 0) return { ok: true };
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
     const { profiles } = await import("@/db/schema");
-    await getDb().update(profiles).set(patch).where(eq(profiles.id, context.userId));
+    const { requireExpectedDataEpoch } = await import("@/lib/account-epoch.server");
+    await getDb().transaction(async (tx) => {
+      await requireExpectedDataEpoch(tx, context.userId, expectedDataEpoch);
+      await tx.update(profiles).set(patch).where(eq(profiles.id, context.userId));
+    });
     return { ok: true };
   });
 
@@ -188,39 +204,101 @@ export const getActiveWorkoutSession = createServerFn({ method: "GET" })
     return getActiveSession(context.userId);
   });
 
-export const toggleSessionExercise = createServerFn({ method: "POST" })
+const IsoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "Invalid date");
+
+export const startTodayWorkoutSession = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) =>
-    z.object({ exercise: z.string(), done: z.boolean() }).parse(input),
+  .validator((input: unknown) =>
+    z
+      .object({
+        date: IsoDateSchema,
+        request_id: z.string().uuid(),
+        expected_data_epoch: z.number().int().min(0),
+      })
+      .strict()
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { markExerciseDone } = await import("@/lib/workout-session.server");
-    return markExerciseDone(context.userId, data.exercise, data.done);
+    const serverToday = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const requested = new Date(`${data.date}T00:00:00.000Z`);
+    if (Math.abs(requested.getTime() - serverToday.getTime()) > 86_400_000) {
+      return {
+        ok: false as const,
+        error: "invalid_local_date",
+        coach_note: "Refresh the app before starting this workout.",
+      };
+    }
+    const { startSession } = await import("@/lib/workout-session.server");
+    return startSession(context.userId, {
+      date: data.date,
+      source_key: `ui-start:${data.request_id}`,
+      expected_data_epoch: data.expected_data_epoch,
+    });
   });
 
 export const completeActiveSession = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .handler(async ({ context }) => {
+  .validator((input: unknown) =>
+    z
+      .object({
+        session_id: z.string().uuid(),
+        expected_data_epoch: z.number().int().min(0),
+      })
+      .strict()
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
     const { completeSession } = await import("@/lib/workout-session.server");
-    return completeSession(context.userId);
+    return completeSession(context.userId, {
+      session_id: data.session_id,
+      expected_data_epoch: data.expected_data_epoch,
+    });
   });
 
-export const getNutritionToday = createServerFn({ method: "GET" })
+const LocalContextSchema = z
+  .object({
+    date: IsoDateSchema,
+    timezone: z.string().trim().min(1).max(64),
+  })
+  .strict();
+
+export const getNutritionToday = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .handler(async ({ context }) => {
+  .validator((input: unknown) => LocalContextSchema.parse(input))
+  .handler(async ({ data, context }) => {
     const { getNutrition } = await import("@/lib/nutrition.server");
-    return getNutrition(context.userId);
+    return getNutrition(context.userId, data.date, data.timezone);
   });
 
 export const getTodayTrainingInfo = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) =>
-    z.object({ date: z.string().nullable(), weekday: z.string().nullable() }).parse(input),
+  .validator((input: unknown) =>
+    z
+      .object({
+        date: IsoDateSchema,
+        weekday: z.enum([
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ]),
+      })
+      .strict()
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     // Structured program first; fall back to the markdown schedule.
     const { getTodayProgramDay, getNextProgramDay } = await import("@/lib/program.server");
-    const today = data.date ?? new Date().toISOString().slice(0, 10);
+    const today = data.date;
     const todayDay = await getTodayProgramDay(context.userId, today);
     if (todayDay && todayDay.status === "planned") {
       return {
@@ -241,80 +319,136 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
 
 export const getProgramFull = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) => z.object({ date: z.string().nullable() }).parse(input))
+  .validator((input: unknown) => z.object({ date: IsoDateSchema }).strict().parse(input))
   .handler(async ({ data, context }) => {
     const { getCurrentProgram } = await import("@/lib/program.server");
-    return getCurrentProgram(context.userId, data.date ?? undefined);
+    return getCurrentProgram(context.userId, data.date);
   });
 
-export const getDashboard = createServerFn({ method: "GET" })
+export const getDashboard = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .handler(async ({ context }) => {
+  .validator((input: unknown) => LocalContextSchema.parse(input))
+  .handler(async ({ data, context }) => {
     const { getDashboardData } = await import("@/lib/dashboard.server");
-    return getDashboardData(context.userId);
+    return getDashboardData(context.userId, 400, data.date, data.timezone);
+  });
+
+const DashboardHistorySchema = z
+  .object({
+    limit: z.number().int().min(1).max(100),
+    before: z
+      .object({
+        session_date: IsoDateSchema,
+        created_at: z.string().datetime({ offset: true }),
+        id: z.string().uuid(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const getDashboardHistory = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .validator((input: unknown) => DashboardHistorySchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { getDashboardHistoryPage } = await import("@/lib/dashboard.server");
+    return getDashboardHistoryPage(context.userId, data);
   });
 
 export const toggleSessionSet = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
-        set_id: z.string(),
+        set_id: z.string().uuid(),
+        expected_data_epoch: z.number().int().min(0),
+        expected_revision: z.number().int().min(0),
         completed: z.boolean(),
         weight_kg: z.number().min(0).max(1000).nullable().optional(),
-        reps: z.number().int().min(0).max(1000).nullable().optional(),
+        reps: z.number().int().min(1).max(1000).nullable().optional(),
       })
+      .strict()
       .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { markSetDone } = await import("@/lib/workout-session.server");
     return markSetDone(context.userId, data.set_id, {
+      expected_revision: data.expected_revision,
+      expected_data_epoch: data.expected_data_epoch,
       completed: data.completed,
       weight_kg: data.weight_kg,
       reps: data.reps,
     });
   });
 
-export const seedDemoDashboard = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .handler(async ({ context }) => {
-    const { seedDemoData } = await import("@/lib/demo-data.server");
-    return seedDemoData(context.userId);
-  });
-
 export const logWeight = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) =>
-    z.object({ weight_kg: z.number().min(25).max(400) }).parse(input),
+  .validator((input: unknown) =>
+    z
+      .object({
+        weight_kg: z.number().min(25).max(400),
+        local_date: IsoDateSchema,
+        timezone: z.string().trim().min(1).max(64),
+        expected_data_epoch: z.number().int().min(0),
+      })
+      .strict()
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
     const { weightLogs, profiles } = await import("@/db/schema");
+    const { requireExpectedDataEpoch } = await import("@/lib/account-epoch.server");
     const db = getDb();
-    await db.insert(weightLogs).values({ user_id: context.userId, weight_kg: data.weight_kg });
-    await db
-      .update(profiles)
-      .set({ weight_kg: data.weight_kg })
-      .where(eq(profiles.id, context.userId));
+    const loggedDate = data.local_date;
+    await db.transaction(async (tx) => {
+      await requireExpectedDataEpoch(tx, context.userId, data.expected_data_epoch);
+      await tx
+        .insert(weightLogs)
+        .values({
+          user_id: context.userId,
+          weight_kg: data.weight_kg,
+          logged_date: loggedDate,
+          timezone: data.timezone ?? null,
+          source_key: `ui-weight:${loggedDate}:${data.weight_kg}`,
+        })
+        .onConflictDoNothing();
+      await tx
+        .update(profiles)
+        .set({
+          weight_kg: data.weight_kg,
+          ...(data.timezone ? { timezone: data.timezone } : {}),
+        })
+        .where(eq(profiles.id, context.userId));
+    });
     return { ok: true };
   });
 
 export const resetWorkspace = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .handler(async ({ context }) => {
-    const { wipe } = await import("@/lib/workspace.server");
-    await wipe(context.userId);
-    return { ok: true };
+  .validator((input: unknown) =>
+    z
+      .object({ expected_data_epoch: z.number().int().min(0) })
+      .strict()
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { resetUserWorkspace } = await import("@/lib/coach-switch.server");
+    return {
+      ok: true,
+      ...(await resetUserWorkspace(context.userId, data.expected_data_epoch)),
+    };
   });
 
-const SwitchCoachSchema = z.object({
-  coach_id: z.enum(COACH_IDS),
-});
+const SwitchCoachSchema = z
+  .object({
+    coach_id: z.enum(COACH_IDS),
+  })
+  .strict();
 
 export const switchCoach = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .inputValidator((input: unknown) => SwitchCoachSchema.parse(input))
+  .validator((input: unknown) => SwitchCoachSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { switchUserCoach } = await import("@/lib/coach-switch.server");
     return {
@@ -326,63 +460,7 @@ export const switchCoach = createServerFn({ method: "POST" })
 export const resetOnboarding = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .handler(async ({ context }) => {
-    const { eq } = await import("drizzle-orm");
-    const { getDb } = await import("@/db/db.server");
-    const {
-      profiles,
-      chatMessages,
-      workoutLogs,
-      mealLogs,
-      weightLogs,
-      plans,
-      programs,
-      memories,
-      workspaceFiles,
-      workoutSessions,
-      sessions,
-    } = await import("@/db/schema");
-    const db = getDb();
-    const userId = context.userId;
-
-    await db.transaction(async (tx) => {
-      await tx.delete(chatMessages).where(eq(chatMessages.user_id, userId));
-      await tx.delete(workoutLogs).where(eq(workoutLogs.user_id, userId));
-      await tx.delete(mealLogs).where(eq(mealLogs.user_id, userId));
-      await tx.delete(weightLogs).where(eq(weightLogs.user_id, userId));
-      await tx.delete(workoutSessions).where(eq(workoutSessions.user_id, userId));
-      await tx.delete(programs).where(eq(programs.user_id, userId));
-      await tx.delete(plans).where(eq(plans.user_id, userId));
-      await tx.delete(memories).where(eq(memories.user_id, userId));
-      await tx.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
-      await tx.delete(sessions).where(eq(sessions.user_id, userId));
-      await tx
-        .update(profiles)
-        .set({
-          onboarding_completed: false,
-          display_name: null,
-          goal: null,
-          experience: null,
-          days_per_week: null,
-          session_minutes: null,
-          equipment: null,
-          injuries: null,
-          height_cm: null,
-          weight_kg: null,
-          age: null,
-          sex: null,
-          preferred_language: null,
-          activity_level: null,
-          recent_training_baseline: null,
-          diet_style: null,
-          daily_calorie_target: null,
-          active_plan_id: null,
-          schedule_note: null,
-          meal_preferences: null,
-          coach_gender: "male",
-          coach_id: "rex",
-        })
-        .where(eq(profiles.id, userId));
-    });
-
+    const { resetUserOnboarding } = await import("@/lib/coach-switch.server");
+    await resetUserOnboarding(context.userId);
     return { ok: true };
   });

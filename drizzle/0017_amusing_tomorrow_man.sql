@@ -1,0 +1,2 @@
+ALTER TABLE "program_operations" DROP CONSTRAINT "program_operations_operation_check";--> statement-breakpoint
+ALTER TABLE "program_operations" ADD CONSTRAINT "program_operations_operation_check" CHECK ("program_operations"."operation" IN ('generate_program', 'adjust_program', 'resolve_day', 'shift_schedule', 'start_session', 'mark_exercise'));

@@ -95,7 +95,7 @@ export function getSessionCompletionIssues(
   exercises: Array<{
     name: string;
     completed: boolean;
-    sets: Array<{ completed: boolean }>;
+    sets: Array<{ completed: boolean; reps?: number | null }>;
   }>,
 ): string[] {
   if (!exercises.length) return ["The workout has no exercises."];
@@ -104,6 +104,13 @@ export function getSessionCompletionIssues(
     if (!exercise.completed) issues.push(`${exercise.name} is not complete.`);
     if (exercise.sets.length && exercise.sets.some((set) => !set.completed)) {
       issues.push(`${exercise.name} still has unfinished sets.`);
+    }
+    if (
+      exercise.sets.some(
+        (set) => set.completed && (set.reps == null || !Number.isInteger(set.reps) || set.reps < 1),
+      )
+    ) {
+      issues.push(`${exercise.name} has completed sets without actual reps.`);
     }
   }
   return issues;
