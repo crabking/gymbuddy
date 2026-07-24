@@ -111,9 +111,13 @@ function useChatViewport() {
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const pad2 = (n: number) => String(n).padStart(2, "0");
-/** "YYYY-MM-DD|Weekday|HH:MM" in the user's local timezone. */
+/** Phone/browser-local wall clock sent privately with each chat request. */
 function clientLocalStamp(d = new Date()) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}|${WEEKDAYS[d.getDay()]}|${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown";
+  const offsetMinutes = -d.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const offset = `${offsetSign}${pad2(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad2(Math.abs(offsetMinutes) % 60)}`;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}|${WEEKDAYS[d.getDay()]}|${pad2(d.getHours())}:${pad2(d.getMinutes())}|${timezone}|${offset}`;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -268,12 +272,6 @@ function ChatScreen() {
       });
     },
   });
-  // Live clock for the header (minute resolution).
-  const [clock, setClock] = useState(() => new Date());
-  useEffect(() => {
-    const t = setInterval(() => setClock(new Date()), 30_000);
-    return () => clearInterval(t);
-  }, []);
   const coach = getCoachPortrait((profile as Profile).coach_id);
   const { height: viewportHeight, keyboardOpen } = useChatViewport();
 
@@ -674,17 +672,6 @@ function ChatScreen() {
               />
             </div>
           </>
-        )}
-
-        {/* Date & time — clear, on its own line */}
-        {!keyboardOpen && (
-          <div className="mt-2 text-xs font-semibold text-foreground">
-            {clock.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-            <span className="font-normal text-muted-foreground">
-              {" · "}
-              {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-          </div>
         )}
 
         {/* Today's calories — always visible up top once onboarded */}

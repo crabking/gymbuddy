@@ -200,10 +200,36 @@ export const Route = createFileRoute("/api/chat")({
                 .join("\n")
             : "(workspace is empty)";
 
-        // Client wall-clock ("date|weekday|HH:MM") so the coach's sense of "now"
-        // matches the user's timezone, not the server's.
+        // Phone/browser wall-clock so the coach's sense of "now" matches the
+        // user's device rather than the server.
         const clientLocal = request.headers.get("x-client-local")?.split("|") ?? [];
-        const [clientDate, clientWeekday, clientTime] = clientLocal;
+        const [rawClientDate, rawClientWeekday, rawClientTime, rawClientTimezone, rawClientOffset] =
+          clientLocal;
+        const clientDate = /^\d{4}-\d{2}-\d{2}$/.test(rawClientDate ?? "")
+          ? rawClientDate
+          : undefined;
+        const clientWeekday = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ].includes(rawClientWeekday ?? "")
+          ? rawClientWeekday
+          : undefined;
+        const clientTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(rawClientTime ?? "")
+          ? rawClientTime
+          : undefined;
+        const clientTimezone =
+          /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+.-]+)*$/.test(rawClientTimezone ?? "") &&
+          (rawClientTimezone?.length ?? 0) <= 64
+            ? rawClientTimezone
+            : undefined;
+        const clientOffset = /^[+-](?:0\d|1[0-4]):[0-5]\d$/.test(rawClientOffset ?? "")
+          ? rawClientOffset
+          : undefined;
 
         const todayDate = clientDate || new Date().toISOString().slice(0, 10);
 
@@ -245,6 +271,8 @@ export const Route = createFileRoute("/api/chat")({
           today: clientDate || now.toISOString().slice(0, 10),
           day_of_week: clientWeekday || todayName,
           local_time: clientTime || now.toTimeString().slice(0, 5),
+          timezone: clientTimezone ?? null,
+          utc_offset: clientOffset ?? null,
           training_day_today: todayProgramDay
             ? `${todayProgramDay.title}${todayProgramDay.is_deload ? " (deload)" : ""} — status: ${todayProgramDay.status}`
             : "rest day (no program day scheduled today)",
