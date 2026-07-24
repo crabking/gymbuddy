@@ -110,7 +110,13 @@ export async function write(userId: string, path: string, content: string) {
   return { path: p, size };
 }
 
-export async function edit(userId: string, path: string, oldStr: string, newStr: string, all = false) {
+export async function edit(
+  userId: string,
+  path: string,
+  oldStr: string,
+  newStr: string,
+  all = false,
+) {
   const { content } = await read(userId, path);
   if (!content.includes(oldStr)) throw new Error("old_string not found in file");
   const updated = all ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
@@ -192,11 +198,11 @@ export async function ensureAgentConfig(userId: string, coachName: string) {
       existing = {};
     }
   }
-  if (existing.coach === coachName && readmeExists) return;
+  if (existing.version === 2 && existing.coach === coachName && readmeExists) return;
 
   const config = {
     ...existing,
-    version: 1,
+    version: 2,
     coach: coachName,
     created_at:
       typeof existing.created_at === "string"
@@ -206,12 +212,11 @@ export async function ensureAgentConfig(userId: string, coachName: string) {
       schedule: "schedule/current.md",
       plan: "plans/current.md",
       nutrition: "nutrition/targets.md",
-      memory: "memory/notes.md",
     },
     integrations: {},
   };
   await write(userId, ".agent/config.json", JSON.stringify(config, null, 2));
-  if (!readmeExists) {
+  if (!readmeExists || existing.version !== 2) {
     await write(
       userId,
       ".agent/README.md",
@@ -223,7 +228,6 @@ this user. Conventions the UI reads:
 - \`schedule/current.md\` — weekly training schedule
 - \`plans/current.md\` — current workout plan
 - \`nutrition/targets.md\` — calorie/macro targets
-- \`memory/notes.md\` — durable facts about the user
 
 Use \`.agent/\` for your own config and scratch. Keep files tidy.
 `,

@@ -43,6 +43,20 @@
       "when": 1784904282979,
       "tag": "0005_low_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784907878087,
+      "tag": "0006_lean_mongoose",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784908806337,
+      "tag": "0007_skinny_morgan_stark",
+      "breakpoints": true
     }
   ]
 }

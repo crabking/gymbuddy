@@ -51,6 +51,22 @@ export const getChatMessages = createServerFn({ method: "GET" })
     }));
   });
 
+export const getMemories = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { listMemories } = await import("@/lib/memory.server");
+    return listMemories(context.userId);
+  });
+
+export const removeMemory = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { deleteMemory } = await import("@/lib/memory.server");
+    await deleteMemory(context.userId, data.id);
+    return { ok: true };
+  });
+
 export const getWorkspaceFiles = createServerFn({ method: "GET" })
   .middleware([requireAuth])
   .handler(async ({ context }) => {
@@ -137,7 +153,6 @@ const ProfilePatchSchema = z.object({
   daily_calorie_target: z.number().int().nullable().optional(),
   schedule_note: z.string().max(2000).nullable().optional(),
   meal_preferences: z.string().max(2000).nullable().optional(),
-  memory_notes: z.string().max(4000).nullable().optional(),
   coach_id: z.enum(COACH_IDS).optional(),
 });
 
@@ -200,7 +215,10 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
     const today = data.date ?? new Date().toISOString().slice(0, 10);
     const todayDay = await getTodayProgramDay(context.userId, today);
     if (todayDay && todayDay.status === "planned") {
-      return { label: `${todayDay.title}${todayDay.is_deload ? " (deload)" : ""}`, detail: "today" };
+      return {
+        label: `${todayDay.title}${todayDay.is_deload ? " (deload)" : ""}`,
+        detail: "today",
+      };
     }
     const next = await getNextProgramDay(context.userId, today);
     if (next) {
@@ -268,7 +286,10 @@ export const logWeight = createServerFn({ method: "POST" })
     const { weightLogs, profiles } = await import("@/db/schema");
     const db = getDb();
     await db.insert(weightLogs).values({ user_id: context.userId, weight_kg: data.weight_kg });
-    await db.update(profiles).set({ weight_kg: data.weight_kg }).where(eq(profiles.id, context.userId));
+    await db
+      .update(profiles)
+      .set({ weight_kg: data.weight_kg })
+      .where(eq(profiles.id, context.userId));
     return { ok: true };
   });
 
@@ -308,6 +329,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
       weightLogs,
       plans,
       programs,
+      memories,
       workspaceFiles,
       workoutSessions,
       sessions,
@@ -323,6 +345,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
       await tx.delete(workoutSessions).where(eq(workoutSessions.user_id, userId));
       await tx.delete(programs).where(eq(programs.user_id, userId));
       await tx.delete(plans).where(eq(plans.user_id, userId));
+      await tx.delete(memories).where(eq(memories.user_id, userId));
       await tx.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
       await tx.delete(sessions).where(eq(sessions.user_id, userId));
       await tx
@@ -345,7 +368,6 @@ export const resetOnboarding = createServerFn({ method: "POST" })
           active_plan_id: null,
           schedule_note: null,
           meal_preferences: null,
-          memory_notes: null,
           coach_gender: "male",
           coach_id: "rex",
         })

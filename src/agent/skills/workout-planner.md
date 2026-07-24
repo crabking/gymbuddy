@@ -31,7 +31,7 @@ When the user says things like "I'm skipping this week", "add a deload", "swap T
    - Skipped / inserted / shifted weeks → `shift_schedule_weeks`.
    - Exercise swap → `substitute_exercise`.
    - Goal/timeline changed → `calc_program_timeline` again.
-3. For a full plan rewrite, regenerate with `generate_program` (or tune future weeks with `adjust_program`) after all required fields are known. For simple notes/preferences, use `save_memory_note`.
+3. For a full plan rewrite, regenerate with `generate_program` (or tune future weeks with `adjust_program`) after all required fields are known. Durable user preferences are captured by the automatic memory job.
 4. Reply with a 2-3 sentence summary of what changed and why.
 
 ---
@@ -39,12 +39,14 @@ When the user says things like "I'm skipping this week", "add a deload", "swap T
 ## Template library (pick from these — do NOT invent randomly)
 
 ### Beginner (0-12 months serious training)
+
 - **Starting Strength / StrongLifts 5x5** — 3 days/wk, full body, 5×5 squat/bench/row/OHP/deadlift. Best for absolute beginners chasing strength + baseline mass.
 - **GZCLP** — 3-4 days/wk, linear progression with T1 (5×3→1×5+), T2 (3×10), T3 (3×15+). Better long-term than SL5x5, still simple.
 - **Reddit PPL (nSuns-lite / Metallicadpa PPL)** — 6 days/wk for beginners with time; hybrid strength+hypertrophy.
 - **Ivysaur 4-4-8** — 3 days/wk full-body alt; kinder to recovery than SL.
 
 ### Intermediate (1-3 years)
+
 - **Upper/Lower 4-day** — classic; balanced hypertrophy + strength. Great default.
 - **PPL 6-day (Push / Pull / Legs)** — high volume hypertrophy; bodybuilding staple.
 - **PHUL** (Power Hypertrophy Upper Lower) — 4 days, 2 strength + 2 hypertrophy.
@@ -53,44 +55,50 @@ When the user says things like "I'm skipping this week", "add a deload", "swap T
 - **Nsuns 5-day / 6-day** — high-frequency 531 variant; strong intermediate strength gains.
 
 ### Advanced (3+ years)
+
 - **Conjugate (Westside)** — max-effort + dynamic-effort days; powerlifting-oriented.
 - **Sheiko / Smolov Jr** — peaking cycles for powerlifting.
 - **Fortitude Training (Scott Stevenson)** — advanced hypertrophy; blood + loading + pump sets.
 - **RP hypertrophy mesocycles** — MEV → MAV → MRV progression with planned deload.
 
 ### Female-focused / physique
+
 - **Bret Contreras Booty Bible / Strong Curves** — glute-dominant, 4 days/wk, hip thrust centric.
 - **Stephanie Buttermore FUPPL** — Full-body + PPL hybrid, 5-6 days, hypertrophy.
 - **Meg Squats / Stronger by the Day** — powerbuilding for women, 4-5 days.
 - Any Upper/Lower or PPL above works identically — sex is not a programming variable, but goal often skews glute/hamstring/shoulder emphasis.
 
 ### Powerlifting-specific
+
 - **531 for Powerlifting**, **Sheiko #29/#32/#37**, **Candito 6-week**, **Calgary Barbell 8/16-week**, **Boris Sheiko peaking**.
 
 ### Bodybuilding-specific
+
 - **Arnold split (6-day 2-a-day)** — advanced only.
 - **Fortitude / Dante's DoggCrapp** — high-intensity low-volume, rest-pause.
 - **Jeff Nippard Fundamentals / Pure Bodybuilding** — modern evidence-based 3-6 day.
 
 ### Yoga / hybrid / general health
+
 - **3-day full body + 2 yoga/mobility** — perfect for hybrid users.
 - **CrossFit-style circuits** only if explicitly requested — otherwise stick to progressive resistance.
 
 ### Minimal-equipment
+
 - **Kettlebell-only (Simple & Sinister / ABC / Giant)** — 3-6 days/wk, swings + get-ups + clean&press. Great for travel, home, conditioning + strength.
 - **Dumbbell-only Upper/Lower or PPL** — same splits as barbell versions, swap main lifts for heavy DB variants (goblet squat, DB RDL, DB bench, DB row).
 - **Bodyweight / Calisthenics** — Recommended Routine (r/bodyweightfitness), Convict Conditioning, Overcoming Isometrics. 3-6 days/wk, progressions from push-up → planche, row → front lever, squat → pistol.
 - **Resistance-band only** — travel fallback; higher reps, tempo + pause work.
 
 ### Hybrid endurance + lifting
+
 - **Hybrid Athlete (Nick Bare / Fergus Crawley style)** — 4 lift + 3-4 run days; balances strength, hypertrophy and 5k-half marathon endurance.
 - **Tactical Barbell (Base Building / Operator / Zulu)** — strength + conditioning blocks for military/first responder style goals.
 - **Run + Lift 3+3** — 3 full-body lift days alternating with 3 run days (easy/tempo/long).
 - **Concurrent (Wendler 5/3/1 + conditioning)** — 5/3/1 main lifts with 2-3 hard conditioning slots.
 
-
-
 ### Fat loss on top of ANY plan
+
 Programming stays the same. Fat loss is a nutrition variable (see meal-planner). Bump NEAT + optional 2-3 low-intensity cardio slots (15-30 min post-lift or off-day walks). Reduce total volume ~10-20% only if recovery collapses.
 
 ---

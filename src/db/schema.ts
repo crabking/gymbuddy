@@ -70,7 +70,6 @@ export const profiles = pgTable("profiles", {
   active_plan_id: uuid("active_plan_id"),
   schedule_note: text("schedule_note"),
   meal_preferences: text("meal_preferences"),
-  memory_notes: text("memory_notes"),
   coach_gender: text("coach_gender").notNull().default("male"),
   coach_id: text("coach_id").notNull().default("rex"),
   onboarding_completed: boolean("onboarding_completed").notNull().default(false),
@@ -109,6 +108,20 @@ export const chatMessages = pgTable(
     created_at: createdAt(),
   },
   (t) => [index("chat_messages_user_created_idx").on(t.user_id, t.created_at)],
+);
+
+export const memories = pgTable(
+  "memories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    topic: text("topic").notNull(),
+    content: text("content").notNull(),
+    created_at: createdAt(),
+  },
+  (t) => [index("memories_user_created_idx").on(t.user_id, t.created_at)],
 );
 
 export const workoutLogs = pgTable(

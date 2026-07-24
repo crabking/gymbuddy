@@ -9,6 +9,8 @@ import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import {
   getProfile,
   getChatMessages,
+  getMemories,
+  removeMemory,
   getWorkspaceFiles,
   updateProfile,
   resetOnboarding,
@@ -32,10 +34,8 @@ import {
   RefreshCw,
   Camera,
   ArrowUp,
-  History,
   X,
   Square,
-  Settings,
   Check,
   User,
   CalendarDays,
@@ -126,7 +126,6 @@ const TOOL_LABELS: Record<string, string> = {
   save_workout_plan: "saving your training plan…",
   save_schedule: "saving your weekly schedule…",
   save_nutrition_targets: "saving your nutrition targets…",
-  save_memory_note: "saving that to memory…",
   delete_file: "cleaning up…",
   update_profile: "saving your details…",
   complete_onboarding: "wrapping up setup…",
@@ -137,7 +136,6 @@ const TOOL_LABELS: Record<string, string> = {
   substitute_exercise: "finding a swap…",
   shift_schedule_weeks: "reshuffling the weeks…",
 };
-
 
 function deriveActivity(
   latest: UIMessage | undefined,
@@ -160,19 +158,22 @@ function deriveActivity(
   return `${coachName} is writing…`;
 }
 
-
 export const Route = createFileRoute("/_authenticated/chat")({
+  validateSearch: (search: Record<string, unknown>): { settings?: boolean } =>
+    search.settings === true || search.settings === "true" ? { settings: true } : {},
   head: () => ({
     meta: [
       { title: "COACH — session" },
       {
         name: "description",
-        content: "Talk with your AI gym coach, review saved schedules, workout plans, nutrition targets, and training memory.",
+        content:
+          "Talk with your AI gym coach, review saved schedules, workout plans, nutrition targets, and training memory.",
       },
       { property: "og:title", content: "COACH — session" },
       {
         property: "og:description",
-        content: "Your AI gym coach session with saved plans, schedules, nutrition targets, and live training support.",
+        content:
+          "Your AI gym coach session with saved plans, schedules, nutrition targets, and live training support.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -208,7 +209,6 @@ function ChatGate() {
   return <ChatScreen />;
 }
 
-
 type Profile = NonNullable<Awaited<ReturnType<typeof getProfile>>>;
 type WorkspaceFile = Awaited<ReturnType<typeof getWorkspaceFiles>>[number];
 
@@ -237,6 +237,7 @@ function buildStatus(profile: Profile, files: WorkspaceFile[] | undefined) {
 
 function ChatScreen() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const resetFn = useServerFn(resetOnboarding);
   const { data: profile } = useSuspenseQuery({
     queryKey: ["profile"],
@@ -286,9 +287,12 @@ function ChatScreen() {
     getCurrentUser({ data: undefined }).then((user) => setUserEmail(user?.email ?? null));
   }, []);
 
+  useEffect(() => {
+    if (search.settings) setOpenSection("all");
+  }, [search.settings]);
+
   // Private, invite-only app: any signed-in user can self-reset their own data.
   const isAdmin = !!userEmail;
-
 
   const transport = useMemo(
     () =>
@@ -317,8 +321,17 @@ function ChatScreen() {
       qc.invalidateQueries({ queryKey: ["workout-session"] });
       qc.invalidateQueries({ queryKey: ["nutrition"] });
       qc.invalidateQueries({ queryKey: ["today-training"] });
+      qc.invalidateQueries({ queryKey: ["chat-messages"] });
     },
   });
+
+  const lastSyncedMessages = useRef(initialMessages);
+  useEffect(() => {
+    if (status === "ready" && initialMessages !== lastSyncedMessages.current) {
+      lastSyncedMessages.current = initialMessages;
+      setMessages(initialMessages as UIMessage[]);
+    }
+  }, [initialMessages, status, setMessages]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -336,7 +349,6 @@ function ChatScreen() {
 
   const [input, setInput] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
@@ -382,8 +394,6 @@ function ChatScreen() {
     wasOnboarding.current = inOnboarding;
   }, [inOnboarding, setMessages]);
 
-
-
   async function submit() {
     const text = input.trim();
     if ((!text && pendingFiles.length === 0) || busy) return;
@@ -412,7 +422,6 @@ function ChatScreen() {
     await logout({ data: undefined });
     window.location.href = "/";
   }
-
 
   function explainAgain() {
     if (busy) return;
@@ -485,10 +494,7 @@ function ChatScreen() {
 
   const activity = deriveActivity(latest, status, coach.name);
 
-
-
   const firstName = (profile as Profile)?.display_name?.split(" ")[0] || "athlete";
-
 
   const steps: Array<{ key: SetupKey; label: string; Icon: typeof User }> = [
     { key: "profile", label: "Basics", Icon: User },
@@ -545,33 +551,15 @@ function ChatScreen() {
                 <VersionTag />
               </div>
             </div>
-
           </div>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setOpenSection("all")}
-              className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
-              aria-label="Settings"
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setShowHistory(true)}
-              className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
-              aria-label="History"
-            >
-              <History className="h-4 w-4" />
-            </button>
-
-
-            <button
               onClick={signOut}
-              className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
+              className="grid h-9 w-9 place-items-center rounded-lg text-red-400 transition hover:bg-red-500/10 hover:text-red-300"
               aria-label="Sign out"
             >
               <LogOut className="h-4 w-4" />
             </button>
-
           </div>
         </div>
 
@@ -581,9 +569,7 @@ function ChatScreen() {
             <div className="flex items-center gap-2">
               {steps.map((s, i) => {
                 const done = status_[s.key];
-                const isCurrent =
-                  !done &&
-                  steps.slice(0, i).every((prev) => status_[prev.key]);
+                const isCurrent = !done && steps.slice(0, i).every((prev) => status_[prev.key]);
                 return (
                   <button
                     key={s.key}
@@ -641,8 +627,7 @@ function ChatScreen() {
               {buildSteps.map((s, i) => {
                 const done = buildStatus_[s.key];
                 const isCurrent =
-                  !done &&
-                  buildSteps.slice(0, i).every((prev) => buildStatus_[prev.key]);
+                  !done && buildSteps.slice(0, i).every((prev) => buildStatus_[prev.key]);
                 return (
                   <button
                     key={s.key}
@@ -716,8 +701,8 @@ function ChatScreen() {
                   {nutrition.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal today
                 </span>
                 <span>
-                  Protein {Math.round(nutrition.protein_g)}g · Carbs {Math.round(nutrition.carbs_g)}g
-                  · Fat {Math.round(nutrition.fat_g)}g
+                  Protein {Math.round(nutrition.protein_g)}g · Carbs {Math.round(nutrition.carbs_g)}
+                  g · Fat {Math.round(nutrition.fat_g)}g
                 </span>
               </div>
               {nutrition.target_calories ? (
@@ -754,7 +739,6 @@ function ChatScreen() {
           ) : null)}
       </header>
 
-
       {/* Single-message stage */}
       <main
         className={`flex min-h-0 flex-1 flex-col justify-center overflow-hidden px-5 ${
@@ -780,9 +764,7 @@ function ChatScreen() {
           >
             {latest.role === "assistant" ? (
               <div className="flex flex-col items-center gap-3 text-center">
-                {activity && (
-                  <Shimmer>{activity}</Shimmer>
-                )}
+                {activity && <Shimmer>{activity}</Shimmer>}
                 {latestText && (
                   <div className="prose prose-sm prose-invert max-w-full text-[15px] leading-relaxed text-foreground prose-p:my-2 prose-li:my-0 prose-headings:mt-3 prose-headings:mb-2 prose-strong:text-foreground">
                     <ReactMarkdown>{latestText}</ReactMarkdown>
@@ -838,7 +820,6 @@ function ChatScreen() {
                 )}
               </div>
             )}
-
           </div>
         )}
       </main>
@@ -937,64 +918,16 @@ function ChatScreen() {
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition disabled:opacity-40"
             aria-label={busy ? "Stop" : "Send"}
           >
-            {busy ? <Square className="h-4 w-4" /> : <ArrowUp className="h-5 w-5" strokeWidth={2.5} />}
+            {busy ? (
+              <Square className="h-4 w-4" />
+            ) : (
+              <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
+            )}
           </button>
         </div>
       </div>
 
       {!keyboardOpen && <TabBar />}
-
-      {/* History drawer */}
-      {showHistory && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowHistory(false)}
-        >
-          <div
-            className="absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-3xl border-t border-border bg-card p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <div className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
-                Conversation history
-              </div>
-              <button
-                onClick={() => setShowHistory(false)}
-                className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            {visibleMessages.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">No messages yet.</div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {visibleMessages.map((m) => {
-                  const text = m.parts
-                    .map((p) => (p.type === "text" ? p.text : ""))
-                    .join("");
-                  return (
-                    <div
-                      key={m.id}
-                      className={`rounded-xl border border-border/60 p-3 text-sm ${
-                        m.role === "user"
-                          ? "bg-primary/10 text-foreground"
-                          : "bg-background text-muted-foreground"
-                      }`}
-                    >
-                      <div className="mb-1 font-display text-[9px] font-bold uppercase tracking-widest text-primary">
-                        {m.role === "user" ? "You" : coach.name}
-                      </div>
-                      <div className="whitespace-pre-wrap">{text}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Settings drawer */}
       {openSection && (
@@ -1002,12 +935,16 @@ function ChatScreen() {
           profile={profile as Profile}
           workspaceFiles={workspaceFiles ?? []}
           section={openSection}
-          onClose={() => setOpenSection(null)}
+          onClose={() => {
+            setOpenSection(null);
+            if (search.settings) {
+              void navigate({ to: "/chat", search: {}, replace: true });
+            }
+          }}
           isAdmin={isAdmin}
           onAdminReset={fullReset}
         />
       )}
-
     </div>
   );
 }
@@ -1061,7 +998,9 @@ function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minute
           <Dumbbell className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">LIVE · {session.title}</span>
         </span>
-        <span className={`shrink-0 font-display font-bold ${over ? "text-red-400" : "text-foreground"}`}>
+        <span
+          className={`shrink-0 font-display font-bold ${over ? "text-red-400" : "text-foreground"}`}
+        >
           {over ? `+${mmss(remaining)}` : mmss(remaining)}
           <span className="ml-2 text-emerald-400">
             {session.done}/{session.total}
@@ -1148,7 +1087,9 @@ function WorkoutPanel({
               {open && hasSets && (
                 <div className="flex flex-col gap-1 border-t border-border/60 px-2 py-1.5">
                   {e.sets.map((s) => {
-                    const remainingAfter = e.sets.filter((x) => !x.completed && x.id !== s.id).length;
+                    const remainingAfter = e.sets.filter(
+                      (x) => !x.completed && x.id !== s.id,
+                    ).length;
                     return (
                       <SetRow
                         key={s.id}
@@ -1190,7 +1131,11 @@ function SetRow({
   const commit = (completed: boolean) => {
     const w = weight.trim() ? parseFloat(weight.replace(",", ".")) : null;
     const r = reps.trim() ? parseInt(reps, 10) : null;
-    onToggle(completed, Number.isFinite(w as number) ? w : null, Number.isFinite(r as number) ? r : null);
+    onToggle(
+      completed,
+      Number.isFinite(w as number) ? w : null,
+      Number.isFinite(r as number) ? r : null,
+    );
   };
 
   return (
@@ -1246,6 +1191,11 @@ function SettingsDrawer({
   const qc = useQueryClient();
   const updateFn = useServerFn(updateProfile);
   const resetWsFn = useServerFn(resetWorkspace);
+  const removeMemoryFn = useServerFn(removeMemory);
+  const { data: memories = [] } = useQuery({
+    queryKey: ["memories"],
+    queryFn: () => getMemories({ data: undefined }),
+  });
   const [doc, setDoc] = useState<{ title: string; file: WorkspaceFile } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "workspace" | "everything">(null);
@@ -1271,11 +1221,39 @@ function SettingsDrawer({
     }
   }
 
+  async function forgetMemory(id: string) {
+    const previous = memories;
+    qc.setQueryData(
+      ["memories"],
+      previous.filter((memory) => memory.id !== id),
+    );
+    try {
+      await removeMemoryFn({ data: { id } });
+    } catch (err) {
+      qc.setQueryData(["memories"], previous);
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
   const docs = [
-    { key: "schedule", title: "Weekly schedule", icon: CalendarDays, file: workspaceFile(workspaceFiles, "schedule/current.md") },
-    { key: "plan", title: "Workout plan", icon: Dumbbell, file: workspaceFile(workspaceFiles, "plans/current.md") },
-    { key: "nutrition", title: "Nutrition targets", icon: Target, file: workspaceFile(workspaceFiles, "nutrition/targets.md") },
-    { key: "memory", title: "Memory notes", icon: Brain, file: workspaceFile(workspaceFiles, "memory/notes.md") },
+    {
+      key: "schedule",
+      title: "Weekly schedule",
+      icon: CalendarDays,
+      file: workspaceFile(workspaceFiles, "schedule/current.md"),
+    },
+    {
+      key: "plan",
+      title: "Workout plan",
+      icon: Dumbbell,
+      file: workspaceFile(workspaceFiles, "plans/current.md"),
+    },
+    {
+      key: "nutrition",
+      title: "Nutrition targets",
+      icon: Target,
+      file: workspaceFile(workspaceFiles, "nutrition/targets.md"),
+    },
   ];
 
   const fmtUpdated = (iso: string) =>
@@ -1340,27 +1318,127 @@ function SettingsDrawer({
                 ))}
               </SettingsGroup>
 
+              <SettingsGroup label="Permanent memory">
+                <div className="max-h-64 overflow-y-auto overscroll-contain">
+                  {memories.length === 0 ? (
+                    <div className="flex items-center gap-3 px-3.5 py-4 text-sm text-muted-foreground">
+                      <Brain className="h-4 w-4 shrink-0" />
+                      Nothing remembered yet
+                    </div>
+                  ) : (
+                    memories.map((memory) => (
+                      <div
+                        key={memory.id}
+                        className="flex items-start gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0"
+                      >
+                        <Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-display text-[9px] font-bold uppercase tracking-[0.14em] text-primary">
+                            {memory.topic}
+                          </div>
+                          <div className="mt-0.5 text-sm leading-snug text-foreground">
+                            {memory.content}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => void forgetMemory(memory.id)}
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400"
+                          aria-label={`Forget ${memory.content}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </SettingsGroup>
+
               <SettingsGroup label="Profile">
-                <EditRow label="Name" value={profile.display_name} open={editing === "display_name"} onToggle={() => setEditing(editing === "display_name" ? null : "display_name")}>
-                  <Text value={profile.display_name ?? ""} onSave={(v) => save({ display_name: v })} placeholder="Your name" />
+                <EditRow
+                  label="Name"
+                  value={profile.display_name}
+                  open={editing === "display_name"}
+                  onToggle={() => setEditing(editing === "display_name" ? null : "display_name")}
+                >
+                  <Text
+                    value={profile.display_name ?? ""}
+                    onSave={(v) => save({ display_name: v })}
+                    placeholder="Your name"
+                  />
                 </EditRow>
-                <EditRow label="Goal" value={profile.goal} open={editing === "goal"} onToggle={() => setEditing(editing === "goal" ? null : "goal")}>
-                  <Text value={profile.goal ?? ""} onSave={(v) => save({ goal: v })} placeholder="e.g. hypertrophy + strength" />
+                <EditRow
+                  label="Goal"
+                  value={profile.goal}
+                  open={editing === "goal"}
+                  onToggle={() => setEditing(editing === "goal" ? null : "goal")}
+                >
+                  <Text
+                    value={profile.goal ?? ""}
+                    onSave={(v) => save({ goal: v })}
+                    placeholder="e.g. hypertrophy + strength"
+                  />
                 </EditRow>
-                <EditRow label="Days / week" value={profile.days_per_week != null ? String(profile.days_per_week) : null} open={editing === "dpw"} onToggle={() => setEditing(editing === "dpw" ? null : "dpw")}>
-                  <Text value={profile.days_per_week?.toString() ?? ""} onSave={(v) => save({ days_per_week: v ? Number(v) : null })} placeholder="4" inputMode="numeric" />
+                <EditRow
+                  label="Days / week"
+                  value={profile.days_per_week != null ? String(profile.days_per_week) : null}
+                  open={editing === "dpw"}
+                  onToggle={() => setEditing(editing === "dpw" ? null : "dpw")}
+                >
+                  <Text
+                    value={profile.days_per_week?.toString() ?? ""}
+                    onSave={(v) => save({ days_per_week: v ? Number(v) : null })}
+                    placeholder="4"
+                    inputMode="numeric"
+                  />
                 </EditRow>
-                <EditRow label="Session length" value={profile.session_minutes ? `${profile.session_minutes} min` : null} open={editing === "sm"} onToggle={() => setEditing(editing === "sm" ? null : "sm")}>
-                  <Text value={profile.session_minutes?.toString() ?? ""} onSave={(v) => save({ session_minutes: v ? Number(v) : null })} placeholder="60" inputMode="numeric" />
+                <EditRow
+                  label="Session length"
+                  value={profile.session_minutes ? `${profile.session_minutes} min` : null}
+                  open={editing === "sm"}
+                  onToggle={() => setEditing(editing === "sm" ? null : "sm")}
+                >
+                  <Text
+                    value={profile.session_minutes?.toString() ?? ""}
+                    onSave={(v) => save({ session_minutes: v ? Number(v) : null })}
+                    placeholder="60"
+                    inputMode="numeric"
+                  />
                 </EditRow>
-                <EditRow label="Equipment" value={profile.equipment} open={editing === "eq"} onToggle={() => setEditing(editing === "eq" ? null : "eq")}>
-                  <Text value={profile.equipment ?? ""} onSave={(v) => save({ equipment: v })} placeholder="full_gym" />
+                <EditRow
+                  label="Equipment"
+                  value={profile.equipment}
+                  open={editing === "eq"}
+                  onToggle={() => setEditing(editing === "eq" ? null : "eq")}
+                >
+                  <Text
+                    value={profile.equipment ?? ""}
+                    onSave={(v) => save({ equipment: v })}
+                    placeholder="full_gym"
+                  />
                 </EditRow>
-                <EditRow label="Diet style" value={profile.diet_style} open={editing === "diet"} onToggle={() => setEditing(editing === "diet" ? null : "diet")}>
-                  <Text value={profile.diet_style ?? ""} onSave={(v) => save({ diet_style: v })} placeholder="omnivore" />
+                <EditRow
+                  label="Diet style"
+                  value={profile.diet_style}
+                  open={editing === "diet"}
+                  onToggle={() => setEditing(editing === "diet" ? null : "diet")}
+                >
+                  <Text
+                    value={profile.diet_style ?? ""}
+                    onSave={(v) => save({ diet_style: v })}
+                    placeholder="omnivore"
+                  />
                 </EditRow>
-                <EditRow label="Injuries / limits" value={profile.injuries} open={editing === "inj"} onToggle={() => setEditing(editing === "inj" ? null : "inj")}>
-                  <Text value={profile.injuries ?? ""} onSave={(v) => save({ injuries: v || null })} placeholder="e.g. tweaky left shoulder" />
+                <EditRow
+                  label="Injuries / limits"
+                  value={profile.injuries}
+                  open={editing === "inj"}
+                  onToggle={() => setEditing(editing === "inj" ? null : "inj")}
+                >
+                  <Text
+                    value={profile.injuries ?? ""}
+                    onSave={(v) => save({ injuries: v || null })}
+                    placeholder="e.g. tweaky left shoulder"
+                  />
                 </EditRow>
               </SettingsGroup>
 
@@ -1378,14 +1456,29 @@ function SettingsDrawer({
                   </span>
                   <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 </Link>
-                <EditRow label="Meal preferences" value={profile.meal_preferences} open={editing === "meals"} onToggle={() => setEditing(editing === "meals" ? null : "meals")}>
-                  <Textarea value={profile.meal_preferences ?? ""} onSave={(v) => save({ meal_preferences: v || null })} placeholder="High protein, no dairy…" />
+                <EditRow
+                  label="Meal preferences"
+                  value={profile.meal_preferences}
+                  open={editing === "meals"}
+                  onToggle={() => setEditing(editing === "meals" ? null : "meals")}
+                >
+                  <Textarea
+                    value={profile.meal_preferences ?? ""}
+                    onSave={(v) => save({ meal_preferences: v || null })}
+                    placeholder="High protein, no dairy…"
+                  />
                 </EditRow>
-                <EditRow label="Schedule note" value={profile.schedule_note} open={editing === "sched"} onToggle={() => setEditing(editing === "sched" ? null : "sched")}>
-                  <Textarea value={profile.schedule_note ?? ""} onSave={(v) => save({ schedule_note: v || null })} placeholder="Mon/Wed/Fri lifts before work…" />
-                </EditRow>
-                <EditRow label="Coach memory" value={profile.memory_notes} open={editing === "mem"} onToggle={() => setEditing(editing === "mem" ? null : "mem")}>
-                  <Textarea value={profile.memory_notes ?? ""} onSave={(v) => save({ memory_notes: v || null })} placeholder="Anything the coach should always remember…" />
+                <EditRow
+                  label="Schedule note"
+                  value={profile.schedule_note}
+                  open={editing === "sched"}
+                  onToggle={() => setEditing(editing === "sched" ? null : "sched")}
+                >
+                  <Textarea
+                    value={profile.schedule_note ?? ""}
+                    onSave={(v) => save({ schedule_note: v || null })}
+                    placeholder="Mon/Wed/Fri lifts before work…"
+                  />
                 </EditRow>
               </SettingsGroup>
 
@@ -1413,7 +1506,9 @@ function SettingsDrawer({
                     className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
                   >
                     <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
-                    <span className="flex-1 text-sm font-medium text-red-400">Reset everything</span>
+                    <span className="flex-1 text-sm font-medium text-red-400">
+                      Reset everything
+                    </span>
                     <span className="text-xs text-muted-foreground/70">Profile + data</span>
                   </button>
                 )}
@@ -1457,7 +1552,9 @@ function SettingsGroup({ label, children }: { label: string; children: React.Rea
       <div className="mb-1.5 px-1 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </div>
-      <div className="divide-y divide-border/60 rounded-sm border border-border bg-card">{children}</div>
+      <div className="divide-y divide-border/60 rounded-sm border border-border bg-card">
+        {children}
+      </div>
     </section>
   );
 }

@@ -3,6 +3,7 @@ import { getDb } from "@/db/db.server";
 import {
   chatMessages,
   mealLogs,
+  memories,
   plans,
   profiles,
   programs,
@@ -43,6 +44,7 @@ export async function switchUserCoach(userId: string, coachId: CoachId) {
     await tx.delete(workoutSessions).where(eq(workoutSessions.user_id, userId));
     await tx.delete(programs).where(eq(programs.user_id, userId));
     await tx.delete(plans).where(eq(plans.user_id, userId));
+    await tx.delete(memories).where(eq(memories.user_id, userId));
     await tx.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
     await tx
       .update(profiles)
@@ -64,7 +66,6 @@ export async function switchUserCoach(userId: string, coachId: CoachId) {
         active_plan_id: null,
         schedule_note: null,
         meal_preferences: null,
-        memory_notes: null,
         coach_gender: coach.gender,
         coach_id: coach.id,
       })
