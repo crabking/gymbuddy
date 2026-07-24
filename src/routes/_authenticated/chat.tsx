@@ -8,6 +8,7 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getProfile,
+  getChatMessages,
   getWorkspaceFiles,
   updateProfile,
   resetOnboarding,
@@ -199,6 +200,10 @@ function ChatScreen() {
     queryKey: ["workspace-files"],
     queryFn: () => getWorkspaceFiles({ data: undefined }),
   });
+  const { data: initialMessages } = useSuspenseQuery({
+    queryKey: ["chat-messages"],
+    queryFn: () => getChatMessages({ data: undefined }),
+  });
   const { data: session } = useQuery({
     queryKey: ["workout-session"],
     queryFn: () => getActiveWorkoutSession({ data: undefined }),
@@ -256,6 +261,7 @@ function ChatScreen() {
   const qc = useQueryClient();
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: "gym-buddy",
+    messages: initialMessages as UIMessage[],
     transport,
     onError: (err) => toast.error(err.message || "Chat failed"),
     onFinish: () => {
@@ -766,22 +772,12 @@ function ChatScreen() {
       {pendingFiles.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pb-2">
           {pendingFiles.map((f, i) => {
-            const url = URL.createObjectURL(f);
             return (
-              <div key={i} className="relative">
-                <img
-                  src={url}
-                  alt=""
-                  className="h-16 w-16 rounded-lg object-cover ring-1 ring-border"
-                />
-                <button
-                  onClick={() => setPendingFiles((prev) => prev.filter((_, x) => x !== i))}
-                  className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-background ring-1 ring-border"
-                  aria-label="Remove"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+              <PendingImage
+                key={`${f.name}-${f.lastModified}-${i}`}
+                file={f}
+                onRemove={() => setPendingFiles((prev) => prev.filter((_, x) => x !== i))}
+              />
             );
           })}
         </div>
@@ -932,6 +928,27 @@ function ChatScreen() {
         />
       )}
 
+    </div>
+  );
+}
+
+function PendingImage({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+
+  useEffect(() => {
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
+
+  return (
+    <div className="relative">
+      <img src={url} alt="" className="h-16 w-16 rounded-lg object-cover ring-1 ring-border" />
+      <button
+        onClick={onRemove}
+        className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-background ring-1 ring-border"
+        aria-label="Remove"
+      >
+        <X className="h-3 w-3" />
+      </button>
     </div>
   );
 }

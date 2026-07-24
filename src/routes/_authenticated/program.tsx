@@ -219,13 +219,23 @@ function ProgramPage() {
             {openDay && (
               <div className="overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
                 <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-border" />
-                <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  Week {openDay.week} · {fmtDate(openDay.date)}
-                  {openDay.is_deload ? " · Deload" : ""}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      Week {openDay.week} · {fmtDate(openDay.date)}
+                      {openDay.is_deload ? " · Deload" : ""}
+                    </div>
+                    <h3 className="mt-1 font-display text-xl font-bold text-foreground">
+                      {openDay.title}
+                    </h3>
+                  </div>
+                  <Drawer.Close
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground transition hover:text-foreground"
+                    aria-label="Close workout details"
+                  >
+                    <X className="h-4 w-4" />
+                  </Drawer.Close>
                 </div>
-                <h3 className="mt-1 font-display text-xl font-bold text-foreground">
-                  {openDay.title}
-                </h3>
                 {openDay.focus && <p className="text-sm text-muted-foreground">{openDay.focus}</p>}
                 <div className="mt-4 flex flex-col gap-2">
                   {openDay.exercises.map((e) => (

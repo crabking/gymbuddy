@@ -82,6 +82,24 @@ export const Route = createFileRoute("/api/chat")({
         if (!process.env.AI_API_KEY) return new Response("Missing AI_API_KEY", { status: 500 });
 
         const db = getDb();
+        const persistChatHistory = async (messages: UIMessage[]) => {
+          const retained = messages.slice(-100);
+          const createdAt = Date.now();
+
+          await db.transaction(async (tx) => {
+            await tx.delete(chatMessages).where(eq(chatMessages.user_id, userId));
+            if (retained.length === 0) return;
+
+            await tx.insert(chatMessages).values(
+              retained.map((message, index) => ({
+                user_id: userId,
+                role: message.role,
+                parts: message.parts,
+                created_at: new Date(createdAt + index).toISOString(),
+              })),
+            );
+          });
+        };
 
         const [profile] = await db
           .select()
@@ -1029,6 +1047,9 @@ ${input.notes}
 
         return result.toUIMessageStreamResponse({
           originalMessages: body.messages,
+          onEnd: async ({ messages }) => {
+            await persistChatHistory(messages);
+          },
         });
       },
     },

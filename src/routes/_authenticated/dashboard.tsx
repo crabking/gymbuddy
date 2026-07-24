@@ -124,10 +124,14 @@ function DashboardPage() {
   async function submitWeight() {
     const kg = parseFloat(weightInput.replace(",", "."));
     if (!kg || kg < 25 || kg > 400) return toast.error("Enter a weight in kg");
-    await logWeight({ data: { weight_kg: kg } });
-    setWeightInput("");
-    await qc.invalidateQueries({ queryKey: ["dashboard"] });
-    toast.success(`Logged ${kg} kg`);
+    try {
+      await logWeight({ data: { weight_kg: kg } });
+      setWeightInput("");
+      await qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success(`Logged ${kg} kg`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not log weight");
+    }
   }
 
   return (
