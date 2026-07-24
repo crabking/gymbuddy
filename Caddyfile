@@ -1,3 +1,9 @@
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 gymbuddy.178.104.35.161.sslip.io {
 	reverse_proxy gymbuddy-web:3000
 }
