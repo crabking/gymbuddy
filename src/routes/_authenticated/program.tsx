@@ -95,9 +95,9 @@ function ProgramPage() {
           )}
         </div>
 
-        {/* Week strip */}
+        {/* Week grid — wraps into rows, never scrolls sideways */}
         {program && (
-          <div className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1">
+          <div className="mt-3 grid grid-cols-8 gap-1">
             {Array.from({ length: program.weeks }, (_, i) => i + 1).map((w) => {
               const isDeload = (program.deload_weeks as number[]).includes(w);
               const weekDays = program.days.filter((d) => d.week === w);
@@ -107,7 +107,7 @@ function ProgramPage() {
                 <button
                   key={w}
                   onClick={() => setSelectedWeek(w)}
-                  className={`relative flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl border text-[10px] font-bold transition ${
+                  className={`relative flex h-7 items-center justify-center gap-0.5 rounded-sm border text-[10px] font-bold transition ${
                     active
                       ? "border-primary bg-primary/15 text-primary"
                       : allDone
@@ -118,7 +118,7 @@ function ProgramPage() {
                   <span className="font-display">W{w}</span>
                   {isDeload && <Moon className="h-2.5 w-2.5 opacity-70" />}
                   {w === currentWeek && (
-                    <span className="absolute -top-0.5 right-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-primary" />
                   )}
                 </button>
               );
@@ -166,7 +166,7 @@ function ProgramPage() {
                   Week {week}
                 </h2>
                 {(program.deload_weeks as number[]).includes(week) && (
-                  <span className="flex items-center gap-1 rounded-full bg-indigo-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-indigo-300">
+                  <span className="flex items-center gap-1 rounded-sm bg-indigo-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-indigo-300">
                     <Moon className="h-3 w-3" /> Deload
                   </span>
                 )}
@@ -196,7 +196,7 @@ function ProgramPage() {
                           )}
                         </div>
                         <span
-                          className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${s.chip}`}
+                          className={`flex shrink-0 items-center gap-1 rounded-sm px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${s.chip}`}
                         >
                           {day.status === "completed" && <Check className="h-3 w-3" strokeWidth={3} />}
                           {day.status === "skipped" && <X className="h-3 w-3" strokeWidth={3} />}

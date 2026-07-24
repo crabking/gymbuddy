@@ -194,12 +194,12 @@ function DashboardPage() {
                 </p>
               ) : (
                 <>
-                  <div className="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1">
+                  <div className="mb-3 flex flex-wrap gap-1.5">
                     {lifts.slice(0, 8).map((l) => (
                       <button
                         key={l.name}
                         onClick={() => setSelectedLift(l.name)}
-                        className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                        className={`shrink-0 rounded-sm border px-3 py-1 text-[11px] font-semibold transition ${
                           lift?.name === l.name
                             ? "border-primary bg-primary/15 text-primary"
                             : "border-border bg-secondary/40 text-muted-foreground"

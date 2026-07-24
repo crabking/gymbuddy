@@ -748,7 +748,7 @@ function ChatScreen() {
                 {inOnboarding && status === "ready" && latestText && (
                   <button
                     onClick={explainAgain}
-                    className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/40 px-3 py-1.5 font-display text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground transition hover:border-primary hover:text-primary"
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-sm border border-border bg-secondary/40 px-3 py-1.5 font-display text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground transition hover:border-primary hover:text-primary"
                   >
                     <RefreshCw className="h-3 w-3" />
                     Explain again
@@ -802,7 +802,7 @@ function ChatScreen() {
 
       {/* Pending attachments preview */}
       {pendingFiles.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto px-4 pb-2">
+        <div className="flex flex-wrap gap-2 px-4 pb-2">
           {pendingFiles.map((f, i) => {
             const url = URL.createObjectURL(f);
             return (
