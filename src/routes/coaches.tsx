@@ -3,9 +3,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, Dumbbell } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth.functions";
-import { getProfile, updateProfile } from "@/lib/gym-buddy.functions";
+import { getProfile, switchCoach } from "@/lib/gym-buddy.functions";
 import { COACH_IMAGES } from "@/lib/coach-assets";
 import { COACHES, DEFAULT_COACH_ID, getCoach, type CoachId, type CoachLevel } from "@/lib/coaches";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { VersionTag } from "@/components/VersionTag";
 
 export const Route = createFileRoute("/coaches")({
@@ -55,33 +56,53 @@ function CoachSelect() {
   const navigate = useNavigate();
   const getCurrentUserFn = useServerFn(getCurrentUser);
   const getProfileFn = useServerFn(getProfile);
-  const updateProfileFn = useServerFn(updateProfile);
+  const switchCoachFn = useServerFn(switchCoach);
   const [selectedId, setSelectedId] = useState<CoachId>(DEFAULT_COACH_ID);
+  const [currentCoachId, setCurrentCoachId] = useState<CoachId | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingCoachId, setPendingCoachId] = useState<CoachId | null>(null);
 
   useEffect(() => {
-    getCurrentUserFn({ data: undefined }).then(async (user) => {
-      if (!user) return;
-      setSignedIn(true);
-      const profile = await getProfileFn({ data: undefined });
-      if (profile?.coach_id) setSelectedId(getCoach(profile.coach_id).id);
-    });
+    getCurrentUserFn({ data: undefined })
+      .then(async (user) => {
+        if (!user) return;
+        setSignedIn(true);
+        const profile = await getProfileFn({ data: undefined });
+        if (!profile?.coach_id) return;
+        const coachId = getCoach(profile.coach_id).id;
+        setCurrentCoachId(coachId);
+        setSelectedId(coachId);
+      })
+      .catch(() => setSignedIn(false))
+      .finally(() => setAuthReady(true));
   }, [getCurrentUserFn, getProfileFn]);
 
-  async function chooseCoach(coachId: CoachId) {
-    if (saving) return;
+  async function activateCoach(coachId: CoachId) {
+    if (!authReady || saving) return;
     setSaving(true);
     try {
       if (signedIn) {
-        await updateProfileFn({ data: { coach_id: coachId } });
-        await navigate({ to: "/chat" });
+        if (coachId !== currentCoachId) {
+          await switchCoachFn({ data: { coach_id: coachId } });
+        }
+        window.location.assign("/chat");
       } else {
         await navigate({ to: "/auth", search: { coach: coachId } });
       }
     } finally {
       setSaving(false);
     }
+  }
+
+  function chooseCoach(coachId: CoachId) {
+    if (!authReady || saving) return;
+    if (signedIn && currentCoachId && coachId !== currentCoachId) {
+      setPendingCoachId(coachId);
+      return;
+    }
+    void activateCoach(coachId);
   }
 
   return (
@@ -101,16 +122,7 @@ function CoachSelect() {
           </span>
           <VersionTag />
         </div>
-        {!signedIn ? (
-          <Link
-            to="/auth"
-            className="font-display text-[9px] font-bold uppercase tracking-widest text-muted-foreground"
-          >
-            Sign in
-          </Link>
-        ) : (
-          <span className="w-8" />
-        )}
+        <span className="w-8" />
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-5">
@@ -188,11 +200,11 @@ function CoachSelect() {
                   {active && (
                     <button
                       type="button"
-                      disabled={saving}
+                      disabled={saving || !authReady}
                       onClick={() => void chooseCoach(coach.id)}
                       className={`pointer-events-auto mt-1.5 flex h-8 w-full items-center justify-between gap-1 px-2 font-display text-[9px] font-black uppercase tracking-wide transition active:scale-[0.98] disabled:opacity-60 sm:text-[10px] ${TRAIN_BUTTON[coach.level]}`}
                     >
-                      <span>{saving ? "Saving…" : "Train with"}</span>
+                      <span>{!authReady ? "Loading…" : saving ? "Saving…" : "Train with"}</span>
                       <ArrowUpRight className="h-3 w-3 shrink-0" />
                     </button>
                   )}
@@ -202,6 +214,19 @@ function CoachSelect() {
           })}
         </div>
       </main>
+      <ConfirmModal
+        open={pendingCoachId !== null}
+        title={`Start over with ${pendingCoachId ? getCoach(pendingCoachId).name : "this coach"}?`}
+        body="Switching coach wipes your current chat, profile, plans, meals, logs, and coach memory. Your login stays active."
+        confirmLabel="Switch & reset"
+        danger
+        onCancel={() => setPendingCoachId(null)}
+        onConfirm={() => {
+          const coachId = pendingCoachId;
+          setPendingCoachId(null);
+          if (coachId) void activateCoach(coachId);
+        }}
+      />
     </div>
   );
 }

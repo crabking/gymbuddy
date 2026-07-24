@@ -96,12 +96,6 @@ function Landing() {
           </Link>
           <div className="flex items-center gap-2">
             <InstallAppButton className="flex h-9 items-center gap-1.5 border border-primary/60 bg-background/70 px-3 font-display text-[10px] font-bold uppercase tracking-[0.1em] text-primary backdrop-blur transition active:scale-95" />
-            <Link
-              to="/auth"
-              className="flex h-9 items-center border border-white/20 bg-background/60 px-3.5 font-display text-[10px] font-bold uppercase tracking-[0.1em] backdrop-blur transition hover:border-primary hover:text-primary"
-            >
-              Sign in
-            </Link>
           </div>
         </header>
       </section>

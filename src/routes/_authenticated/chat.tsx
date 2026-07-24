@@ -931,6 +931,7 @@ function ChatScreen() {
             className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-border bg-card px-4 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none sm:text-[15px]"
           />
           <button
+            onPointerDown={(event) => event.preventDefault()}
             onClick={busy ? () => stop() : submit}
             disabled={!busy && !input.trim() && pendingFiles.length === 0}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition disabled:opacity-40"
@@ -1364,17 +1365,19 @@ function SettingsDrawer({
               </SettingsGroup>
 
               <SettingsGroup label="Preferences">
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                  <span className="flex-1 text-sm font-medium text-foreground">Coach</span>
-                  <Link
-                    to="/coaches"
-                    className="flex items-center gap-1.5 font-display text-[10px] font-bold uppercase tracking-wider text-primary"
-                  >
+                <Link to="/coaches" className="flex w-full items-center gap-3 px-3.5 py-3">
+                  <Dumbbell className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-foreground">Switch coach</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      Starts over with a clean profile
+                    </span>
+                  </span>
+                  <span className="font-display text-[10px] font-bold uppercase tracking-wider text-primary">
                     {getCoach(profile.coach_id).name}
-                    <span className="text-muted-foreground">Change</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </Link>
                 <EditRow label="Meal preferences" value={profile.meal_preferences} open={editing === "meals"} onToggle={() => setEditing(editing === "meals" ? null : "meals")}>
                   <Textarea value={profile.meal_preferences ?? ""} onSave={(v) => save({ meal_preferences: v || null })} placeholder="High protein, no dairy…" />
                 </EditRow>

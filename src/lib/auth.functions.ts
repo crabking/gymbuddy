@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setCookie, deleteCookie, getCookie, getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { COACH_IDS, getCoach } from "@/lib/coaches";
+import { COACH_IDS } from "@/lib/coaches";
 
 // Server-only modules that pull in `pg` are imported dynamically inside the
 // handlers so they never reach the client bundle.
@@ -29,7 +29,7 @@ export const login = createServerFn({ method: "POST" })
 
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
-    const { users, profiles } = await import("@/db/schema");
+    const { users } = await import("@/db/schema");
     const {
       verifyPassword,
       createSession,
@@ -54,14 +54,8 @@ export const login = createServerFn({ method: "POST" })
     }
 
     if (data.coach_id) {
-      const coach = getCoach(data.coach_id);
-      await getDb()
-        .insert(profiles)
-        .values({ id: user.id, coach_id: coach.id, coach_gender: coach.gender })
-        .onConflictDoUpdate({
-          target: profiles.id,
-          set: { coach_id: coach.id, coach_gender: coach.gender },
-        });
+      const { switchUserCoach } = await import("./coach-switch.server");
+      await switchUserCoach(user.id, data.coach_id);
     }
 
     await invalidateSession(getCookie(SESSION_COOKIE));

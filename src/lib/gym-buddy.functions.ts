@@ -280,6 +280,21 @@ export const resetWorkspace = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const SwitchCoachSchema = z.object({
+  coach_id: z.enum(COACH_IDS),
+});
+
+export const switchCoach = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input: unknown) => SwitchCoachSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { switchUserCoach } = await import("@/lib/coach-switch.server");
+    return {
+      ok: true,
+      ...(await switchUserCoach(context.userId, data.coach_id)),
+    };
+  });
+
 export const resetOnboarding = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .handler(async ({ context }) => {

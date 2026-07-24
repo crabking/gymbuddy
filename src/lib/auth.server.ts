@@ -4,9 +4,7 @@ import { getDb } from "@/db/db.server";
 import { users, sessions, type User } from "@/db/schema";
 
 export const SESSION_COOKIE = "gb_session";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
-const REFRESH_THRESHOLD_MS = 1000 * 60 * 60 * 24 * 15; // extend when <15 days left
-const ABSOLUTE_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 90;
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // one login per week
 const SCRYPT_KEYLEN = 64;
 export const DUMMY_PASSWORD_HASH = hashPassword(randomBytes(32).toString("base64url"));
 
@@ -69,19 +67,10 @@ export async function validateSessionToken(token: string | undefined | null): Pr
   if (!row) return null;
 
   const expires = row.expiresAt.getTime();
-  const createdAt = new Date(row.createdAt).getTime();
-  const absoluteExpiry = createdAt + ABSOLUTE_SESSION_TTL_MS;
+  const absoluteExpiry = new Date(row.createdAt).getTime() + SESSION_TTL_MS;
   if (Date.now() >= expires || Date.now() >= absoluteExpiry) {
     await db.delete(sessions).where(eq(sessions.id, id));
     return null;
-  }
-  // Sliding expiration: extend if close to expiry.
-  if (expires - Date.now() < REFRESH_THRESHOLD_MS) {
-    const refreshedExpiry = Math.min(Date.now() + SESSION_TTL_MS, absoluteExpiry);
-    await db
-      .update(sessions)
-      .set({ expires_at: new Date(refreshedExpiry) })
-      .where(eq(sessions.id, id));
   }
   return row.user;
 }
