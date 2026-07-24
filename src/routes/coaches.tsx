@@ -165,7 +165,7 @@ function CoachSelect() {
                   <span className="sr-only">Select {coach.name}</span>
                 </button>
                 <div
-                  className={`pointer-events-none absolute left-1.5 top-1.5 z-20 border px-1.5 py-0.5 font-display text-[7px] font-black uppercase tracking-wider backdrop-blur-sm sm:text-[8px] ${LEVEL_STYLE[coach.level]}`}
+                  className={`pointer-events-none absolute left-1.5 top-1.5 z-20 border px-1.5 py-0.5 font-display text-[9px] font-black uppercase tracking-wide backdrop-blur-sm sm:text-[10px] ${LEVEL_STYLE[coach.level]}`}
                 >
                   {coach.level}
                 </div>
@@ -175,11 +175,11 @@ function CoachSelect() {
                   </span>
                 )}
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/90 to-transparent p-1.5 pt-8 sm:p-2.5 sm:pt-10">
-                  <span className="block font-display text-sm font-black uppercase leading-none text-white sm:text-xl">
+                  <span className="block font-display text-base font-black uppercase leading-none text-white sm:text-xl">
                     {coach.name}
                   </span>
                   <span
-                    className={`mt-1 line-clamp-2 text-[7px] leading-[1.15] text-white/75 sm:text-[9px] ${
+                    className={`mt-1 line-clamp-2 text-[9px] leading-[1.2] text-white/80 sm:text-[10px] ${
                       active ? "block" : "hidden sm:group-hover:block"
                     }`}
                   >
@@ -190,7 +190,7 @@ function CoachSelect() {
                       type="button"
                       disabled={saving}
                       onClick={() => void chooseCoach(coach.id)}
-                      className={`pointer-events-auto mt-1.5 flex h-7 w-full items-center justify-between gap-1 px-1.5 font-display text-[7px] font-black uppercase tracking-wide transition active:scale-[0.98] disabled:opacity-60 sm:h-8 sm:px-2 sm:text-[9px] ${TRAIN_BUTTON[coach.level]}`}
+                      className={`pointer-events-auto mt-1.5 flex h-8 w-full items-center justify-between gap-1 px-2 font-display text-[9px] font-black uppercase tracking-wide transition active:scale-[0.98] disabled:opacity-60 sm:text-[10px] ${TRAIN_BUTTON[coach.level]}`}
                     >
                       <span>{saving ? "Saving…" : "Train with"}</span>
                       <ArrowUpRight className="h-3 w-3 shrink-0" />
