@@ -282,37 +282,53 @@ export const resetOnboarding = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
-    const { profiles, chatMessages, workoutLogs, mealLogs, plans, workspaceFiles, workoutSessions } =
-      await import("@/db/schema");
+    const {
+      profiles,
+      chatMessages,
+      workoutLogs,
+      mealLogs,
+      weightLogs,
+      plans,
+      programs,
+      workspaceFiles,
+      workoutSessions,
+    } = await import("@/db/schema");
     const db = getDb();
     const userId = context.userId;
-    await db
-      .update(profiles)
-      .set({
-        onboarding_completed: false,
-        display_name: null,
-        goal: null,
-        experience: null,
-        days_per_week: null,
-        session_minutes: null,
-        equipment: null,
-        injuries: null,
-        height_cm: null,
-        weight_kg: null,
-        age: null,
-        sex: null,
-        diet_style: null,
-        daily_calorie_target: null,
-        schedule_note: null,
-        meal_preferences: null,
-        memory_notes: null,
-      })
-      .where(eq(profiles.id, userId));
-    await db.delete(chatMessages).where(eq(chatMessages.user_id, userId));
-    await db.delete(workoutLogs).where(eq(workoutLogs.user_id, userId));
-    await db.delete(mealLogs).where(eq(mealLogs.user_id, userId));
-    await db.delete(plans).where(eq(plans.user_id, userId));
-    await db.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
-    await db.delete(workoutSessions).where(eq(workoutSessions.user_id, userId));
+
+    await db.transaction(async (tx) => {
+      await tx.delete(chatMessages).where(eq(chatMessages.user_id, userId));
+      await tx.delete(workoutLogs).where(eq(workoutLogs.user_id, userId));
+      await tx.delete(mealLogs).where(eq(mealLogs.user_id, userId));
+      await tx.delete(weightLogs).where(eq(weightLogs.user_id, userId));
+      await tx.delete(workoutSessions).where(eq(workoutSessions.user_id, userId));
+      await tx.delete(programs).where(eq(programs.user_id, userId));
+      await tx.delete(plans).where(eq(plans.user_id, userId));
+      await tx.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
+      await tx
+        .update(profiles)
+        .set({
+          onboarding_completed: false,
+          display_name: null,
+          goal: null,
+          experience: null,
+          days_per_week: null,
+          session_minutes: null,
+          equipment: null,
+          injuries: null,
+          height_cm: null,
+          weight_kg: null,
+          age: null,
+          sex: null,
+          diet_style: null,
+          daily_calorie_target: null,
+          active_plan_id: null,
+          schedule_note: null,
+          meal_preferences: null,
+          memory_notes: null,
+        })
+        .where(eq(profiles.id, userId));
+    });
+
     return { ok: true };
   });
