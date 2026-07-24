@@ -26,7 +26,6 @@ import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { TabBar } from "@/components/TabBar";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { InstallAppButton } from "@/components/InstallAppButton";
-import { VersionTag } from "@/components/VersionTag";
 import { usePwaInstall } from "@/lib/pwa-install";
 import { toast } from "sonner";
 import {
@@ -519,32 +518,27 @@ function ChatScreen() {
             <img
               src={coach.portrait}
               alt={coach.name}
-              className="h-9 w-9 rounded-lg object-cover object-top ring-1 ring-primary/40"
+              className="h-12 w-12 rounded-xl object-cover object-top ring-1 ring-primary/50"
             />
-            <div className="flex flex-col leading-tight">
-              <span className="font-display text-sm font-bold text-foreground">{coach.name}</span>
-              <div className="flex items-center gap-2">
-                {inOnboarding ? (
-                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-primary">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="relative flex h-1.5 w-1.5">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
-                      </span>
-                      Onboarding · {doneCount}/{totalSteps}
+            <div className="flex flex-col justify-center leading-tight">
+              <span className="font-display text-xl font-bold uppercase tracking-wide text-foreground">
+                {coach.name}
+              </span>
+              {inOnboarding ? (
+                <span className="mt-1 font-display text-[9px] font-bold uppercase tracking-[0.18em] text-primary">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
                     </span>
                   </span>
-                ) : buildDoneCount < buildTotalSteps ? (
-                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
-                    Build · {buildDoneCount}/{buildTotalSteps}
-                  </span>
-                ) : (
-                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
-                    Coach online
-                  </span>
-                )}
-                <VersionTag />
-              </div>
+                  Onboarding · {doneCount}/{totalSteps}
+                </span>
+              ) : buildDoneCount < buildTotalSteps ? (
+                <span className="mt-1 font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
+                  Build · {buildDoneCount}/{buildTotalSteps}
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -674,53 +668,64 @@ function ChatScreen() {
           </>
         )}
 
-        {/* Today's calories — always visible up top once onboarded */}
-        {!inOnboarding && !keyboardOpen && nutrition && (
-          <div className="mt-2.5 flex items-center gap-2">
-            <Flame className="h-4 w-4 shrink-0 text-primary" />
-            <div className="min-w-0 flex-1">
-              <div className="flex justify-between text-[11px] text-muted-foreground">
-                <span className="font-semibold text-foreground">
-                  {Math.round(nutrition.calories)}
-                  {nutrition.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal today
-                </span>
-                <span>
-                  Protein {Math.round(nutrition.protein_g)}g · Carbs {Math.round(nutrition.carbs_g)}
-                  g · Fat {Math.round(nutrition.fat_g)}g
-                </span>
-              </div>
-              {nutrition.target_calories ? (
-                <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
-                  <div
-                    className="h-full bg-primary transition-all"
-                    style={{
-                      width: `${Math.min(100, (nutrition.calories / nutrition.target_calories) * 100)}%`,
-                    }}
-                  />
+        {/* Two fixed information rows — calories, then workout. */}
+        {!inOnboarding && !keyboardOpen && (
+          <div className="-mx-3 mt-3 divide-y divide-border border-t border-border bg-background/50">
+            <div className="flex min-h-12 items-center gap-3 px-3 py-2">
+              <Flame className="h-5 w-5 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="font-display text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    Calories
+                  </span>
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    P {Math.round(nutrition?.protein_g ?? 0)}g · C{" "}
+                    {Math.round(nutrition?.carbs_g ?? 0)}g · F {Math.round(nutrition?.fat_g ?? 0)}g
+                  </span>
                 </div>
-              ) : null}
+                <div className="mt-0.5 flex items-center gap-3">
+                  <span className="shrink-0 text-sm font-bold text-foreground">
+                    {Math.round(nutrition?.calories ?? 0)}
+                    {nutrition?.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal
+                  </span>
+                  {nutrition?.target_calories ? (
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{
+                          width: `${Math.min(100, ((nutrition?.calories ?? 0) / nutrition.target_calories) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
+            {session ? (
+              <SessionTimerBar
+                session={session}
+                minutes={(profile as Profile).session_minutes ?? 60}
+              />
+            ) : (
+              <div className="flex min-h-12 items-center gap-3 px-3 py-2">
+                <Dumbbell className="h-5 w-5 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    Workout
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between gap-3 text-xs">
+                    <span className="min-w-0 truncate font-semibold text-foreground">
+                      {todayTraining?.label ?? "Rest day"}
+                    </span>
+                    {todayTraining?.detail && (
+                      <span className="shrink-0 text-muted-foreground">{todayTraining.detail}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
-
-        {/* Session bar — live session (lit + timer) or the next one up */}
-        {!inOnboarding &&
-          !keyboardOpen &&
-          (session ? (
-            <SessionTimerBar
-              session={session}
-              minutes={(profile as Profile).session_minutes ?? 60}
-            />
-          ) : todayTraining ? (
-            <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-              <Dumbbell className="h-4 w-4 shrink-0 text-primary" />
-              <span className="min-w-0 flex-1 truncate">
-                Next session:{" "}
-                <span className="font-semibold text-foreground">{todayTraining.label}</span>
-              </span>
-              {todayTraining.detail && <span className="shrink-0">{todayTraining.detail}</span>}
-            </div>
-          ) : null)}
       </header>
 
       {/* Single-message stage */}
@@ -974,26 +979,33 @@ function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minute
   const pct = Math.min(100, (elapsed / totalMs) * 100);
 
   return (
-    <div className="mt-2 rounded-xl border border-primary/60 bg-primary/10 px-3 py-2 shadow-[0_0_16px_-6px] shadow-primary/60">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="flex min-w-0 items-center gap-1.5 font-bold text-primary">
-          <Dumbbell className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">LIVE · {session.title}</span>
-        </span>
-        <span
-          className={`shrink-0 font-display font-bold ${over ? "text-red-400" : "text-foreground"}`}
-        >
-          {over ? `+${mmss(remaining)}` : mmss(remaining)}
-          <span className="ml-2 text-emerald-400">
-            {session.done}/{session.total}
+    <div className="flex min-h-12 items-center gap-3 bg-primary/[0.04] px-3 py-2">
+      <Dumbbell className="h-5 w-5 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="font-display text-[9px] font-bold uppercase tracking-[0.16em] text-primary">
+            Live workout
           </span>
-        </span>
-      </div>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
-        <div
-          className={`h-full transition-all ${over ? "bg-red-400" : "bg-primary"}`}
-          style={{ width: `${pct}%` }}
-        />
+          <span
+            className={`shrink-0 font-display text-xs font-bold ${over ? "text-red-400" : "text-foreground"}`}
+          >
+            {over ? `+${mmss(remaining)}` : mmss(remaining)}
+            <span className="ml-2 text-emerald-400">
+              {session.done}/{session.total}
+            </span>
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-3">
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+            {session.title}
+          </span>
+          <div className="h-1 w-20 shrink-0 overflow-hidden rounded-full bg-secondary">
+            <div
+              className={`h-full transition-all ${over ? "bg-red-400" : "bg-primary"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
