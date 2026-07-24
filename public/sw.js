@@ -1,4 +1,4 @@
-const CACHE_NAME = "gym-buddy-static-v1";
+const CACHE_NAME = "gym-buddy-static-v2";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-180.png",

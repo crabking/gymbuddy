@@ -9,6 +9,10 @@ import viteReact from "@vitejs/plugin-react";
 // Nitro's `node-server` preset — output lands in `.output/` and boots with
 // `node .output/server/index.mjs` (see Dockerfile).
 export default defineConfig(async ({ command, mode }) => {
+  const appVersion =
+    process.env.SOURCE_COMMIT ??
+    process.env.COOLIFY_GIT_COMMIT_SHA ??
+    Date.now().toString(36);
   const plugins: PluginOption[] = [
     tailwindcss(),
     tsConfigPaths({ projects: ["./tsconfig.json"] }),
@@ -23,6 +27,17 @@ export default defineConfig(async ({ command, mode }) => {
         },
       },
     }),
+    {
+      name: "gym-buddy-app-version",
+      apply: "build",
+      generateBundle() {
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: JSON.stringify({ version: appVersion }),
+        });
+      },
+    },
   ];
 
   // Nitro only participates in the production build.
@@ -37,6 +52,7 @@ export default defineConfig(async ({ command, mode }) => {
   // bundle and SSR.
   const env = loadEnv(mode, process.cwd(), "VITE_");
   const define: Record<string, string> = {};
+  define.__APP_VERSION__ = JSON.stringify(appVersion);
   for (const [key, value] of Object.entries(env)) {
     define[`import.meta.env.${key}`] = JSON.stringify(value);
   }
