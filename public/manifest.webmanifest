@@ -1,0 +1,48 @@
+{
+  "id": "/",
+  "name": "Gym Buddy",
+  "short_name": "Gym Buddy",
+  "description": "Your AI personal trainer, workout planner, and nutrition coach.",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#141414",
+  "theme_color": "#141414",
+  "orientation": "portrait-primary",
+  "categories": ["fitness", "health", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Coach",
+      "short_name": "Coach",
+      "url": "/chat"
+    },
+    {
+      "name": "Program",
+      "short_name": "Program",
+      "url": "/program"
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard"
+    }
+  ]
+}

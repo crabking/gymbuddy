@@ -23,6 +23,13 @@ npm run db:seed               # create your login (uses ADMIN_EMAIL / ADMIN_PASS
 npm run dev                   # http://localhost:8080
 ```
 
+### Install on a phone
+
+The production site is an installable web app. It must be served over HTTPS.
+
+- **Android:** open the site in Chrome, then choose **Install app**.
+- **iPhone:** open the site in Safari, tap **Share**, then **Add to Home Screen**.
+
 ### Environment variables
 
 See [`.env.example`](.env.example).
