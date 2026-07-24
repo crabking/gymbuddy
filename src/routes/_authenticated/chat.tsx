@@ -1186,6 +1186,7 @@ function SettingsDrawer({
     queryKey: ["memories"],
     queryFn: () => getMemories({ data: undefined }),
   });
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "workspace" | "everything">(null);
   const { canInstall, isInstalled } = usePwaInstall();
@@ -1245,42 +1246,64 @@ function SettingsDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex flex-col gap-4">
-            <SettingsGroup label="Permanent memory">
-              <div className="border-b border-border/60 px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
-                Your coach automatically remembers important preferences, goals, and achievements.
-              </div>
-              <div className="max-h-64 overflow-y-auto overscroll-contain">
-                {memories.length === 0 ? (
-                  <div className="flex items-center gap-3 px-3.5 py-4 text-sm text-muted-foreground">
-                    <Brain className="h-4 w-4 shrink-0" />
-                    Nothing remembered yet
-                  </div>
-                ) : (
-                  memories.map((memory) => (
-                    <div
-                      key={memory.id}
-                      className="flex items-start gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0"
-                    >
-                      <Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-display text-[9px] font-bold uppercase tracking-[0.14em] text-primary">
-                          {memory.topic}
-                        </div>
-                        <div className="mt-0.5 text-sm leading-snug text-foreground">
-                          {memory.content}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => void forgetMemory(memory.id)}
-                        className="grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400"
-                        aria-label={`Forget ${memory.content}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+            <SettingsGroup label="Memory">
+              <button
+                type="button"
+                onClick={() => setMemoryOpen((open) => !open)}
+                className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
+                aria-expanded={memoryOpen}
+              >
+                <Brain className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    Permanent memory
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    Preferences, goals and achievements
+                  </span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {memories.length} {memories.length === 1 ? "memory" : "memories"}
+                </span>
+                <ChevronRight
+                  className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${
+                    memoryOpen ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
+              {memoryOpen && (
+                <div className="max-h-64 overflow-y-auto overscroll-contain border-t border-border/60">
+                  {memories.length === 0 ? (
+                    <div className="px-3.5 py-4 text-sm text-muted-foreground">
+                      Nothing remembered yet
                     </div>
-                  ))
-                )}
-              </div>
+                  ) : (
+                    memories.map((memory) => (
+                      <div
+                        key={memory.id}
+                        className="flex items-start gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0"
+                      >
+                        <Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-display text-[9px] font-bold uppercase tracking-[0.14em] text-primary">
+                            {memory.topic}
+                          </div>
+                          <div className="mt-0.5 text-sm leading-snug text-foreground">
+                            {memory.content}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => void forgetMemory(memory.id)}
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400"
+                          aria-label={`Forget ${memory.content}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </SettingsGroup>
 
             <SettingsGroup label="Profile">
