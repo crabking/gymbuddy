@@ -195,8 +195,7 @@ export const toggleSessionExercise = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { markExerciseDone } = await import("@/lib/workout-session.server");
-    const r = await markExerciseDone(context.userId, data.exercise, data.done);
-    return r.session;
+    return markExerciseDone(context.userId, data.exercise, data.done);
   });
 
 export const completeActiveSession = createServerFn({ method: "POST" })
@@ -244,8 +243,8 @@ export const getProgramFull = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .inputValidator((input: unknown) => z.object({ date: z.string().nullable() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { getActiveProgram } = await import("@/lib/program.server");
-    return getActiveProgram(context.userId, data.date ?? undefined);
+    const { getCurrentProgram } = await import("@/lib/program.server");
+    return getCurrentProgram(context.userId, data.date ?? undefined);
   });
 
 export const getDashboard = createServerFn({ method: "GET" })
@@ -262,19 +261,18 @@ export const toggleSessionSet = createServerFn({ method: "POST" })
       .object({
         set_id: z.string(),
         completed: z.boolean(),
-        weight_kg: z.number().nullable().optional(),
-        reps: z.number().int().nullable().optional(),
+        weight_kg: z.number().min(0).max(1000).nullable().optional(),
+        reps: z.number().int().min(0).max(1000).nullable().optional(),
       })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { markSetDone } = await import("@/lib/workout-session.server");
-    const r = await markSetDone(context.userId, data.set_id, {
+    return markSetDone(context.userId, data.set_id, {
       completed: data.completed,
       weight_kg: data.weight_kg,
       reps: data.reps,
     });
-    return r.session;
   });
 
 export const seedDemoDashboard = createServerFn({ method: "POST" })

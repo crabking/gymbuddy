@@ -449,7 +449,11 @@ function ChatScreen() {
   }
 
   async function toggleExercise(name: string, done: boolean) {
-    await toggleSessionExercise({ data: { exercise: name, done } });
+    const result = await toggleSessionExercise({ data: { exercise: name, done } });
+    if (!result.ok) {
+      toast.error("Could not update that exercise. Refresh and try again.");
+      return;
+    }
     await qc.invalidateQueries({ queryKey: ["workout-session"] });
     // Notify the coach so it reacts in real time (hidden UI event message).
     if (!busy) {
@@ -467,7 +471,13 @@ function ChatScreen() {
     weight_kg?: number | null,
     reps?: number | null,
   ) {
-    await toggleSessionSet({ data: { set_id: setId, completed, weight_kg, reps } });
+    const result = await toggleSessionSet({
+      data: { set_id: setId, completed, weight_kg, reps },
+    });
+    if (!result.ok) {
+      toast.error("Could not save that set. Refresh and try again.");
+      return;
+    }
     await qc.invalidateQueries({ queryKey: ["workout-session"] });
     // Only ping the coach when a whole exercise wraps (avoids per-set spam).
     if (completed && lastOfExercise && !busy) {
@@ -478,11 +488,24 @@ function ChatScreen() {
   }
 
   async function finishWorkout() {
-    await completeActiveSession({ data: undefined });
-    await qc.invalidateQueries({ queryKey: ["workout-session"] });
+    const result = await completeActiveSession({ data: undefined });
+    if (!result.ok) {
+      toast.error(result.coach_note);
+      return;
+    }
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["workout-session"] }),
+      qc.invalidateQueries({ queryKey: ["program"] }),
+      qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["today-training"] }),
+    ]);
     toast.success("Workout done — nice work 🎉");
     if (!busy) {
-      void sendMessage({ text: "__ui_event__ tapped 'Finish workout' — session complete" });
+      void sendMessage({
+        text: result.cycle_completed
+          ? `__ui_event__ tapped 'Finish workout' — session complete and "${result.program_name ?? "the program"}" cycle complete`
+          : "__ui_event__ tapped 'Finish workout' — session complete",
+      });
     }
   }
 

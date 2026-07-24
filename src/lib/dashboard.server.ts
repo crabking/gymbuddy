@@ -19,7 +19,7 @@ const e1rm = (weight: number, reps: number) => Math.round(weight * (1 + reps / 3
 
 export type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
 
-export async function getDashboardData(userId: string, days = 90) {
+export async function getDashboardData(userId: string, days = 400) {
   const db = getDb();
   const sinceDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
@@ -74,7 +74,10 @@ export async function getDashboardData(userId: string, days = 90) {
   }
   // Keep lifts with at least 2 datapoints first, sorted by datapoint count.
   const strengthByLift = [...strength.entries()]
-    .map(([name, points]) => ({ name, points: points.sort((a, b) => a.date.localeCompare(b.date)) }))
+    .map(([name, points]) => ({
+      name,
+      points: points.sort((a, b) => a.date.localeCompare(b.date)),
+    }))
     .sort((a, b) => b.points.length - a.points.length);
 
   // --- Weekly volume: completed sets + tonnage per ISO week ---
@@ -134,7 +137,11 @@ export async function getDashboardData(userId: string, days = 90) {
     calByDay.set(d, cur);
   }
   const calories = [...calByDay.entries()]
-    .map(([date, v]) => ({ date, calories: Math.round(v.calories), protein_g: Math.round(v.protein_g) }))
+    .map(([date, v]) => ({
+      date,
+      calories: Math.round(v.calories),
+      protein_g: Math.round(v.protein_g),
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // --- Session history + stats ---
@@ -146,7 +153,9 @@ export async function getDashboardData(userId: string, days = 90) {
       status: s.status,
       duration_min:
         s.completed_at && s.created_at
-          ? Math.round((new Date(s.completed_at).getTime() - new Date(s.created_at).getTime()) / 60000)
+          ? Math.round(
+              (new Date(s.completed_at).getTime() - new Date(s.created_at).getTime()) / 60000,
+            )
           : null,
       exercises: exercises
         .filter((e) => e.session_id === s.id)

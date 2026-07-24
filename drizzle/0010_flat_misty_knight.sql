@@ -1,0 +1,1 @@
+ALTER TABLE "program_days" ADD COLUMN "resolution_note" text;

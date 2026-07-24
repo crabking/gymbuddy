@@ -9,7 +9,9 @@ import {
   jsonb,
   uniqueIndex,
   index,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // Column *property* names are snake_case to match the app's existing shapes
 // (e.g. profile.display_name, insert({ user_id, parts })), so query objects and
@@ -187,8 +189,17 @@ export const programs = pgTable(
     progression_rules: text("progression_rules"),
     why: text("why"),
     created_at: createdAt(),
+    completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
   },
-  (t) => [index("programs_user_idx").on(t.user_id, t.status)],
+  (t) => [
+    index("programs_user_idx").on(t.user_id, t.status),
+    uniqueIndex("programs_one_active_user_idx")
+      .on(t.user_id)
+      .where(sql`${t.status} = 'active'`),
+    check("programs_status_check", sql`${t.status} IN ('active', 'completed', 'archived')`),
+    check("programs_weeks_check", sql`${t.weeks} BETWEEN 1 AND 104`),
+    check("programs_days_per_week_check", sql`${t.days_per_week} BETWEEN 1 AND 7`),
+  ],
 );
 
 export const programDays = pgTable(
@@ -206,10 +217,14 @@ export const programDays = pgTable(
     is_deload: boolean("is_deload").notNull().default(false),
     status: text("status").notNull().default("planned"), // planned | completed | skipped
     session_id: uuid("session_id"), // linked live session when run
+    resolution_note: text("resolution_note"),
   },
   (t) => [
-    index("program_days_program_idx").on(t.program_id, t.date),
+    uniqueIndex("program_days_program_date_idx").on(t.program_id, t.date),
     index("program_days_date_idx").on(t.date),
+    check("program_days_status_check", sql`${t.status} IN ('planned', 'completed', 'skipped')`),
+    check("program_days_week_check", sql`${t.week} > 0`),
+    check("program_days_day_index_check", sql`${t.day_index} BETWEEN 1 AND 7`),
   ],
 );
 
@@ -245,7 +260,7 @@ export const sessionSets = pgTable(
     completed: boolean("completed").notNull().default(false),
     completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
   },
-  (t) => [index("session_sets_exercise_idx").on(t.session_exercise_id, t.set_index)],
+  (t) => [uniqueIndex("session_sets_exercise_set_idx").on(t.session_exercise_id, t.set_index)],
 );
 
 // Bodyweight history.
@@ -275,11 +290,26 @@ export const workoutSessions = pgTable(
     session_date: text("session_date").notNull(), // YYYY-MM-DD (user-local day)
     title: text("title").notNull(),
     status: text("status").notNull().default("active"), // active | completed | abandoned
-    program_day_id: uuid("program_day_id"), // linked program day (dated engine)
+    program_day_id: uuid("program_day_id").references(() => programDays.id, {
+      onDelete: "set null",
+    }), // linked program day (dated engine)
     created_at: createdAt(),
     completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
   },
-  (t) => [index("workout_sessions_user_idx").on(t.user_id, t.session_date)],
+  (t) => [
+    index("workout_sessions_user_idx").on(t.user_id, t.session_date),
+    index("workout_sessions_program_day_idx").on(t.program_day_id),
+    uniqueIndex("workout_sessions_one_active_user_idx")
+      .on(t.user_id)
+      .where(sql`${t.status} = 'active'`),
+    uniqueIndex("workout_sessions_one_completed_program_day_idx")
+      .on(t.program_day_id)
+      .where(sql`${t.status} = 'completed' AND ${t.program_day_id} IS NOT NULL`),
+    check(
+      "workout_sessions_status_check",
+      sql`${t.status} IN ('active', 'completed', 'abandoned')`,
+    ),
+  ],
 );
 
 export const sessionExercises = pgTable(
@@ -296,7 +326,7 @@ export const sessionExercises = pgTable(
     completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }),
     notes: text("notes"),
   },
-  (t) => [index("session_exercises_session_idx").on(t.session_id, t.position)],
+  (t) => [uniqueIndex("session_exercises_session_position_idx").on(t.session_id, t.position)],
 );
 
 export const workspaceFiles = pgTable(

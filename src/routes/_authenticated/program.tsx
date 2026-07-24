@@ -3,15 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Drawer } from "vaul";
-import {
-  CalendarRange,
-  Check,
-  X,
-  Dumbbell,
-  Moon,
-  ChevronRight,
-  Sparkles,
-} from "lucide-react";
+import { CalendarRange, Check, X, Dumbbell, Moon, ChevronRight, Sparkles } from "lucide-react";
 import { getProgramFull } from "@/lib/gym-buddy.functions";
 import { TabBar } from "@/components/TabBar";
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -40,12 +32,26 @@ function fmtDate(dateStr: string) {
 
 function statusStyle(day: Day, today: string) {
   if (day.status === "completed")
-    return { border: "border-emerald-500/40", chip: "bg-emerald-500/15 text-emerald-400", label: "Done" };
+    return {
+      border: "border-emerald-500/40",
+      chip: "bg-emerald-500/15 text-emerald-400",
+      label: "Done",
+    };
   if (day.status === "skipped")
     return { border: "border-red-500/30", chip: "bg-red-500/10 text-red-400", label: "Skipped" };
   if (day.date === today)
     return { border: "border-primary/70", chip: "bg-primary/15 text-primary", label: "Today" };
-  return { border: "border-border", chip: "bg-secondary/60 text-muted-foreground", label: "Planned" };
+  if (day.date < today)
+    return {
+      border: "border-amber-500/35",
+      chip: "bg-amber-500/10 text-amber-300",
+      label: "Review",
+    };
+  return {
+    border: "border-border",
+    chip: "bg-secondary/60 text-muted-foreground",
+    label: "Planned",
+  };
 }
 
 function ProgramPage() {
@@ -77,6 +83,7 @@ function ProgramPage() {
             </h1>
             {program && (
               <p className="text-[11px] text-muted-foreground">
+                {program.status === "completed" ? "Completed · " : ""}
                 {program.weeks} weeks · {program.days_per_week}x/week · {program.start_date} →{" "}
                 {program.end_date}
               </p>
@@ -101,7 +108,8 @@ function ProgramPage() {
             {Array.from({ length: program.weeks }, (_, i) => i + 1).map((w) => {
               const isDeload = (program.deload_weeks as number[]).includes(w);
               const weekDays = program.days.filter((d) => d.week === w);
-              const allDone = weekDays.length > 0 && weekDays.every((d) => d.status === "completed");
+              const allDone =
+                weekDays.length > 0 && weekDays.every((d) => d.status === "completed");
               const active = w === week;
               return (
                 <button
@@ -139,8 +147,8 @@ function ProgramPage() {
             <Sparkles className="mx-auto h-10 w-10 text-primary" />
             <h2 className="mt-3 font-display text-lg font-bold text-foreground">No program yet</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Ask your coach to build your full training program — every week, day by day, will
-              show up here.
+              Ask your coach to build your full training program — every week, day by day, will show
+              up here.
             </p>
             <Link
               to="/chat"
@@ -161,6 +169,22 @@ function ProgramPage() {
               transition={{ duration: 0.15 }}
               className="flex flex-col gap-2.5"
             >
+              {program.status === "completed" && (
+                <div className="mb-1 rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-3">
+                  <div className="font-display text-sm font-bold text-emerald-300">
+                    Cycle complete
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Every workout is preserved. Review it with your coach and start the next cycle.
+                  </div>
+                  <Link
+                    to="/chat"
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-emerald-300"
+                  >
+                    Plan the next cycle <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <h2 className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
                   Week {week}
@@ -198,7 +222,9 @@ function ProgramPage() {
                         <span
                           className={`flex shrink-0 items-center gap-1 rounded-sm px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${s.chip}`}
                         >
-                          {day.status === "completed" && <Check className="h-3 w-3" strokeWidth={3} />}
+                          {day.status === "completed" && (
+                            <Check className="h-3 w-3" strokeWidth={3} />
+                          )}
                           {day.status === "skipped" && <X className="h-3 w-3" strokeWidth={3} />}
                           {s.label}
                         </span>
@@ -237,6 +263,11 @@ function ProgramPage() {
                   </Drawer.Close>
                 </div>
                 {openDay.focus && <p className="text-sm text-muted-foreground">{openDay.focus}</p>}
+                {openDay.resolution_note && (
+                  <p className="mt-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+                    {openDay.resolution_note}
+                  </p>
+                )}
                 <div className="mt-4 flex flex-col gap-2">
                   {openDay.exercises.map((e) => (
                     <div

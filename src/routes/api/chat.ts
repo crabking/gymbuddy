@@ -142,10 +142,17 @@ export const Route = createFileRoute("/api/chat")({
           summarizeSession,
           getRecentSessions,
           summarizeRecentSessions,
+          getWorkoutHistory,
+          summarizeWorkoutHistory,
         } = await import("@/lib/workout-session.server");
         const { getNutrition, summarizeNutrition } = await import("@/lib/nutrition.server");
-        const { getActiveProgram, summarizeProgram, generateProgram, adjustProgramExercise } =
-          await import("@/lib/program.server");
+        const {
+          getCurrentProgram,
+          summarizeProgram,
+          generateProgram,
+          adjustProgramExercise,
+          resolveProgramDay,
+        } = await import("@/lib/program.server");
 
         const db = getDb();
         const [profile] = await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1);
@@ -238,7 +245,7 @@ export const Route = createFileRoute("/api/chat")({
           await Promise.all([
             getActiveSession(userId),
             getNutrition(userId),
-            getActiveProgram(userId, todayDate),
+            getCurrentProgram(userId, todayDate),
             getRecentSessions(userId, 7),
             db
               .select()
@@ -247,8 +254,14 @@ export const Route = createFileRoute("/api/chat")({
               .orderBy(desc(weightLogs.logged_at))
               .limit(5),
           ]);
+        const cycleWorkoutHistory = program?.id
+          ? await getWorkoutHistory(userId, { programId: program.id, limit: 120 })
+          : [];
 
-        const todayProgramDay = program?.days.find((d) => d.date === todayDate) ?? null;
+        const todayProgramDay =
+          program?.status === "active"
+            ? (program.days.find((d) => d.date === todayDate) ?? null)
+            : null;
         const lastCompleted = recentSessions.find((r) => r.status === "completed");
         const weightTrend = recentWeights.length
           ? recentWeights
@@ -408,6 +421,14 @@ ${summarizeSession(activeSession)}
 ### Session history (last 7 days)
 ${summarizeRecentSessions(recentSessions)}
 Last completed session: ${lastCompleted ? `${lastCompleted.title} on ${lastCompleted.date}${lastCompleted.duration_min != null ? ` (${lastCompleted.duration_min} min)` : ""}` : "(none this week)"}
+
+### Current/last cycle performance (durable server history)
+${summarizeWorkoutHistory(cycleWorkoutHistory)}
+- Every workout, exercise, set, actual weight, rep count, status, and timestamp is stored on the user's account.
+- Use \`get_workout_history\` when the user asks for an exact older session or when reviewing a cycle. Never guess from chat memory.
+- When the user reports actual weights/reps for an exercise, pass them through \`mark_exercise_done.performed_sets\` so the exact work is recorded.
+- A cycle closes only when every planned day is explicitly completed or skipped. If the calendar ended with unresolved days, review them with the user and use \`resolve_program_day\` only after they confirm a skip; never silently erase them.
+- When the Program summary says COMPLETED, congratulate them, review outcomes, and offer the next cycle. Do not keep coaching from an expired plan as if it were active.
 
 ### Bodyweight trend
 ${weightTrend}
@@ -769,19 +790,34 @@ ${input.notes}
               override_reason,
             });
             if (!r.ok) return { ok: false, error: r.error, coach_note: r.coach_note };
-            return { ok: true, session: summarizeSession(r.session) };
+            return { ok: true, resumed: r.resumed, session: summarizeSession(r.session) };
           },
         });
 
         const markExerciseDoneTool = tool({
           description:
-            "Check off (or un-check) an exercise in the active workout session when the user finishes it. Match by name, e.g. 'squats'. If the result contains pace_warning, take it seriously and challenge the user.",
+            "Check off (or un-check) an exercise in the active workout. When the user reports actual weights/reps, ALWAYS include performed_sets so the durable training history captures the exact work. If fewer sets are reported than planned, the exercise remains open.",
           inputSchema: z.object({
             exercise: z.string(),
             done: z.boolean().nullable().describe("false to un-check; defaults to true"),
+            performed_sets: z
+              .array(
+                z.object({
+                  weight_kg: z.number().min(0).max(1000).nullable().describe("null for bodyweight"),
+                  reps: z.number().int().min(0).max(1000),
+                }),
+              )
+              .max(30)
+              .nullable()
+              .describe("Exact sets in order, or null only when the user did not report details"),
           }),
-          execute: async ({ exercise, done }) => {
-            const r = await markExerciseDone(userId, exercise, done ?? true);
+          execute: async ({ exercise, done, performed_sets }) => {
+            const r = await markExerciseDone(
+              userId,
+              exercise,
+              done ?? true,
+              performed_sets ?? undefined,
+            );
             if (!r.ok) return { ok: false, error: r.error };
             return {
               ok: true,
@@ -808,7 +844,69 @@ ${input.notes}
               override_reason,
             });
             if (!r.ok) return { ok: false, error: r.error, coach_note: r.coach_note };
-            return { ok: true, duration_min: r.duration_min };
+            return {
+              ok: true,
+              duration_min: r.duration_min,
+              cycle_completed: r.cycle_completed,
+              program_name: r.program_name,
+              next_step: r.cycle_completed
+                ? "The full program cycle is complete. Celebrate, review results, and offer to build the next cycle."
+                : "Continue with the next scheduled workout.",
+            };
+          },
+        });
+
+        const getWorkoutHistoryTool = tool({
+          description:
+            "Read exact server-stored workout history when reviewing progress or answering what the user did on an older date. Returns sessions with exercises and every logged set. Use this instead of relying on chat memory.",
+          inputSchema: z.object({
+            date_from: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/)
+              .nullable(),
+            date_to: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/)
+              .nullable(),
+            current_cycle_only: z.boolean().describe("True unless the user asks across cycles"),
+            limit: z.number().int().min(1).max(40).nullable(),
+          }),
+          execute: async ({ date_from, date_to, current_cycle_only, limit }) => {
+            const history = await getWorkoutHistory(userId, {
+              programId: current_cycle_only ? (program?.id ?? null) : null,
+              dateFrom: date_from,
+              dateTo: date_to,
+              limit: limit ?? 20,
+            });
+            return {
+              ok: true,
+              sessions: history.map((session) => ({
+                date: session.session_date,
+                title: session.title,
+                status: session.status,
+                week: session.program_day?.week ?? null,
+                day: session.program_day?.day_index ?? null,
+                duration_min:
+                  session.completed_at && session.created_at
+                    ? Math.round(
+                        (new Date(session.completed_at).getTime() -
+                          new Date(session.created_at).getTime()) /
+                          60000,
+                      )
+                    : null,
+                exercises: session.exercises.map((exercise) => ({
+                  name: exercise.name,
+                  completed: exercise.completed,
+                  sets: exercise.sets.map((set) => ({
+                    set: set.set_index,
+                    completed: set.completed,
+                    weight_kg: set.weight_kg,
+                    reps: set.reps,
+                    target_reps: set.target_reps,
+                  })),
+                })),
+              })),
+            };
           },
         });
 
@@ -885,6 +983,18 @@ ${input.notes}
             set_weight_kg: z.number().nullable().describe("Or an absolute new target"),
           }),
           execute: async (input) => adjustProgramExercise(userId, input),
+        });
+
+        const resolveProgramDayTool = tool({
+          description:
+            "Explicitly mark an uncompleted program day skipped, or reopen a skipped day as planned. Use only after the user confirms what happened; never silently mark an overdue workout.",
+          inputSchema: z.object({
+            date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+            status: z.enum(["skipped", "planned"]),
+            reason: z.string().min(1).max(500),
+          }),
+          execute: async ({ date, status, reason }) =>
+            resolveProgramDay(userId, { date, status, reason }),
         });
 
         const logWeightTool = tool({
@@ -1478,6 +1588,8 @@ ${input.notes}
                   start_workout_session: startWorkoutSessionTool,
                   mark_exercise_done: markExerciseDoneTool,
                   complete_workout_session: completeWorkoutSessionTool,
+                  get_workout_history: getWorkoutHistoryTool,
+                  resolve_program_day: resolveProgramDayTool,
                 }
               : {}),
             calc_program_timeline: calcProgramTimelineTool,
