@@ -40,8 +40,9 @@ export type ActiveSession = {
 
 export async function getActiveSession(userId: string): Promise<ActiveSession> {
   const db = getDb();
-  // Auto-expire stale sessions: no real workout runs past ~6h — an "active"
-  // session that old is a forgotten one from a previous day.
+  // Auto-expire a forgotten session: once it's run past 2× the planned session
+  // length AND still has unchecked exercises, abandon it (if everything is
+  // ticked, it stays active waiting to be finished). Absolute 6h backstop.
   await db
     .update(workoutSessions)
     .set({ status: "abandoned" })
@@ -49,7 +50,18 @@ export async function getActiveSession(userId: string): Promise<ActiveSession> {
       and(
         eq(workoutSessions.user_id, userId),
         eq(workoutSessions.status, "active"),
-        sql`${workoutSessions.created_at} < now() - interval '6 hours'`,
+        sql`(
+          ${workoutSessions.created_at} < now() - interval '6 hours'
+          OR (
+            ${workoutSessions.created_at}
+              < now() - (interval '1 minute' * 2 * COALESCE(
+                (SELECT session_minutes FROM profiles WHERE id = ${userId}), 60))
+            AND EXISTS (
+              SELECT 1 FROM session_exercises se
+              WHERE se.session_id = ${workoutSessions.id} AND se.completed = false
+            )
+          )
+        )`,
       ),
     );
   const [session] = await db
