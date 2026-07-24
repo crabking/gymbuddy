@@ -74,85 +74,88 @@ export const Route = createFileRoute("/")({
 
 function Landing() {
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="shrink-0 border-b border-border">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-8">
-          <Link to="/" className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 place-items-center bg-primary font-display text-[10px] font-black text-primary-foreground">
-              C
-            </span>
-            <span className="hidden font-display text-sm font-black uppercase tracking-[0.08em] min-[430px]:inline">
-              COACH
-            </span>
-            <VersionTag />
-          </Link>
+    <div className="h-dvh overflow-hidden bg-black text-foreground">
+      <div className="relative mx-auto flex h-full w-full max-w-md flex-col overflow-hidden border-x border-border bg-background">
+        {/* Reserved cover-image area */}
+        <section className="relative h-[clamp(10rem,40dvh,22rem)] shrink-0 overflow-hidden bg-card">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_65%,rgba(255,31,55,0.12),transparent_58%)]" />
+          <img
+            src="/icons/icon-512.png"
+            alt=""
+            className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 opacity-20"
+          />
+          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background to-transparent" />
 
-          <div className="flex items-center gap-2">
-            <InstallAppButton className="flex h-8 items-center gap-1.5 border border-primary/50 px-2.5 font-display text-[9px] font-bold uppercase tracking-[0.1em] text-primary transition hover:bg-primary/10 active:scale-95" />
-            <Link
-              to="/auth"
-              className="flex h-8 items-center border border-border px-3 font-display text-[9px] font-bold uppercase tracking-[0.1em] text-foreground transition hover:border-primary hover:text-primary"
-            >
-              Sign in
+          <header className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <Link to="/" className="flex items-center gap-2">
+              <span className="grid h-7 w-7 place-items-center bg-primary font-display text-[10px] font-black text-primary-foreground">
+                C
+              </span>
+              <span className="font-display text-xs font-black uppercase tracking-[0.08em]">
+                COACH
+              </span>
+              <VersionTag />
             </Link>
-          </div>
-        </div>
-      </header>
+            <div className="flex items-center gap-2">
+              <InstallAppButton className="flex h-8 items-center gap-1.5 border border-primary/50 bg-background/70 px-2.5 font-display text-[9px] font-bold uppercase tracking-[0.1em] text-primary backdrop-blur transition active:scale-95" />
+              <Link
+                to="/auth"
+                className="flex h-8 items-center border border-border bg-background/70 px-3 font-display text-[9px] font-bold uppercase tracking-[0.1em] backdrop-blur transition hover:border-primary hover:text-primary"
+              >
+                Sign in
+              </Link>
+            </div>
+          </header>
+        </section>
 
-      <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-8 sm:pt-6 md:grid md:grid-cols-[0.75fr_1.25fr] md:gap-8 md:py-6 lg:gap-14 lg:py-10">
-        <section className="shrink-0 md:flex md:flex-col md:justify-center">
-          <div className="max-w-lg">
-            <p className="font-display text-[10px] font-bold uppercase tracking-[0.24em] text-primary">
+        <main className="flex min-h-0 flex-1 flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <section className="shrink-0">
+            <p className="font-display text-[8px] font-bold uppercase tracking-[0.22em] text-primary">
               Your complete fitness system
             </p>
-            <h1 className="mt-2 font-display text-[clamp(2rem,9vw,3.5rem)] font-black uppercase leading-[0.88] tracking-[-0.055em] md:text-5xl lg:mt-5 lg:text-7xl">
-              One coach.
-              <br />
-              Every part of fitness.
+            <h1 className="mt-1 font-display text-[26px] font-black uppercase leading-[0.92] tracking-[-0.045em]">
+              One coach. Everything connected.
             </h1>
-            <p className="mt-3 max-w-md text-xs leading-snug text-muted-foreground sm:text-sm lg:mt-6 lg:text-lg lg:leading-relaxed">
-              COACH stays with you through the whole process—from planning the workout to
-              tracking the result.
+            <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+              Plan, train, eat, track, and improve with one coach that remembers you.
             </p>
-          </div>
-        </section>
+          </section>
 
-        <section className="mt-4 flex min-h-0 flex-1 flex-col md:mt-0">
-          <p className="mb-2 shrink-0 font-display text-[8px] font-bold uppercase tracking-[0.22em] text-primary">
-            What your coach handles
-          </p>
-          <div className="grid min-h-0 flex-1 grid-rows-5 border-l border-t border-border">
-            {FEATURES.map((feature) => (
-              <article
-                key={feature.number}
-                className="grid min-h-0 grid-cols-[2rem_1fr_auto] items-center gap-3 border-b border-r border-border px-3 py-1.5 transition hover:bg-card/40 sm:grid-cols-[2.5rem_1fr_auto] sm:px-4"
-              >
-                <span className="grid h-8 w-8 place-items-center border border-primary/40 text-primary sm:h-10 sm:w-10">
-                  {feature.icon}
-                </span>
-                <div className="min-w-0">
-                  <h2 className="font-display text-[11px] font-black uppercase leading-tight tracking-[0.01em] sm:text-sm">
-                    {feature.title}
-                  </h2>
-                  <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:text-xs">
-                    {feature.body}
-                  </p>
-                </div>
-                <span className="self-start pt-1 font-mono text-[8px] tracking-[0.14em] text-muted-foreground/35">
-                  {feature.number}
-                </span>
-              </article>
-            ))}
-          </div>
-          <Link
-            to="/auth"
-            className="mt-3 flex h-11 shrink-0 items-center justify-between bg-primary px-4 font-display text-xs font-black uppercase tracking-[0.08em] text-primary-foreground transition hover:brightness-110 active:scale-[0.98] md:h-12 lg:h-14 lg:text-sm"
-          >
-            Start training
-            <ArrowUpRight className="h-4 w-4" strokeWidth={2.5} />
-          </Link>
-        </section>
-      </main>
+          <section className="mt-2 flex min-h-0 flex-1 flex-col">
+            <p className="mb-1 shrink-0 font-display text-[7px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+              What COACH handles
+            </p>
+            <div className="grid min-h-0 flex-1 grid-rows-5 border-y border-border">
+              {FEATURES.map((feature) => (
+                <article
+                  key={feature.number}
+                  className="grid min-h-0 grid-cols-[1.5rem_1fr_auto] items-center gap-2 border-b border-border last:border-b-0"
+                >
+                  <span className="text-primary [&>svg]:h-4 [&>svg]:w-4">{feature.icon}</span>
+                  <div className="min-w-0">
+                    <h2 className="font-display text-[9px] font-black uppercase leading-tight tracking-[0.02em]">
+                      {feature.title}
+                    </h2>
+                    <p className="mt-0.5 truncate text-[8px] leading-tight text-muted-foreground">
+                      {feature.body}
+                    </p>
+                  </div>
+                  <span className="font-mono text-[7px] tracking-[0.12em] text-muted-foreground/30">
+                    {feature.number}
+                  </span>
+                </article>
+              ))}
+            </div>
+            <Link
+              to="/auth"
+              className="mt-2 flex h-10 shrink-0 items-center justify-between bg-primary px-4 font-display text-[10px] font-black uppercase tracking-[0.08em] text-primary-foreground transition active:scale-[0.98]"
+            >
+              Start training
+              <ArrowUpRight className="h-4 w-4" strokeWidth={2.5} />
+            </Link>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
