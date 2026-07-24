@@ -1,3 +1,7 @@
-ocgsksc80gc0cks8kgwcgkck.178.104.35.161.sslip.io {
+gymbuddy.178.104.35.161.sslip.io {
 	reverse_proxy gymbuddy-web:3000
+}
+
+ocgsksc80gc0cks8kgwcgkck.178.104.35.161.sslip.io {
+	redir https://gymbuddy.178.104.35.161.sslip.io{uri} permanent
 }
