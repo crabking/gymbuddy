@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowUpRight, Music, CalendarDays, Brain, Camera, Dumbbell } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Brain, Camera, Dumbbell } from "lucide-react";
 import { useEffect, useState } from "react";
 import coachMale from "@/assets/coach-rex-male.jpg";
 import coachFemale from "@/assets/coach-rex-female.jpg";
@@ -16,13 +16,6 @@ type Feature = {
 };
 
 const FEATURES: Feature[] = [
-  {
-    id: "music",
-    icon: <Music className="h-5 w-5" strokeWidth={2.5} />,
-    title: "Your soundtrack",
-    body: (n) =>
-      `${n} can spin up your lift playlist on Spotify, YouTube Music or Apple Music — just tell her the vibe.`,
-  },
   {
     id: "schedule",
     icon: <CalendarDays className="h-5 w-5" strokeWidth={2.5} />,

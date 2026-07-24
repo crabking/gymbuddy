@@ -18,7 +18,7 @@ import memoryKeeperSkill from "@/agent/skills/memory-keeper.md?raw";
 
 const SKILLS: Record<string, { description: string; content: string }> = {
   onboarding: {
-    description: "First-time setup flow — collects basics, schedule, music, meals.",
+    description: "First-time setup flow — collects basics, schedule, and meals.",
     content: onboardingSkill,
   },
   "schedule-builder": {
@@ -215,7 +215,6 @@ export const Route = createFileRoute("/api/chat")({
           weight_kg: profile?.weight_kg ?? null,
           sex: profile?.sex ?? null,
           diet_style: profile?.diet_style ?? null,
-          music_service: profile?.music_service ?? null,
           schedule_note: profile?.schedule_note ?? null,
           meal_preferences_short: profile?.meal_preferences ?? null,
         };
@@ -252,14 +251,13 @@ Same idea for meals, schedules, memories: pitch briefly → confirm → gather w
 
 ## Post-onboarding build flow (CRITICAL)
 After onboarding is complete, you are responsible for moving the user through the build sequence without stalling:
-1. Training schedule → 2. Workout plan → 3. Meal targets → 4. Music setup.
-At the start of a new build phase, briefly name what is already saved from the workspace index, then ask ONE next question for the first unfinished phase. If schedule/current.md was just saved, immediately tell the user it is saved and move to the workout-plan pitch. If plans/current.md was just saved, immediately move to nutrition. If nutrition/targets.md was just saved, immediately move to music. Never sit silent or wait for the user to discover the next module.
+1. Training schedule → 2. Workout plan → 3. Meal targets.
+At the start of a new build phase, briefly name what is already saved from the workspace index, then ask ONE next question for the first unfinished phase. If schedule/current.md was just saved, immediately tell the user it is saved and move to the workout-plan pitch. If plans/current.md was just saved, immediately move to nutrition. If nutrition/targets.md was just saved, tell the user their setup is complete. Never sit silent or wait for the user to discover the next module.
 
 Current build checklist from workspace:
 - Schedule saved: ${files?.some((f) => f.path === "schedule/current.md") ? "yes" : "no"}
 - Workout plan saved: ${files?.some((f) => f.path === "plans/current.md") ? "yes" : "no"}
 - Nutrition targets saved: ${files?.some((f) => f.path === "nutrition/targets.md") ? "yes" : "no"}
-- Music preference saved: ${profile?.music_service ? "yes" : "no"}
 
 ## Typed save tools — pre-flight checklist (CRITICAL)
 Each save tool below has REQUIRED fields. You cannot call them until every field is filled from real user data. If ANY field is missing, ASK THE USER (one short question at a time) — never guess, never pass placeholders, never say "I'll figure it out". These are your checklists:
@@ -485,7 +483,7 @@ ${input.notes}
             return {
               ok: true,
               path: "nutrition/targets.md",
-              next_step: "Tell the user the nutrition targets are saved and visible in Settings. Then move to music setup in one short question.",
+              next_step: "Tell the user the nutrition targets are saved and visible in Settings, and that their setup is complete.",
             };
           },
         });
@@ -522,7 +520,7 @@ ${input.notes}
 
         const updateProfileTool = tool({
           description:
-            "Save live user state (name, goal, physical stats, preferences). Only pass fields the user confirmed. goal accepts MULTIPLE goals joined with ' + '. Standard tokens: equipment (full_gym|home_gym|dumbbells_only|bodyweight), sex (male|female|other), diet_style (omnivore|vegetarian|vegan|pescatarian|other), music_service (spotify|apple_music|youtube_music|none), experience (beginner|intermediate|advanced).",
+            "Save live user state (name, goal, physical stats, preferences). Only pass fields the user confirmed. goal accepts MULTIPLE goals joined with ' + '. Standard tokens: equipment (full_gym|home_gym|dumbbells_only|bodyweight), sex (male|female|other), diet_style (omnivore|vegetarian|vegan|pescatarian|other), experience (beginner|intermediate|advanced).",
           inputSchema: z.object({
             display_name: z.string().nullable(),
             goal: z.string().nullable(),
@@ -538,7 +536,6 @@ ${input.notes}
             diet_style: z.string().nullable(),
             daily_calorie_target: z.number().int().nullable(),
             schedule_note: z.string().nullable(),
-            music_service: z.string().nullable(),
             meal_preferences: z.string().nullable(),
           }),
           execute: async (input) => {
@@ -554,7 +551,7 @@ ${input.notes}
 
         const completeOnboardingTool = tool({
           description:
-            "Mark onboarding complete. Only after basics + schedule + music + meals are all saved.",
+            "Mark onboarding complete. Only after basics + schedule + meals are all saved.",
           inputSchema: z.object({}),
           execute: async () => {
             await db

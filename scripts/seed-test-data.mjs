@@ -43,9 +43,9 @@ for (const t of ["workout_sessions", "meal_logs", "weight_logs", "workout_logs",
 await q(
   `INSERT INTO profiles (id, display_name, goal, experience, days_per_week, session_minutes,
      equipment, height_cm, weight_kg, age, sex, diet_style, daily_calorie_target,
-     schedule_note, music_service, meal_preferences, onboarding_completed)
+     schedule_note, meal_preferences, onboarding_completed)
    VALUES ($1,'Testy','hypertrophy + strength','intermediate',4,60,'full_gym',181,84,29,'male',
-     'omnivore',2600,'Mon/Tue/Thu/Fri evenings','spotify','high protein, loves chicken + rice, no fish',true)
+     'omnivore',2600,'Mon/Tue/Thu/Fri evenings','high protein, loves chicken + rice, no fish',true)
    ON CONFLICT (id) DO UPDATE SET display_name='Testy', goal='hypertrophy + strength',
      experience='intermediate', days_per_week=4, session_minutes=60, equipment='full_gym',
      height_cm=181, weight_kg=84, age=29, sex='male', diet_style='omnivore',

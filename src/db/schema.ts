@@ -69,7 +69,6 @@ export const profiles = pgTable("profiles", {
   daily_calorie_target: integer("daily_calorie_target"),
   active_plan_id: uuid("active_plan_id"),
   schedule_note: text("schedule_note"),
-  music_service: text("music_service"),
   meal_preferences: text("meal_preferences"),
   memory_notes: text("memory_notes"),
   onboarding_completed: boolean("onboarding_completed").notNull().default(false),

@@ -38,7 +38,6 @@ import {
   Check,
   User,
   CalendarDays,
-  Music,
   UtensilsCrossed,
   Brain,
   Dumbbell,
@@ -168,14 +167,13 @@ function ChatGate() {
 type Profile = NonNullable<Awaited<ReturnType<typeof getProfile>>>;
 type WorkspaceFile = Awaited<ReturnType<typeof getWorkspaceFiles>>[number];
 
-type SetupKey = "profile" | "schedule" | "music" | "meals";
-type BuildKey = "schedule" | "plan" | "meals" | "music";
+type SetupKey = "profile" | "schedule" | "meals";
+type BuildKey = "schedule" | "plan" | "meals";
 
 function setupStatus(profile: Profile) {
   return {
     profile: !!(profile.goal && profile.days_per_week && profile.experience),
     schedule: !!profile.schedule_note,
-    music: !!profile.music_service,
     meals: !!profile.meal_preferences,
   } as Record<SetupKey, boolean>;
 }
@@ -189,7 +187,6 @@ function buildStatus(profile: Profile, files: WorkspaceFile[] | undefined) {
     schedule: !!workspaceFile(files, "schedule/current.md"),
     plan: !!workspaceFile(files, "plans/current.md"),
     meals: !!workspaceFile(files, "nutrition/targets.md"),
-    music: !!profile.music_service,
   } as Record<BuildKey, boolean>;
 }
 
@@ -437,7 +434,6 @@ function ChatScreen() {
   const steps: Array<{ key: SetupKey; label: string; Icon: typeof User }> = [
     { key: "profile", label: "Basics", Icon: User },
     { key: "schedule", label: "Schedule", Icon: CalendarDays },
-    { key: "music", label: "Music", Icon: Music },
     { key: "meals", label: "Meals", Icon: UtensilsCrossed },
   ];
 
@@ -445,7 +441,6 @@ function ChatScreen() {
     { key: "schedule", label: "Schedule", Icon: CalendarDays },
     { key: "plan", label: "Plan", Icon: Dumbbell },
     { key: "meals", label: "Meals", Icon: UtensilsCrossed },
-    { key: "music", label: "Music", Icon: Music },
   ];
 
   return (
@@ -1289,23 +1284,6 @@ function SettingsDrawer({
               </SettingsGroup>
 
               <SettingsGroup label="Preferences">
-                <EditRow label="Music" value={profile.music_service?.replace("_", " ")} open={editing === "music"} onToggle={() => setEditing(editing === "music" ? null : "music")}>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {["spotify", "apple_music", "youtube_music", "none"].map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => save({ music_service: s })}
-                        className={`rounded-sm border px-3 py-2 text-xs font-semibold capitalize ${
-                          profile.music_service === s
-                            ? "border-primary bg-primary/10 text-foreground"
-                            : "border-border bg-card text-muted-foreground"
-                        }`}
-                      >
-                        {s.replace("_", " ")}
-                      </button>
-                    ))}
-                  </div>
-                </EditRow>
                 <EditRow label="Meal preferences" value={profile.meal_preferences} open={editing === "meals"} onToggle={() => setEditing(editing === "meals" ? null : "meals")}>
                   <Textarea value={profile.meal_preferences ?? ""} onSave={(v) => save({ meal_preferences: v || null })} placeholder="High protein, no dairy…" />
                 </EditRow>

@@ -135,7 +135,6 @@ const ProfilePatchSchema = z.object({
   diet_style: z.string().optional(),
   daily_calorie_target: z.number().int().nullable().optional(),
   schedule_note: z.string().max(2000).nullable().optional(),
-  music_service: z.string().max(50).nullable().optional(),
   meal_preferences: z.string().max(2000).nullable().optional(),
   memory_notes: z.string().max(4000).nullable().optional(),
 });
@@ -305,7 +304,6 @@ export const resetOnboarding = createServerFn({ method: "POST" })
         diet_style: null,
         daily_calorie_target: null,
         schedule_note: null,
-        music_service: null,
         meal_preferences: null,
         memory_notes: null,
       })

@@ -22,6 +22,13 @@
       "when": 1784839129038,
       "tag": "0002_steady_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784897034425,
+      "tag": "0003_remove_music",
+      "breakpoints": true
     }
   ]
 }
