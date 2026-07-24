@@ -22,6 +22,8 @@ import {
 import { getCurrentUser, logout } from "@/lib/auth.functions";
 import { TabBar } from "@/components/TabBar";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { InstallAppButton } from "@/components/InstallAppButton";
+import { usePwaInstall } from "@/lib/pwa-install";
 import { toast } from "sonner";
 import {
   LogOut,
@@ -1150,6 +1152,7 @@ function SettingsDrawer({
   const [doc, setDoc] = useState<{ title: string; file: WorkspaceFile } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "workspace" | "everything">(null);
+  const { canInstall, isInstalled } = usePwaInstall();
 
   async function save(patch: Record<string, unknown>) {
     try {
@@ -1292,6 +1295,15 @@ function SettingsDrawer({
                   <Textarea value={profile.memory_notes ?? ""} onSave={(v) => save({ memory_notes: v || null })} placeholder="Anything the coach should always remember…" />
                 </EditRow>
               </SettingsGroup>
+
+              {canInstall && !isInstalled && (
+                <SettingsGroup label="App">
+                  <InstallAppButton
+                    label="Install Gym Buddy"
+                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm font-medium text-primary"
+                  />
+                </SettingsGroup>
+              )}
 
               <SettingsGroup label="Danger zone">
                 <button

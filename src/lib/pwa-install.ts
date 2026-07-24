@@ -1,0 +1,83 @@
+import { useEffect, useState } from "react";
+
+type InstallOutcome = "accepted" | "dismissed" | "unavailable";
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+let deferredPrompt: BeforeInstallPromptEvent | null = null;
+let installed = false;
+let initialized = false;
+const listeners = new Set<() => void>();
+
+function detectInstalled() {
+  if (typeof window === "undefined") return false;
+
+  const standaloneNavigator = navigator as Navigator & { standalone?: boolean };
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    standaloneNavigator.standalone === true
+  );
+}
+
+function notify() {
+  listeners.forEach((listener) => listener());
+}
+
+export function initPwaInstall() {
+  if (initialized || typeof window === "undefined") return;
+  initialized = true;
+  installed = detectInstalled();
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredPrompt = event as BeforeInstallPromptEvent;
+    notify();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredPrompt = null;
+    installed = true;
+    notify();
+  });
+
+  window.matchMedia("(display-mode: standalone)").addEventListener("change", () => {
+    installed = detectInstalled();
+    notify();
+  });
+}
+
+export function usePwaInstall() {
+  const [state, setState] = useState({ canInstall: false, isInstalled: false });
+
+  useEffect(() => {
+    const update = () =>
+      setState({
+        canInstall: deferredPrompt !== null,
+        isInstalled: installed || detectInstalled(),
+      });
+
+    listeners.add(update);
+    initPwaInstall();
+    update();
+    return () => {
+      listeners.delete(update);
+    };
+  }, []);
+
+  async function install(): Promise<InstallOutcome> {
+    const prompt = deferredPrompt;
+    if (!prompt) return "unavailable";
+
+    await prompt.prompt();
+    const choice = await prompt.userChoice;
+    deferredPrompt = null;
+    if (choice.outcome === "accepted") installed = true;
+    notify();
+    return choice.outcome;
+  }
+
+  return { ...state, install };
+}

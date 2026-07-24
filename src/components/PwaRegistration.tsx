@@ -1,7 +1,9 @@
 import { useEffect } from "react";
+import { initPwaInstall } from "@/lib/pwa-install";
 
 export function PwaRegistration() {
   useEffect(() => {
+    initPwaInstall();
     if (!("serviceWorker" in navigator)) return;
 
     const register = () => {

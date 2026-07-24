@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { login, getCurrentUser } from "@/lib/auth.functions";
 import { Dumbbell } from "lucide-react";
 import { toast } from "sonner";
+import { InstallAppButton } from "@/components/InstallAppButton";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -49,10 +50,13 @@ function AuthPage() {
   return (
     <div className="min-h-dvh bg-background">
       <div className="mx-auto flex min-h-dvh max-w-md flex-col px-6 pb-10 pt-10">
-        <Link to="/" className="flex items-center gap-2 text-sm font-semibold text-primary">
-          <Dumbbell className="h-5 w-5" />
-          GYM BUDDY
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link to="/" className="flex items-center gap-2 text-sm font-semibold text-primary">
+            <Dumbbell className="h-5 w-5" />
+            GYM BUDDY
+          </Link>
+          <InstallAppButton className="flex items-center gap-2 rounded-xl border border-primary/60 bg-primary/10 px-3 py-2 text-xs font-bold text-primary transition active:scale-95" />
+        </div>
 
         <div className="mt-16">
           <h1 className="text-3xl font-black tracking-tight text-foreground">Welcome back</h1>

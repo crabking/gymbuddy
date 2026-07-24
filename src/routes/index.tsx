@@ -3,6 +3,7 @@ import { ArrowUpRight, Music, CalendarDays, Brain, Camera, Dumbbell } from "luci
 import { useEffect, useState } from "react";
 import coachMale from "@/assets/coach-rex-male.jpg";
 import coachFemale from "@/assets/coach-rex-female.jpg";
+import { InstallAppButton } from "@/components/InstallAppButton";
 
 const COACH_KEY = "rex.coach";
 type CoachGender = "male" | "female";
@@ -105,13 +106,16 @@ function Landing() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-background via-background/85 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-background/70 to-transparent" />
 
-      {/* Top-right sign in */}
-      <Link
-        to="/auth"
-        className="absolute right-4 top-4 z-20 rounded-xl border border-border bg-background/70 px-4 py-2 font-display text-[11px] font-bold uppercase tracking-widest text-foreground backdrop-blur hover:border-primary hover:text-primary sm:right-6 sm:top-6"
-      >
-        Sign in
-      </Link>
+      {/* Top-right actions */}
+      <div className="absolute right-4 top-4 z-20 flex items-center gap-2 sm:right-6 sm:top-6">
+        <InstallAppButton className="flex items-center gap-2 rounded-xl border border-primary/60 bg-background/80 px-3 py-2 font-display text-[11px] font-bold uppercase tracking-widest text-primary backdrop-blur transition active:scale-95" />
+        <Link
+          to="/auth"
+          className="rounded-xl border border-border bg-background/70 px-4 py-2 font-display text-[11px] font-bold uppercase tracking-widest text-foreground backdrop-blur hover:border-primary hover:text-primary"
+        >
+          Sign in
+        </Link>
+      </div>
 
       {/* Floating gender picker */}
       <aside className="absolute left-3 top-1/2 z-20 flex -translate-y-1/2 flex-col gap-2.5 sm:left-5">
