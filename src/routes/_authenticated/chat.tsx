@@ -678,37 +678,15 @@ function ChatScreen() {
 
       {/* Single-message stage */}
       <main className="flex flex-1 flex-col justify-center overflow-hidden px-5 py-6">
-        {!latest && inOnboarding && (
-          <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
-            <img
-              src={coach.portrait}
-              alt={coach.name}
-              className="h-24 w-24 animate-pulse rounded-2xl object-cover object-top ring-2 ring-primary"
-            />
-            <Shimmer>{`${coach.name} is getting set up…`}</Shimmer>
-          </div>
-        )}
-
-        {!latest && !inOnboarding && (
-          <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
-            <img
-              src={coach.portrait}
-              alt={coach.name}
-              className="h-24 w-24 rounded-2xl object-cover object-top ring-2 ring-primary/50"
-            />
-            <div>
-              <div className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
-                Coach online
-              </div>
-              <h2 className="mt-1 font-display text-2xl font-bold text-foreground">
-                Hey {firstName} 👋
-              </h2>
-              <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground">
-                {coach.name} here. Want to talk about your week's schedule, pick some music, or dial
-                in your meal style? Tap the steps up top, or just ask me anything. You can do all of
-                this later too.
+        {!latest && (
+          <div className="mx-auto max-w-md text-center">
+            {inOnboarding ? (
+              <Shimmer>{`${coach.name} is getting set up…`}</Shimmer>
+            ) : (
+              <p className="text-[15px] leading-relaxed text-muted-foreground">
+                Ask {coach.name} anything, or tap Program to see today's session.
               </p>
-            </div>
+            )}
           </div>
         )}
 
@@ -719,28 +697,8 @@ function ChatScreen() {
           >
             {latest.role === "assistant" ? (
               <div className="flex flex-col items-center gap-3 text-center">
-                <div className="relative">
-                  <img
-                    src={coach.portrait}
-                    alt={coach.name}
-                    className={`h-14 w-14 rounded-xl object-cover object-top ring-1 ring-primary/40 transition ${
-                      activity ? "animate-pulse ring-2 ring-primary" : ""
-                    }`}
-                  />
-                  {activity && (
-                    <span className="absolute -bottom-1 -right-1 flex h-3 w-3">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                      <span className="relative inline-flex h-3 w-3 rounded-full bg-primary" />
-                    </span>
-                  )}
-                </div>
-                <div className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
-                  {coach.name}
-                </div>
                 {activity && (
-                  <div className="-mt-1">
-                    <Shimmer>{activity}</Shimmer>
-                  </div>
+                  <Shimmer>{activity}</Shimmer>
                 )}
                 {latestText && (
                   <div className="prose prose-sm prose-invert max-w-full text-[15px] leading-relaxed text-foreground prose-p:my-2 prose-li:my-0 prose-headings:mt-3 prose-headings:mb-2 prose-strong:text-foreground">

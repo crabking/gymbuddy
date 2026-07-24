@@ -40,6 +40,18 @@ export type ActiveSession = {
 
 export async function getActiveSession(userId: string): Promise<ActiveSession> {
   const db = getDb();
+  // Auto-expire stale sessions: no real workout runs past ~6h — an "active"
+  // session that old is a forgotten one from a previous day.
+  await db
+    .update(workoutSessions)
+    .set({ status: "abandoned" })
+    .where(
+      and(
+        eq(workoutSessions.user_id, userId),
+        eq(workoutSessions.status, "active"),
+        sql`${workoutSessions.created_at} < now() - interval '6 hours'`,
+      ),
+    );
   const [session] = await db
     .select()
     .from(workoutSessions)
