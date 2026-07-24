@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  ArrowDown,
   ArrowUpRight,
   Brain,
   Camera,
@@ -14,7 +13,6 @@ import { VersionTag } from "@/components/VersionTag";
 type Feature = {
   number: string;
   icon: React.ReactNode;
-  label: string;
   title: string;
   body: string;
 };
@@ -23,37 +21,32 @@ const FEATURES: Feature[] = [
   {
     number: "01",
     icon: <Dumbbell className="h-5 w-5" strokeWidth={2.3} />,
-    label: "During the workout",
-    title: "A coach in your pocket",
-    body: "Get form guidance, clear exercise explanations, live help between sets, and motivation when you need it.",
+    title: "Workout coaching",
+    body: "Form guidance, exercise help, and motivation while you train.",
   },
   {
     number: "02",
     icon: <ListChecks className="h-5 w-5" strokeWidth={2.3} />,
-    label: "Your training",
-    title: "A plan built around you",
-    body: "Your coach builds and adjusts a workout plan around your goals, experience, schedule, equipment, and recovery.",
+    title: "Your workout plan",
+    body: "Built around your goals, schedule, experience, and equipment.",
   },
   {
     number: "03",
     icon: <Camera className="h-5 w-5" strokeWidth={2.3} />,
-    label: "Your nutrition",
-    title: "Calories from a photo",
-    body: "Snap your food and your coach estimates calories and macros, logs the meal, and helps keep your nutrition on track.",
+    title: "Photo calorie tracking",
+    body: "Snap a meal to estimate and log its calories and macros.",
   },
   {
     number: "04",
     icon: <HeartPulse className="h-5 w-5" strokeWidth={2.3} />,
-    label: "Your progress",
-    title: "Track what matters to you",
-    body: "Weight, lifts, measurements, heart rate, habits, or anything else—your coach sets it up in your personal dashboard.",
+    title: "Progress dashboard",
+    body: "Track weight, gains, heart rate, habits, or anything you choose.",
   },
   {
     number: "05",
     icon: <Brain className="h-5 w-5" strokeWidth={2.3} />,
-    label: "Your history",
-    title: "A coach that remembers",
-    body: "Permanent memory keeps your preferences, training style, goals, injuries, meals, and workout history available across sessions.",
+    title: "Permanent memory",
+    body: "Remembers your preferences, style, goals, and workout history.",
   },
 ];
 
@@ -81,11 +74,11 @@ export const Route = createFileRoute("/")({
 
 function Landing() {
   return (
-    <div className="min-h-dvh bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <header className="shrink-0 border-b border-border">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-8">
           <Link to="/" className="flex items-center gap-2.5">
-            <span className="grid h-8 w-8 place-items-center bg-primary font-display text-xs font-black text-primary-foreground">
+            <span className="grid h-7 w-7 place-items-center bg-primary font-display text-[10px] font-black text-primary-foreground">
               GB
             </span>
             <span className="hidden font-display text-sm font-black uppercase tracking-[0.08em] min-[430px]:inline">
@@ -95,10 +88,10 @@ function Landing() {
           </Link>
 
           <div className="flex items-center gap-2">
-            <InstallAppButton className="flex h-9 items-center gap-2 border border-primary/50 px-3 font-display text-[10px] font-bold uppercase tracking-[0.12em] text-primary transition hover:bg-primary/10 active:scale-95" />
+            <InstallAppButton className="flex h-8 items-center gap-1.5 border border-primary/50 px-2.5 font-display text-[9px] font-bold uppercase tracking-[0.1em] text-primary transition hover:bg-primary/10 active:scale-95" />
             <Link
               to="/auth"
-              className="flex h-9 items-center border border-border px-3.5 font-display text-[10px] font-bold uppercase tracking-[0.12em] text-foreground transition hover:border-primary hover:text-primary"
+              className="flex h-8 items-center border border-border px-3 font-display text-[9px] font-bold uppercase tracking-[0.1em] text-foreground transition hover:border-primary hover:text-primary"
             >
               Sign in
             </Link>
@@ -106,110 +99,58 @@ function Landing() {
         </div>
       </header>
 
-      <main>
-        <section className="mx-auto grid max-w-6xl gap-12 px-5 pb-16 pt-14 sm:px-8 sm:pb-24 sm:pt-20 lg:grid-cols-[0.9fr_1.1fr] lg:items-end lg:gap-20 lg:pt-28">
-          <div>
+      <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-8 sm:pt-6 md:grid md:grid-cols-[0.75fr_1.25fr] md:gap-8 md:py-6 lg:gap-14 lg:py-10">
+        <section className="shrink-0 md:flex md:flex-col md:justify-center">
+          <div className="max-w-lg">
             <p className="font-display text-[10px] font-bold uppercase tracking-[0.24em] text-primary">
               Your complete fitness system
             </p>
-            <h1 className="mt-5 max-w-xl font-display text-5xl font-black uppercase leading-[0.9] tracking-[-0.055em] sm:text-7xl">
+            <h1 className="mt-2 font-display text-[clamp(2rem,9vw,3.5rem)] font-black uppercase leading-[0.88] tracking-[-0.055em] md:text-5xl lg:mt-5 lg:text-7xl">
               One coach.
               <br />
-              Every part
-              <br />
-              of fitness.
+              Every part of fitness.
             </h1>
-          </div>
-
-          <div className="max-w-xl lg:pb-1">
-            <p className="text-lg leading-relaxed text-muted-foreground sm:text-xl">
+            <p className="mt-3 max-w-md text-xs leading-snug text-muted-foreground sm:text-sm lg:mt-6 lg:text-lg lg:leading-relaxed">
               Gym Buddy stays with you through the whole process—from planning the workout to
               tracking the result.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <a
-                href="#what-it-does"
-                className="flex h-12 items-center gap-3 bg-primary px-5 font-display text-xs font-black uppercase tracking-[0.1em] text-primary-foreground transition hover:brightness-110 active:scale-[0.98]"
-              >
-                See what it does
-                <ArrowDown className="h-4 w-4" strokeWidth={2.5} />
-              </a>
-              <Link
-                to="/auth"
-                className="flex h-12 items-center gap-3 border border-border px-5 font-display text-xs font-black uppercase tracking-[0.1em] transition hover:border-primary hover:text-primary active:scale-[0.98]"
-              >
-                Start training
-                <ArrowUpRight className="h-4 w-4" strokeWidth={2.5} />
-              </Link>
-            </div>
           </div>
         </section>
 
-        <section id="what-it-does" className="border-t border-border">
-          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-24">
-            <div className="mb-9 flex items-end justify-between gap-6 sm:mb-12">
-              <div>
-                <p className="font-display text-[10px] font-bold uppercase tracking-[0.24em] text-primary">
-                  What Gym Buddy does
-                </p>
-                <h2 className="mt-3 font-display text-3xl font-black uppercase tracking-[-0.035em] sm:text-4xl">
-                  The whole journey. Connected.
-                </h2>
-              </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50 sm:block">
-                5 core systems
-              </span>
-            </div>
-
-            <div className="grid border-l border-t border-border md:grid-cols-2">
-              {FEATURES.map((feature, index) => (
-                <article
-                  key={feature.number}
-                  className={`group border-b border-r border-border p-6 transition hover:bg-card/40 sm:p-8 md:min-h-64 ${
-                    index === FEATURES.length - 1 ? "md:col-span-2" : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <span className="grid h-10 w-10 place-items-center border border-primary/40 text-primary">
-                      {feature.icon}
-                    </span>
-                    <span className="font-mono text-[10px] tracking-[0.18em] text-muted-foreground/40">
-                      {feature.number}
-                    </span>
-                  </div>
-                  <p className="mt-8 font-display text-[9px] font-bold uppercase tracking-[0.22em] text-primary">
-                    {feature.label}
-                  </p>
-                  <h3 className="mt-2 font-display text-2xl font-black uppercase tracking-[-0.025em]">
+        <section className="mt-4 flex min-h-0 flex-1 flex-col md:mt-0">
+          <p className="mb-2 shrink-0 font-display text-[8px] font-bold uppercase tracking-[0.22em] text-primary">
+            What your coach handles
+          </p>
+          <div className="grid min-h-0 flex-1 grid-rows-5 border-l border-t border-border">
+            {FEATURES.map((feature) => (
+              <article
+                key={feature.number}
+                className="grid min-h-0 grid-cols-[2rem_1fr_auto] items-center gap-3 border-b border-r border-border px-3 py-1.5 transition hover:bg-card/40 sm:grid-cols-[2.5rem_1fr_auto] sm:px-4"
+              >
+                <span className="grid h-8 w-8 place-items-center border border-primary/40 text-primary sm:h-10 sm:w-10">
+                  {feature.icon}
+                </span>
+                <div className="min-w-0">
+                  <h2 className="font-display text-[11px] font-black uppercase leading-tight tracking-[0.01em] sm:text-sm">
                     {feature.title}
-                  </h3>
-                  <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
+                  </h2>
+                  <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:text-xs">
                     {feature.body}
                   </p>
-                </article>
-              ))}
-            </div>
+                </div>
+                <span className="self-start pt-1 font-mono text-[8px] tracking-[0.14em] text-muted-foreground/35">
+                  {feature.number}
+                </span>
+              </article>
+            ))}
           </div>
-        </section>
-
-        <section className="border-t border-border">
-          <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-7 px-5 py-14 sm:flex-row sm:items-center sm:px-8 sm:py-16">
-            <div>
-              <p className="font-display text-[10px] font-bold uppercase tracking-[0.24em] text-primary">
-                Built around one person
-              </p>
-              <h2 className="mt-2 font-display text-3xl font-black uppercase tracking-[-0.035em]">
-                You.
-              </h2>
-            </div>
-            <Link
-              to="/auth"
-              className="flex h-14 w-full items-center justify-between bg-primary px-5 font-display text-sm font-black uppercase tracking-[0.08em] text-primary-foreground transition hover:brightness-110 active:scale-[0.98] sm:w-72"
-            >
-              Start training
-              <ArrowUpRight className="h-5 w-5" strokeWidth={2.5} />
-            </Link>
-          </div>
+          <Link
+            to="/auth"
+            className="mt-3 flex h-11 shrink-0 items-center justify-between bg-primary px-4 font-display text-xs font-black uppercase tracking-[0.08em] text-primary-foreground transition hover:brightness-110 active:scale-[0.98] md:h-12 lg:h-14 lg:text-sm"
+          >
+            Start training
+            <ArrowUpRight className="h-4 w-4" strokeWidth={2.5} />
+          </Link>
         </section>
       </main>
     </div>
