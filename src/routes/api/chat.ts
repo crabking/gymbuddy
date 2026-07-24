@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { getChatModel } from "@/lib/ai-provider.server";
+import { getCoach } from "@/lib/coaches";
 
 // Bundle skill markdown at build time.
 import onboardingSkill from "@/agent/skills/onboarding.md?raw";
@@ -150,7 +151,10 @@ export const Route = createFileRoute("/api/chat")({
 
         const db = getDb();
         const [profile] = await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1);
-        const coachName = profile?.coach_gender === "female" ? "Reya" : "Rex";
+        const selectedCoach = getCoach(
+          profile?.coach_id ?? (profile?.coach_gender === "female" ? "reya" : "rex"),
+        );
+        const coachName = selectedCoach.name;
 
         // Seed the agent's config tree (.agent/) on first use.
         await ensureAgentConfig(userId, coachName);
@@ -271,6 +275,7 @@ export const Route = createFileRoute("/api/chat")({
 
         const liveState = {
           coach: coachName,
+          coach_level: selectedCoach.level,
           today: clientDate || now.toISOString().slice(0, 10),
           day_of_week: clientWeekday || todayName,
           local_time: clientTime || now.toTimeString().slice(0, 5),
@@ -293,10 +298,7 @@ export const Route = createFileRoute("/api/chat")({
           meal_preferences_short: profile?.meal_preferences ?? null,
         };
 
-        const persona =
-          coachName === "Reya"
-            ? `You are "Reya" — a warm, direct, hype personal trainer + nutrition coach living in the user's phone.`
-            : `You are "Rex" — a certified gym rat and the user's ride-or-die lifting bro, living in their phone. Cool, confident, a little playfully cocky. Talk like a gym bro who genuinely knows his stuff: "let's get after it", "clean reps", "we go again", "easy money", "PR season". Short, punchy hype — never corporate, never fake. Underneath the bro energy you're a sharp, evidence-based coach.`;
+        const persona = `${selectedCoach.personality} You live in the user's phone as their coach.`;
 
         const system = `${persona} ALWAYS speak in FIRST PERSON as ${coachName} ("I", "me", "my"). Never refer to yourself in the third person (never say "${coachName} thinks…" or "Give ${coachName} your…" — say "I think…", "Give me…").
 

@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setCookie, deleteCookie, getCookie, getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
+import { COACH_IDS, getCoach } from "@/lib/coaches";
 
 // Server-only modules that pull in `pg` are imported dynamically inside the
 // handlers so they never reach the client bundle.
@@ -8,7 +9,7 @@ import { z } from "zod";
 const LoginSchema = z.object({
   email: z.string().trim().email().max(254),
   password: z.string().min(1).max(1024),
-  coach_gender: z.enum(["male", "female"]).optional(),
+  coach_id: z.enum(COACH_IDS).optional(),
 });
 
 export const login = createServerFn({ method: "POST" })
@@ -52,13 +53,14 @@ export const login = createServerFn({ method: "POST" })
       throw new Error("Invalid email or password");
     }
 
-    if (data.coach_gender) {
+    if (data.coach_id) {
+      const coach = getCoach(data.coach_id);
       await getDb()
         .insert(profiles)
-        .values({ id: user.id, coach_gender: data.coach_gender })
+        .values({ id: user.id, coach_id: coach.id, coach_gender: coach.gender })
         .onConflictDoUpdate({
           target: profiles.id,
-          set: { coach_gender: data.coach_gender },
+          set: { coach_id: coach.id, coach_gender: coach.gender },
         });
     }
 

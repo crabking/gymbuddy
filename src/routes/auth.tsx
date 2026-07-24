@@ -7,16 +7,16 @@ import { Dumbbell } from "lucide-react";
 import { toast } from "sonner";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { VersionTag } from "@/components/VersionTag";
+import { COACH_IMAGES } from "@/lib/coach-assets";
+import { getCoach, isCoachId, type CoachId } from "@/lib/coaches";
 
 type AuthSearch = {
-  coach?: "male" | "female";
+  coach?: CoachId;
 };
 
 export const Route = createFileRoute("/auth")({
   validateSearch: (search: Record<string, unknown>): AuthSearch =>
-    search.coach === "male" || search.coach === "female"
-      ? { coach: search.coach }
-      : {},
+    isCoachId(search.coach) ? { coach: search.coach } : {},
   head: () => ({
     meta: [
       { title: "Sign in — COACH" },
@@ -43,7 +43,7 @@ function AuthPage() {
   useEffect(() => {
     getCurrentUserFn({ data: undefined }).then(async (user) => {
       if (!user) return;
-      if (coach) await updateProfileFn({ data: { coach_gender: coach } });
+      if (coach) await updateProfileFn({ data: { coach_id: coach } });
       navigate({ to: "/chat", replace: true });
     });
   }, [coach, navigate, getCurrentUserFn, updateProfileFn]);
@@ -52,7 +52,7 @@ function AuthPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await loginFn({ data: { email, password, coach_gender: coach } });
+      await loginFn({ data: { email, password, coach_id: coach } });
       navigate({ to: "/chat", replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Invalid email or password");
@@ -76,6 +76,29 @@ function AuthPage() {
         </div>
 
         <div className="mt-16">
+          {coach && (
+            <Link
+              to="/coaches"
+              className="mb-6 flex items-center gap-3 border border-border bg-card p-2.5 transition hover:border-primary/60"
+            >
+              <img
+                src={COACH_IMAGES[coach].avatar}
+                alt=""
+                className="h-12 w-12 object-cover object-top"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block font-display text-[9px] font-bold uppercase tracking-[0.18em] text-primary">
+                  Selected coach
+                </span>
+                <span className="block text-sm font-bold text-foreground">
+                  {getCoach(coach).name}
+                </span>
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Change
+              </span>
+            </Link>
+          )}
           <h1 className="text-3xl font-black tracking-tight text-foreground">Welcome back</h1>
           <p className="mt-2 text-sm text-muted-foreground">Sign in to keep training.</p>
         </div>

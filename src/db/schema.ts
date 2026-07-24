@@ -72,6 +72,7 @@ export const profiles = pgTable("profiles", {
   meal_preferences: text("meal_preferences"),
   memory_notes: text("memory_notes"),
   coach_gender: text("coach_gender").notNull().default("male"),
+  coach_id: text("coach_id").notNull().default("rex"),
   onboarding_completed: boolean("onboarding_completed").notNull().default(false),
   created_at: createdAt(),
   updated_at: updatedAt(),

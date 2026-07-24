@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
@@ -49,14 +49,12 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import coachMale from "@/assets/coach-rex-male-face.jpg";
-import coachFemale from "@/assets/coach-rex-female-face.jpg";
+import { COACH_IMAGES } from "@/lib/coach-assets";
+import { getCoach } from "@/lib/coaches";
 
-function getCoachPortrait(gender: string | null | undefined) {
-  return {
-    portrait: gender === "female" ? coachFemale : coachMale,
-    name: gender === "female" ? "Reya" : "Rex",
-  };
+function getCoachPortrait(id: string | null | undefined) {
+  const coach = getCoach(id);
+  return { ...coach, portrait: COACH_IMAGES[coach.id].avatar };
 }
 
 function useChatViewport() {
@@ -278,7 +276,7 @@ function ChatScreen() {
     const t = setInterval(() => setClock(new Date()), 30_000);
     return () => clearInterval(t);
   }, []);
-  const coach = getCoachPortrait((profile as Profile).coach_gender);
+  const coach = getCoachPortrait((profile as Profile).coach_id);
   const { height: viewportHeight, keyboardOpen } = useChatViewport();
 
   const [openSection, setOpenSection] = useState<SetupKey | "all" | null>(null);
@@ -1368,28 +1366,14 @@ function SettingsDrawer({
               <SettingsGroup label="Preferences">
                 <div className="flex items-center gap-3 px-3.5 py-3">
                   <span className="flex-1 text-sm font-medium text-foreground">Coach</span>
-                  <div className="flex gap-1 rounded-sm border border-border bg-background p-1">
-                    {(["male", "female"] as const).map((gender) => {
-                      const active = profile.coach_gender === gender;
-                      return (
-                        <button
-                          key={gender}
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() => {
-                            if (!active) void save({ coach_gender: gender });
-                          }}
-                          className={`rounded-sm px-3 py-1.5 font-display text-[10px] font-bold uppercase tracking-wider ${
-                            active
-                              ? "bg-primary text-primary-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {gender === "female" ? "Reya" : "Rex"}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <Link
+                    to="/coaches"
+                    className="flex items-center gap-1.5 font-display text-[10px] font-bold uppercase tracking-wider text-primary"
+                  >
+                    {getCoach(profile.coach_id).name}
+                    <span className="text-muted-foreground">Change</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
                 </div>
                 <EditRow label="Meal preferences" value={profile.meal_preferences} open={editing === "meals"} onToggle={() => setEditing(editing === "meals" ? null : "meals")}>
                   <Textarea value={profile.meal_preferences ?? ""} onSave={(v) => save({ meal_preferences: v || null })} placeholder="High protein, no dairy…" />

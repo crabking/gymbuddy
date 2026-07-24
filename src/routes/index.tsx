@@ -144,7 +144,7 @@ function Landing() {
             ))}
           </div>
           <Link
-            to="/auth"
+            to="/coaches"
             className="mt-2 flex h-11 shrink-0 items-center justify-between bg-primary px-4 font-display text-xs font-black uppercase tracking-[0.08em] text-primary-foreground transition active:scale-[0.98]"
           >
             Start training

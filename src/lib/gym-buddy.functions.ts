@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireAuth } from "@/lib/auth-middleware";
+import { COACH_IDS, getCoach } from "@/lib/coaches";
 import { z } from "zod";
 
 // Server-only db modules are imported dynamically inside handlers so `pg` never
@@ -137,7 +138,7 @@ const ProfilePatchSchema = z.object({
   schedule_note: z.string().max(2000).nullable().optional(),
   meal_preferences: z.string().max(2000).nullable().optional(),
   memory_notes: z.string().max(4000).nullable().optional(),
-  coach_gender: z.enum(["male", "female"]).optional(),
+  coach_id: z.enum(COACH_IDS).optional(),
 });
 
 export const updateProfile = createServerFn({ method: "POST" })
@@ -145,6 +146,7 @@ export const updateProfile = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => ProfilePatchSchema.parse(input))
   .handler(async ({ data, context }) => {
     const patch = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+    if (data.coach_id) patch.coach_gender = getCoach(data.coach_id).gender;
     if (Object.keys(patch).length === 0) return { ok: true };
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
@@ -330,6 +332,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
           meal_preferences: null,
           memory_notes: null,
           coach_gender: "male",
+          coach_id: "rex",
         })
         .where(eq(profiles.id, userId));
     });
