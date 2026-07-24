@@ -179,11 +179,29 @@ export async function wipe(userId: string) {
 
 /** Seed the agent's config tree on first use. */
 export async function ensureAgentConfig(userId: string, coachName: string) {
-  if (await exists(userId, ".agent/config.json")) return;
+  let existing: Record<string, unknown> = {};
+  const configExists = await exists(userId, ".agent/config.json");
+  const readmeExists = await exists(userId, ".agent/README.md");
+  if (configExists) {
+    try {
+      existing = JSON.parse((await read(userId, ".agent/config.json")).content) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      existing = {};
+    }
+  }
+  if (existing.coach === coachName && readmeExists) return;
+
   const config = {
+    ...existing,
     version: 1,
     coach: coachName,
-    created_at: new Date().toISOString().slice(0, 10),
+    created_at:
+      typeof existing.created_at === "string"
+        ? existing.created_at
+        : new Date().toISOString().slice(0, 10),
     conventions: {
       schedule: "schedule/current.md",
       plan: "plans/current.md",
@@ -193,10 +211,11 @@ export async function ensureAgentConfig(userId: string, coachName: string) {
     integrations: {},
   };
   await write(userId, ".agent/config.json", JSON.stringify(config, null, 2));
-  await write(
-    userId,
-    ".agent/README.md",
-    `# Agent workspace
+  if (!readmeExists) {
+    await write(
+      userId,
+      ".agent/README.md",
+      `# Agent workspace
 
 This is your private, persistent workspace. Organize files however helps you coach
 this user. Conventions the UI reads:
@@ -208,5 +227,6 @@ this user. Conventions the UI reads:
 
 Use \`.agent/\` for your own config and scratch. Keep files tidy.
 `,
-  );
+    );
+  }
 }

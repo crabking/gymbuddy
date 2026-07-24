@@ -137,6 +137,7 @@ const ProfilePatchSchema = z.object({
   schedule_note: z.string().max(2000).nullable().optional(),
   meal_preferences: z.string().max(2000).nullable().optional(),
   memory_notes: z.string().max(4000).nullable().optional(),
+  coach_gender: z.enum(["male", "female"]).optional(),
 });
 
 export const updateProfile = createServerFn({ method: "POST" })
@@ -292,6 +293,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
       programs,
       workspaceFiles,
       workoutSessions,
+      sessions,
     } = await import("@/db/schema");
     const db = getDb();
     const userId = context.userId;
@@ -305,6 +307,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
       await tx.delete(programs).where(eq(programs.user_id, userId));
       await tx.delete(plans).where(eq(plans.user_id, userId));
       await tx.delete(workspaceFiles).where(eq(workspaceFiles.user_id, userId));
+      await tx.delete(sessions).where(eq(sessions.user_id, userId));
       await tx
         .update(profiles)
         .set({
@@ -326,6 +329,7 @@ export const resetOnboarding = createServerFn({ method: "POST" })
           schedule_note: null,
           meal_preferences: null,
           memory_notes: null,
+          coach_gender: "male",
         })
         .where(eq(profiles.id, userId));
     });

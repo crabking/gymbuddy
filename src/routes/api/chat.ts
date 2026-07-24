@@ -70,8 +70,13 @@ export const Route = createFileRoute("/api/chat")({
         if (!user) return new Response("Unauthorized", { status: 401 });
         const userId = user.id;
 
-        const coachHeader = request.headers.get("x-coach-name");
-        const coachName = coachHeader === "Reya" ? "Reya" : "Rex";
+        const db = getDb();
+        const [profile] = await db
+          .select()
+          .from(profiles)
+          .where(eq(profiles.id, userId))
+          .limit(1);
+        const coachName = profile?.coach_gender === "female" ? "Reya" : "Rex";
 
         // Seed the agent's config tree (.agent/) on first use.
         await ensureAgentConfig(userId, coachName);
@@ -81,9 +86,17 @@ export const Route = createFileRoute("/api/chat")({
 
         if (!process.env.AI_API_KEY) return new Response("Missing AI_API_KEY", { status: 500 });
 
-        const db = getDb();
         const persistChatHistory = async (messages: UIMessage[]) => {
-          const retained = messages.slice(-100);
+          const retained = messages.slice(-100).flatMap((message) => {
+            const textParts = message.parts.flatMap((part) =>
+              part.type === "text" && part.text.trim()
+                ? [{ type: "text" as const, text: part.text }]
+                : [],
+            );
+            return textParts.length > 0
+              ? [{ role: message.role, parts: textParts }]
+              : [];
+          });
           const createdAt = Date.now();
 
           await db.transaction(async (tx) => {
@@ -100,12 +113,6 @@ export const Route = createFileRoute("/api/chat")({
             );
           });
         };
-
-        const [profile] = await db
-          .select()
-          .from(profiles)
-          .where(eq(profiles.id, userId))
-          .limit(1);
 
         // Workspace file index (paths + first line as a summary — cheap, always fresh).
         const files = await db

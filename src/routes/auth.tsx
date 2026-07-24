@@ -2,11 +2,20 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { login, getCurrentUser } from "@/lib/auth.functions";
+import { updateProfile } from "@/lib/gym-buddy.functions";
 import { Dumbbell } from "lucide-react";
 import { toast } from "sonner";
 import { InstallAppButton } from "@/components/InstallAppButton";
 
+type AuthSearch = {
+  coach?: "male" | "female";
+};
+
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: Record<string, unknown>): AuthSearch =>
+    search.coach === "male" || search.coach === "female"
+      ? { coach: search.coach }
+      : {},
   head: () => ({
     meta: [
       { title: "Sign in — Gym Buddy" },
@@ -24,21 +33,25 @@ function AuthPage() {
   const navigate = useNavigate();
   const loginFn = useServerFn(login);
   const getCurrentUserFn = useServerFn(getCurrentUser);
+  const updateProfileFn = useServerFn(updateProfile);
+  const { coach } = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getCurrentUserFn({ data: undefined }).then((user) => {
-      if (user) navigate({ to: "/chat", replace: true });
+    getCurrentUserFn({ data: undefined }).then(async (user) => {
+      if (!user) return;
+      if (coach) await updateProfileFn({ data: { coach_gender: coach } });
+      navigate({ to: "/chat", replace: true });
     });
-  }, [navigate, getCurrentUserFn]);
+  }, [coach, navigate, getCurrentUserFn, updateProfileFn]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      await loginFn({ data: { email, password } });
+      await loginFn({ data: { email, password, coach_gender: coach } });
       navigate({ to: "/chat", replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Invalid email or password");

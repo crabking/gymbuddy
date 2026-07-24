@@ -134,6 +134,11 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
+  useEffect(() => {
+    // Remove the coach preference left by older builds. Account state now lives on the server.
+    window.localStorage.removeItem("rex.coach");
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />

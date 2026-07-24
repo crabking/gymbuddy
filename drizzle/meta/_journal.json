@@ -29,6 +29,13 @@
       "when": 1784897034425,
       "tag": "0003_remove_music",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784899114950,
+      "tag": "0004_magenta_sleeper",
+      "breakpoints": true
     }
   ]
 }

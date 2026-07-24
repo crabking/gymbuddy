@@ -44,12 +44,32 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+function preventClientDataCaching(request: Request, response: Response): Response {
+  const pathname = new URL(request.url).pathname;
+  const isStaticAsset =
+    request.method === "GET" &&
+    (pathname.startsWith("/assets/") ||
+      pathname.startsWith("/icons/") ||
+      /\.(?:css|js|woff2?|png|jpe?g|svg|ico|webp)$/.test(pathname));
+  if (isStaticAsset) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store, private");
+  headers.set("Pragma", "no-cache");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      const normalized = await normalizeCatastrophicSsrResponse(response);
+      return preventClientDataCaching(request, normalized);
     } catch (error) {
       console.error(error);
       return new Response(renderErrorPage(), {

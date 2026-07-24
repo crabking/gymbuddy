@@ -8,6 +8,7 @@ import { z } from "zod";
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  coach_gender: z.enum(["male", "female"]).optional(),
 });
 
 export const login = createServerFn({ method: "POST" })
@@ -15,7 +16,7 @@ export const login = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
-    const { users } = await import("@/db/schema");
+    const { users, profiles } = await import("@/db/schema");
     const { verifyPassword, createSession, sessionCookieOptions, SESSION_COOKIE } =
       await import("./auth.server");
 
@@ -27,6 +28,16 @@ export const login = createServerFn({ method: "POST" })
 
     if (!user || !verifyPassword(data.password, user.password_hash)) {
       throw new Error("Invalid email or password");
+    }
+
+    if (data.coach_gender) {
+      await getDb()
+        .insert(profiles)
+        .values({ id: user.id, coach_gender: data.coach_gender })
+        .onConflictDoUpdate({
+          target: profiles.id,
+          set: { coach_gender: data.coach_gender },
+        });
     }
 
     const { token } = await createSession(user.id);

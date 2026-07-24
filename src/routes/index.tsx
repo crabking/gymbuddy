@@ -1,11 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpRight, CalendarDays, Brain, Camera, Dumbbell } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import coachMale from "@/assets/coach-rex-male.jpg";
 import coachFemale from "@/assets/coach-rex-female.jpg";
 import { InstallAppButton } from "@/components/InstallAppButton";
 
-const COACH_KEY = "rex.coach";
 type CoachGender = "male" | "female";
 
 type Feature = {
@@ -72,14 +71,8 @@ function Landing() {
   const [gender, setGender] = useState<CoachGender>("male");
   const [activeFeature, setActiveFeature] = useState<string>(FEATURES[0].id);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(COACH_KEY);
-    if (saved === "male" || saved === "female") setGender(saved);
-  }, []);
-
   function choose(g: CoachGender) {
     setGender(g);
-    localStorage.setItem(COACH_KEY, g);
   }
 
   const portrait = gender === "female" ? coachFemale : coachMale;
@@ -168,6 +161,7 @@ function Landing() {
 
         <Link
           to="/auth"
+          search={{ coach: gender }}
           className="group flex h-16 items-center justify-between rounded-2xl bg-primary px-6 text-primary-foreground transition active:scale-[0.98]"
         >
           <span className="font-display text-lg font-bold uppercase tracking-wide">
