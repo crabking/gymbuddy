@@ -2,11 +2,11 @@ const SW_VERSION = new URL(self.location.href).searchParams.get("v") || "develop
 const CACHE_NAME = `coach-shell-${SW_VERSION}`;
 const PRECACHE = [
   "/offline.html",
-  "/manifest.webmanifest",
-  "/icons/app-icon-gorilla-180.png",
-  "/icons/app-icon-gorilla-192.png",
-  "/icons/app-icon-gorilla-512.png",
-  "/icons/app-icon-gorilla-maskable-512.png",
+  "/manifest.webmanifest?v=tank-gorilla-20260725",
+  "/icons/app-icon-gorilla-180.png?v=tank-gorilla-20260725",
+  "/icons/app-icon-gorilla-192.png?v=tank-gorilla-20260725",
+  "/icons/app-icon-gorilla-512.png?v=tank-gorilla-20260725",
+  "/icons/app-icon-gorilla-maskable-512.png?v=tank-gorilla-20260725",
 ];
 
 self.addEventListener("install", (event) => {

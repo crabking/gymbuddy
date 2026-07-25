@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const iconDirectory = join(root, "public", "icons");
+const iconRevision = "v=tank-gorilla-20260725";
 const expectedIcons = [
   ["app-icon-gorilla-180.png", 180],
   ["app-icon-gorilla-192.png", 192],
@@ -43,9 +44,14 @@ describe("gorilla app icon contract", () => {
     ];
     expect(manifestIcons.length).toBeGreaterThan(3);
     expect(manifestIcons.every((src) => src.includes("app-icon-gorilla"))).toBe(true);
+    expect(manifestIcons.every((src) => src.includes(iconRevision))).toBe(true);
 
     const serviceWorker = readFileSync(join(root, "public", "sw.js"), "utf8");
     for (const [name] of expectedIcons) expect(serviceWorker).toContain(`/icons/${name}`);
+    expect(serviceWorker).toContain(`/manifest.webmanifest?${iconRevision}`);
+    expect(serviceWorker.match(new RegExp(iconRevision, "g"))).toHaveLength(
+      expectedIcons.length + 1,
+    );
     expect(serviceWorker).not.toContain("/icons/icon-");
   });
 });
