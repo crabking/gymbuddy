@@ -127,9 +127,6 @@ function LandingContent({ language }: { language: Language }) {
 
       <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
         <section className="shrink-0">
-          <p className="font-display text-[9px] font-bold uppercase tracking-[0.22em] text-primary">
-            {t("landing.eyebrow")}
-          </p>
           <h1 className="mt-1 font-display text-2xl font-black uppercase leading-none tracking-[-0.04em] sm:text-3xl">
             {t("landing.title")}
           </h1>
@@ -152,7 +149,7 @@ function LandingContent({ language }: { language: Language }) {
                   <h2 className="font-display text-xs font-black uppercase leading-tight tracking-[0.01em] sm:text-[13px]">
                     {t(feature.titleKey)}
                   </h2>
-                  <p className="mt-0.5 truncate text-[10px] leading-tight text-muted-foreground sm:text-[11px] [@media(max-height:600px)]:hidden">
+                  <p className="mt-0.5 whitespace-normal break-words text-[11px] leading-tight text-muted-foreground sm:text-xs">
                     {t(feature.bodyKey)}
                   </p>
                 </div>
