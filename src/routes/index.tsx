@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpRight, Brain, Camera, Dumbbell, HeartPulse, ListChecks } from "lucide-react";
-import coverImage from "@/assets/coach-rex-male.jpg";
+import coverImage from "@/assets/coach-group-hero.jpg";
 import { AppIcon } from "@/components/AppIcon";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { VersionTag } from "@/components/VersionTag";
@@ -87,7 +87,8 @@ function LandingContent({ language }: { language: Language }) {
         <img
           src={coverImage}
           alt={t("landing.image_alt")}
-          className="h-full w-full object-cover object-top"
+          fetchPriority="high"
+          className="h-full w-full object-contain object-center"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-transparent to-background" />
 
