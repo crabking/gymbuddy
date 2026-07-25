@@ -83,14 +83,14 @@ function LandingContent({ language }: { language: Language }) {
   const { t } = useLanguage();
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <section className="relative h-[45dvh] shrink-0 overflow-hidden bg-card">
+      <section className="relative h-[45dvh] shrink-0 overflow-visible bg-card">
         <img
           src={coverImage}
           alt={t("landing.image_alt")}
           fetchPriority="high"
-          className="h-full w-full object-cover object-center"
+          className="absolute inset-x-0 top-5 h-full w-full object-cover object-center"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-transparent to-background" />
+        <div className="absolute inset-x-0 -bottom-5 top-0 bg-gradient-to-b from-black/65 via-transparent to-background" />
 
         <header className="absolute inset-x-0 top-0 z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
           <Link to="/" className="flex min-h-11 items-center gap-2">
@@ -125,7 +125,7 @@ function LandingContent({ language }: { language: Language }) {
         </header>
       </section>
 
-      <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+      <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
         <section className="shrink-0">
           <h1 className="mt-1 font-display text-2xl font-black uppercase leading-none tracking-[-0.04em] sm:text-3xl">
             {t("landing.title")}
