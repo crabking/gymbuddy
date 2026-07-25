@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { login, getCurrentUser } from "@/lib/auth.functions";
-import { Dumbbell } from "lucide-react";
 import { toast } from "sonner";
+import { AppIcon } from "@/components/AppIcon";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { VersionTag } from "@/components/VersionTag";
 import { COACH_IMAGES } from "@/lib/coach-assets";
@@ -101,7 +101,7 @@ function AuthPage({ language }: { language: Language }) {
               search={{ lang: language }}
               className="flex min-h-11 items-center gap-2 text-sm font-semibold text-primary"
             >
-              <Dumbbell className="h-5 w-5" />
+              <AppIcon className="h-6 w-6 border border-primary/45" />
               COACH
             </Link>
             <VersionTag />

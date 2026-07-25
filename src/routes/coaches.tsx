@@ -2,8 +2,9 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Check, Dumbbell } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check } from "lucide-react";
 import { toast } from "sonner";
+import { AppIcon } from "@/components/AppIcon";
 import { getCurrentUser } from "@/lib/auth.functions";
 import { getProfile, switchCoach, updateProfile } from "@/lib/gym-buddy.functions";
 import { COACH_IMAGES } from "@/lib/coach-assets";
@@ -186,7 +187,7 @@ function CoachSelect({ language }: { language: Language }) {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="flex items-center gap-2">
-          <Dumbbell className="h-4 w-4 text-primary" />
+          <AppIcon className="h-6 w-6 border border-primary/45" />
           <span className="font-display text-xs font-black uppercase tracking-[0.12em]">
             {t("coaches.choose")}
           </span>

@@ -3,10 +3,10 @@ const CACHE_NAME = `coach-shell-${SW_VERSION}`;
 const PRECACHE = [
   "/offline.html",
   "/manifest.webmanifest",
-  "/icons/icon-180.png",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/icon-512-maskable.png",
+  "/icons/app-icon-gorilla-180.png",
+  "/icons/app-icon-gorilla-192.png",
+  "/icons/app-icon-gorilla-512.png",
+  "/icons/app-icon-gorilla-maskable-512.png",
 ];
 
 self.addEventListener("install", (event) => {

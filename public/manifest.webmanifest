@@ -12,17 +12,19 @@
   "categories": ["fitness", "health", "lifestyle"],
   "icons": [
     {
-      "src": "/icons/icon-192.png",
+      "src": "/icons/app-icon-gorilla-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/app-icon-gorilla-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icons/icon-512-maskable.png",
+      "src": "/icons/app-icon-gorilla-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -32,17 +34,38 @@
     {
       "name": "Coach",
       "short_name": "Coach",
-      "url": "/chat"
+      "url": "/chat",
+      "icons": [
+        {
+          "src": "/icons/app-icon-gorilla-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Program",
       "short_name": "Program",
-      "url": "/program"
+      "url": "/program",
+      "icons": [
+        {
+          "src": "/icons/app-icon-gorilla-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Dashboard",
       "short_name": "Dashboard",
-      "url": "/dashboard"
+      "url": "/dashboard",
+      "icons": [
+        {
+          "src": "/icons/app-icon-gorilla-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

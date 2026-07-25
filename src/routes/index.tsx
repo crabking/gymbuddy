@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpRight, Brain, Camera, Dumbbell, HeartPulse, ListChecks } from "lucide-react";
 import coverImage from "@/assets/coach-rex-male.jpg";
+import { AppIcon } from "@/components/AppIcon";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { VersionTag } from "@/components/VersionTag";
 import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
@@ -92,9 +93,7 @@ function LandingContent({ language }: { language: Language }) {
 
         <header className="absolute inset-x-0 top-0 z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
           <Link to="/" className="flex min-h-11 items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center bg-primary font-display text-xs font-black text-primary-foreground">
-              C
-            </span>
+            <AppIcon className="h-8 w-8 border border-primary/45" />
             <span className="font-display text-sm font-black uppercase tracking-[0.08em]">
               COACH
             </span>
