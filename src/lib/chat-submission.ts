@@ -1,3 +1,5 @@
+import type { FileUIPart, UIMessage } from "ai";
+
 export type SubmissionFileIdentity = {
   name: string;
   size: number;
@@ -27,4 +29,20 @@ export function isSameChatSubmission(
       current.lastModified === file.lastModified
     );
   });
+}
+
+/**
+ * New AI SDK chat messages take their stable identifier in `id`.
+ * `messageId` is reserved for replacing a message that already exists.
+ */
+export function createChatSubmissionMessage(
+  messageId: string,
+  text: string,
+  files: readonly FileUIPart[],
+): UIMessage {
+  return {
+    id: messageId,
+    role: "user",
+    parts: [...files, { type: "text", text }],
+  };
 }

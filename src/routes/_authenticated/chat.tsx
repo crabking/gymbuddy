@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { convertFileListToFileUIParts, DefaultChatTransport, type UIMessage } from "ai";
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -49,7 +49,11 @@ import { COACH_IMAGES } from "@/lib/coach-assets";
 import { getCoach } from "@/lib/coaches";
 import { clearAccountCache, hardNavigateToAuth, isUnauthorizedError } from "@/lib/client-session";
 import { classifyChatTransportError } from "@/lib/chat-client-error";
-import { isSameChatSubmission, type RetriableChatSubmission } from "@/lib/chat-submission";
+import {
+  createChatSubmissionMessage,
+  isSameChatSubmission,
+  type RetriableChatSubmission,
+} from "@/lib/chat-submission";
 import { shouldAutoKickoffCoach, userFacingChatMessages } from "@/lib/chat-bootstrap";
 import { prepareChatImage } from "@/lib/image-upload";
 import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
@@ -615,10 +619,9 @@ function ChatScreen() {
       kickoffInFlight.current = true;
       setKickoffFailed(false);
       kickoffMessageId.current ??= crypto.randomUUID();
-      void sendMessage({
-        text: "__begin__",
-        messageId: kickoffMessageId.current,
-      }).catch(() => {
+      void sendMessage(
+        createChatSubmissionMessage(kickoffMessageId.current, "__begin__", []),
+      ).catch(() => {
         // useChat's onError exposes the setup retry state.
       });
     }
@@ -662,8 +665,22 @@ function ChatScreen() {
     pendingSubmission.current = { messageId, text: submittedText, files: submittedFiles };
     setInput("");
     setPendingFiles([]);
-    void sendMessage({ text: submittedText, files, messageId }).catch(() => {
-      // useChat's onError restores the in-memory draft and shows the error.
+    void (async () => {
+      if (messages.some((message) => message.id === messageId && message.role === "user")) {
+        await sendMessage({ text: submittedText, files, messageId });
+        return;
+      }
+      const fileParts = files ? await convertFileListToFileUIParts(files) : [];
+      await sendMessage(createChatSubmissionMessage(messageId, submittedText, fileParts));
+    })().catch((error) => {
+      const failed = pendingSubmission.current;
+      pendingSubmission.current = null;
+      if (failed) {
+        failedSubmission.current = failed;
+        setInput((current) => current || failed.text);
+        setPendingFiles((current) => (current.length ? current : failed.files));
+      }
+      toast.error(error instanceof Error ? error.message : t("chat.chat_failed"));
     });
   }
 

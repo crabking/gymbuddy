@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isSameChatSubmission, type RetriableChatSubmission } from "@/lib/chat-submission";
+import {
+  createChatSubmissionMessage,
+  isSameChatSubmission,
+  type RetriableChatSubmission,
+} from "@/lib/chat-submission";
 
 const photo = {
   name: "meal.webp",
@@ -19,5 +23,13 @@ describe("chat retry identity", () => {
     expect(isSameChatSubmission(failed, "Log this meal", [{ ...photo }])).toBe(true);
     expect(isSameChatSubmission(failed, "Log this meal please", [{ ...photo }])).toBe(false);
     expect(isSameChatSubmission(failed, "Log this meal", [{ ...photo, size: 2_048 }])).toBe(false);
+  });
+
+  it("puts a new turn identifier in id instead of the replacement-only messageId field", () => {
+    expect(createChatSubmissionMessage("new-message-id", "Hello", [])).toEqual({
+      id: "new-message-id",
+      role: "user",
+      parts: [{ type: "text", text: "Hello" }],
+    });
   });
 });
