@@ -11,6 +11,8 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 const DATABASE_URL = process.env.DATABASE_URL;
 const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 const password = process.env.ADMIN_PASSWORD || "";
+const extraEmail = (process.env.EXTRA_ADMIN_EMAIL || "").trim().toLowerCase();
+const extraPassword = process.env.EXTRA_ADMIN_PASSWORD || "";
 
 if (!DATABASE_URL) {
   console.error("Missing DATABASE_URL");
@@ -20,7 +22,24 @@ if (!email || !password) {
   console.error("Set ADMIN_EMAIL and ADMIN_PASSWORD");
   process.exit(1);
 }
-if (email.length > 254 || password.length < 10 || password.length > 1024) {
+if ((extraEmail && !extraPassword) || (!extraEmail && extraPassword)) {
+  console.error("Set both EXTRA_ADMIN_EMAIL and EXTRA_ADMIN_PASSWORD");
+  process.exit(1);
+}
+
+const accounts = [
+  { email, password },
+  ...(extraEmail ? [{ email: extraEmail, password: extraPassword }] : []),
+];
+
+if (
+  accounts.some(
+    (account) =>
+      account.email.length > 254 ||
+      account.password.length < 8 ||
+      account.password.length > 1024,
+  )
+) {
   console.error("ADMIN_EMAIL or ADMIN_PASSWORD does not meet the login policy");
   process.exit(1);
 }
@@ -57,35 +76,44 @@ const pool = new Pool({
 const client = await pool.connect();
 try {
   await client.query("BEGIN");
-  const existing = await client.query(
-    "SELECT id, password_hash FROM users WHERE email = $1 FOR UPDATE",
-    [email],
-  );
-  let userId;
-  let rotated = false;
-  if (existing.rows[0]) {
-    userId = existing.rows[0].id;
-    if (!verifyPassword(password, existing.rows[0].password_hash)) {
-      await client.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
-        hashPassword(password),
-        userId,
-      ]);
-      // Password rotation must revoke stolen sessions atomically.
-      await client.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
-      rotated = true;
-    }
-  } else {
-    const inserted = await client.query(
-      "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
-      [email, hashPassword(password)],
+  const results = [];
+  for (const account of accounts) {
+    const existing = await client.query(
+      "SELECT id, password_hash FROM users WHERE email = $1 FOR UPDATE",
+      [account.email],
     );
-    userId = inserted.rows[0].id;
+    let userId;
+    let rotated = false;
+    if (existing.rows[0]) {
+      userId = existing.rows[0].id;
+      if (!verifyPassword(account.password, existing.rows[0].password_hash)) {
+        await client.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+          hashPassword(account.password),
+          userId,
+        ]);
+        // Password rotation must revoke stolen sessions atomically.
+        await client.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
+        rotated = true;
+      }
+    } else {
+      const inserted = await client.query(
+        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
+        [account.email, hashPassword(account.password)],
+      );
+      userId = inserted.rows[0].id;
+    }
+    await client.query(
+      "INSERT INTO profiles (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
+      [userId],
+    );
+    results.push(
+      rotated
+        ? `Updated login ${account.email}; existing sessions revoked`
+        : `Login ${account.email} is up to date`,
+    );
   }
-  await client.query("INSERT INTO profiles (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [userId]);
   await client.query("COMMIT");
-  console.log(
-    rotated ? `Updated login ${email}; existing sessions revoked` : `Login ${email} is up to date`,
-  );
+  console.log(results.join("\n"));
 } catch (err) {
   await client.query("ROLLBACK").catch(() => undefined);
   console.error("Seed failed:", err.message);
