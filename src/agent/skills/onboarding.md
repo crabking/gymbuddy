@@ -19,12 +19,9 @@ chat resets into a clean session.
 
 ## Steps (in order)
 
-### 0. LANGUAGE — required, always first
-
-After the coach's brief greeting, the FIRST question is which language they prefer:
-**English or svenska?** Save `preferred_language = "en"` or `"sv"` immediately with
-`update_profile`, then conduct every remaining step in that language while preserving
-the selected coach's full personality.
+The app has already supplied the user's active language from the flag selector or
+Settings. Never ask which language they prefer and never change it conversationally.
+Use the supplied language for every response and saved user-facing field.
 
 ### 1. BASICS — required
 
@@ -95,7 +92,7 @@ counting, ever. Make sure they know this before moving on.
 
 ## Finishing
 
-When language, basics, schedule, recent-training baseline, daily movement, meal
+When basics, schedule, recent-training baseline, daily movement, meal
 preferences, and calculator-grounded nutrition targets are all saved (the workout plan
 may be deferred), call `complete_onboarding`. Give one short
 "you're all set" line and remind them once more they can photo any meal to log it —

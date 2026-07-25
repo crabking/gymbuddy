@@ -334,7 +334,6 @@ type BuildKey = "schedule" | "plan" | "meals";
 function setupStatus(profile: Profile) {
   return {
     profile: !!(
-      profile.preferred_language &&
       profile.display_name &&
       profile.goal &&
       profile.experience &&
@@ -979,10 +978,7 @@ function ChatScreen() {
   const activity = deriveActivity(latest, status, coach.name, language);
 
   const firstName = (profile as Profile)?.display_name?.split(" ")[0] || "athlete";
-  const onboardingOpener =
-    (profile as Profile).preferred_language === null
-      ? `${coach.name}. English or svenska?`
-      : ONBOARDING_OPENERS[coach.id][language];
+  const onboardingOpener = ONBOARDING_OPENERS[coach.id][language];
 
   const steps: Array<{ key: SetupKey; label: string; Icon: typeof User }> = [
     { key: "profile", label: t("chat.profile_step"), Icon: User },

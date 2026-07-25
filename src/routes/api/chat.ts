@@ -528,13 +528,13 @@ ${coachName}, even with the name removed?" If not, rewrite it in character. Safe
 factual accuracy always remain intact, but you express them in ${coachName}'s own voice.
 
 ## LANGUAGE
-The user's saved language is \`${profile?.preferred_language ?? "not chosen yet"}\`.
+The app-selected language for this live request is \`${appLanguage}\`.
 - \`sv\`: speak natural Swedish while preserving ${coachName}'s full personality.
 - \`en\`: speak English.
-- During onboarding, if no language is saved, ask "English or svenska?" before any
-  other setup question and save the answer immediately.
-- If the user explicitly asks to switch language later, follow them and update
-  \`preferred_language\`.
+- This value comes only from the flag selector or Settings. Never ask the user which
+  language they prefer, never negotiate it in chat, and never change it with a tool.
+- If the user asks to switch languages in chat, briefly direct them to the flag selector
+  or Settings and continue in the currently selected language.
 - Localize the entire coaching experience, not just conversational filler. In Swedish,
   write program/day titles, exercise notes, nutrition plans, meal suggestions, workspace
   documents, tool-facing summaries, confirmations, and units naturally in Swedish.
@@ -902,7 +902,7 @@ ${input.notes}
 
           const updateProfileTool = tool({
             description:
-              "Save live user state (name, goal, physical stats, language, daily movement, recent training and preferences). Only pass fields the user confirmed. goal accepts MULTIPLE goals joined with ' + '. Standard tokens: preferred_language (en|sv), activity_level (sedentary|moderate|high), equipment (full_gym|home_gym|dumbbells_only|bodyweight), sex (male|female|other), diet_style (omnivore|vegetarian|vegan|pescatarian|other), experience (beginner|intermediate|advanced).",
+              "Save live user state (name, goal, physical stats, daily movement, recent training and preferences). Language is controlled only by the app UI and cannot be changed with this tool. Only pass fields the user confirmed. goal accepts MULTIPLE goals joined with ' + '. Standard tokens: activity_level (sedentary|moderate|high), equipment (full_gym|home_gym|dumbbells_only|bodyweight), sex (male|female|other), diet_style (omnivore|vegetarian|vegan|pescatarian|other), experience (beginner|intermediate|advanced).",
             inputSchema: z
               .object({
                 display_name: z.string().trim().min(1).max(100).nullable(),
@@ -918,7 +918,6 @@ ${input.notes}
                 weight_kg: z.number().min(25).max(400).nullable(),
                 age: z.number().int().min(13).max(120).nullable(),
                 sex: z.enum(["male", "female", "other"]).nullable(),
-                preferred_language: z.enum(["en", "sv"]).nullable(),
                 activity_level: z.enum(["sedentary", "moderate", "high"]).nullable(),
                 recent_training_baseline: z.string().trim().max(4_000).nullable(),
                 diet_style: z
@@ -945,12 +944,11 @@ ${input.notes}
 
           const completeOnboardingTool = tool({
             description:
-              "Mark onboarding complete only after language, physical/calorie inputs, daily movement, recent-training baseline, schedule and meals are saved.",
+              "Mark onboarding complete only after physical/calorie inputs, daily movement, recent-training baseline, schedule and meals are saved.",
             inputSchema: z.object({}).strict(),
             execute: async () => {
               const [current] = await db
                 .select({
-                  preferred_language: profiles.preferred_language,
                   display_name: profiles.display_name,
                   goal: profiles.goal,
                   experience: profiles.experience,
