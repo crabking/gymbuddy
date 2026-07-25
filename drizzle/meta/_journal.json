@@ -141,6 +141,13 @@
       "when": 1784922004031,
       "tag": "0019_oval_killmonger",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785006000000,
+      "tag": "0020_common_exercise_expansion",
+      "breakpoints": true
     }
   ]
 }

@@ -206,10 +206,10 @@ describe.runIf(databaseAvailable).sequential("fresh legacy migration chain", () 
         )
       ).rows;
       expect(catalog).toEqual({
-        exercises: 55,
-        english_names: 55,
-        swedish_names: 55,
-        guide_paths: 55,
+        exercises: 96,
+        english_names: 96,
+        swedish_names: 96,
+        guide_paths: 96,
       });
 
       const [{ active_cycles }] = (

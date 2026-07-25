@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   EXERCISE_CATALOG,
   EXERCISE_IDS,
+  exerciseCatalogForPrompt,
   exerciseName,
   exerciseSubstitutions,
   findExercise,
@@ -62,8 +63,8 @@ function webpDimensions(buffer: Buffer): { width: number; height: number } {
 
 describe("exercise catalog", () => {
   it("has one unique, fully bilingual identity for every supported movement", () => {
-    expect(EXERCISE_CATALOG).toHaveLength(55);
-    expect(new Set(EXERCISE_IDS).size).toBe(55);
+    expect(EXERCISE_CATALOG).toHaveLength(96);
+    expect(new Set(EXERCISE_IDS).size).toBe(96);
 
     for (const exercise of EXERCISE_CATALOG) {
       expect(exercise.id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
@@ -78,6 +79,16 @@ describe("exercise catalog", () => {
       const substitutions = exerciseSubstitutions(exercise.id);
       expect(substitutions.length, `${exercise.id} has no catalog substitution`).toBeGreaterThan(0);
       expect(substitutions).not.toContain(exercise);
+    }
+  });
+
+  it("injects every canonical exercise into both localized coach catalogs", () => {
+    const english = exerciseCatalogForPrompt("en");
+    const swedish = exerciseCatalogForPrompt("sv");
+
+    for (const exercise of EXERCISE_CATALOG) {
+      expect(english).toContain(`${exercise.id} = ${exercise.name_en} (${exercise.equipment})`);
+      expect(swedish).toContain(`${exercise.id} = ${exercise.name_sv} (${exercise.equipment})`);
     }
   });
 
@@ -96,10 +107,9 @@ describe("exercise catalog", () => {
   });
 
   it("keeps the migration catalog in lockstep with the runtime catalog", () => {
-    const migration = readFileSync(
-      resolve(projectRoot, "drizzle", "0019_oval_killmonger.sql"),
-      "utf8",
-    );
+    const migration = ["0019_oval_killmonger.sql", "0020_common_exercise_expansion.sql"]
+      .map((filename) => readFileSync(resolve(projectRoot, "drizzle", filename), "utf8"))
+      .join("\n");
 
     for (const exercise of EXERCISE_CATALOG) {
       expect(migration, `${exercise.id} is absent from migration 0019`).toContain(
