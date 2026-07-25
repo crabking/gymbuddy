@@ -1275,7 +1275,7 @@ ${input.notes}
                     z
                       .object({
                         title: z.string().trim().min(1).max(160),
-                        focus: z.string().trim().max(1_000).nullable(),
+                        focus: z.string().trim().max(1_000).nullable().optional(),
                         exercises: z
                           .array(
                             z
@@ -1283,10 +1283,16 @@ ${input.notes}
                                 exercise_id: z.enum(EXERCISE_IDS),
                                 sets: z.number().int().min(1).max(20),
                                 rep_range: z.string().trim().min(1).max(40),
-                                start_weight_kg: z.number().min(0).max(2_000).nullable(),
-                                increment_kg: z.number().min(-100).max(100).nullable(),
-                                increment_every_weeks: z.number().int().min(1).max(52).nullable(),
-                                notes: z.string().trim().max(1_000).nullable(),
+                                start_weight_kg: z.number().min(0).max(2_000).nullable().optional(),
+                                increment_kg: z.number().min(0).max(100).nullable().optional(),
+                                increment_every_weeks: z
+                                  .number()
+                                  .int()
+                                  .min(1)
+                                  .max(52)
+                                  .nullable()
+                                  .optional(),
+                                notes: z.string().trim().max(1_000).nullable().optional(),
                               })
                               .strict(),
                           )
@@ -1932,7 +1938,10 @@ ${programInput.why}
               chunkMs: 45_000,
               toolMs: 60_000,
             },
-            maxOutputTokens: 1_200,
+            // A complete week_template is emitted as structured tool input.
+            // Four-to-six training days can legitimately require several
+            // thousand output tokens before generate_program can execute.
+            maxOutputTokens: 8_000,
             stopWhen: stepCountIs(8),
             // Never let the hard tool-loop ceiling end on another invisible
             // tool call. The final step must produce a user-facing handoff.

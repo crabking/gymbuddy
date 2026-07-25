@@ -53,6 +53,11 @@ export async function pipeGuaranteedCoachResponse(options: {
   if (wasAborted) return;
 
   if (!sawVisibleText) {
+    reportError(
+      new Error(
+        `Coach stream ended without visible text (finishReason=${finishChunk?.finishReason ?? "missing"})`,
+      ),
+    );
     const id = "coach-recovery";
     write({ type: "text-start", id });
     write({ type: "text-delta", id, delta: fallbackText });

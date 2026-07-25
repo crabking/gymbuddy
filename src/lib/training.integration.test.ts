@@ -22,6 +22,116 @@ import {
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
+describe.runIf(hasDatabase).sequential("production-sized program generation", () => {
+  const userId = randomUUID();
+  const template = [
+    {
+      title: "Upper A",
+      exercises: [
+        ["bench-press", 4, "6-8", 70],
+        ["barbell-row", 4, "8-10", 65],
+        ["incline-dumbbell-press", 3, "8-12", 24],
+        ["lat-pulldown", 3, "8-12", 55],
+        ["lateral-raise", 3, "12-15", 8],
+        ["triceps-pushdown", 3, "10-15", 25],
+      ],
+    },
+    {
+      title: "Lower A",
+      exercises: [
+        ["back-squat", 4, "6-8", 90],
+        ["romanian-deadlift", 3, "8-10", 80],
+        ["leg-press", 3, "10-12", 140],
+        ["seated-leg-curl", 3, "10-15", 45],
+        ["standing-calf-raise", 4, "10-15", 60],
+        ["cable-crunch", 3, "10-15", 30],
+      ],
+    },
+    {
+      title: "Upper B",
+      exercises: [
+        ["overhead-press", 4, "6-8", 45],
+        ["pull-up", 4, "6-10", null],
+        ["chest-supported-row", 3, "8-12", 50],
+        ["cable-fly", 3, "10-15", 20],
+        ["barbell-curl", 3, "8-12", 30],
+        ["skullcrusher", 3, "8-12", 25],
+      ],
+    },
+    {
+      title: "Lower B",
+      exercises: [
+        ["conventional-deadlift", 3, "4-6", 110],
+        ["front-squat", 3, "6-10", 65],
+        ["hip-thrust", 4, "8-12", 100],
+        ["leg-extension", 3, "10-15", 50],
+        ["seated-calf-raise", 4, "10-15", 45],
+        ["hanging-leg-raise", 3, "8-15", null],
+      ],
+    },
+  ].map((day) => ({
+    title: day.title,
+    focus: null,
+    exercises: day.exercises.map(([exercise_id, sets, rep_range, start_weight_kg]) => ({
+      exercise_id: exercise_id as string,
+      sets: sets as number,
+      rep_range: rep_range as string,
+      start_weight_kg: start_weight_kg as number | null,
+      increment_kg: start_weight_kg == null ? null : 2.5,
+      increment_every_weeks: start_weight_kg == null ? null : 2,
+      notes: null,
+    })),
+  }));
+
+  beforeAll(async () => {
+    const db = getDb();
+    await db.insert(users).values({
+      id: userId,
+      email: `program-size-test-${userId}@example.invalid`,
+      password_hash: "not-a-real-login",
+    });
+    await db.insert(profiles).values({
+      id: userId,
+      display_name: "Program Size Test",
+      session_minutes: 60,
+      onboarding_completed: true,
+    });
+  });
+
+  afterAll(async () => {
+    await getDb().delete(users).where(eq(users.id, userId));
+  });
+
+  for (const weeks of [8, 12, 16]) {
+    it(`materializes and activates a realistic ${weeks}-week program`, async () => {
+      await generateProgram(userId, {
+        name: `${weeks}-Week Upper Lower`,
+        goal: "hypertrophy and strength",
+        experience: "intermediate",
+        start_date: "2032-01-05",
+        weeks,
+        session_minutes: 60,
+        deload_weeks: weeks === 8 ? [5] : weeks === 12 ? [5, 10] : [5, 10, 15],
+        progression_rules: "Add 2.5 kg every two completed training weeks.",
+        why: "Production-sized generation regression coverage.",
+        replace_active_reason: weeks === 8 ? null : `Confirmed switch to ${weeks} weeks`,
+        source_key: `program-size-${weeks}-${userId}`,
+        week_template: template,
+      });
+
+      const program = await getActiveProgram(userId, "2032-01-05");
+      expect(program).toMatchObject({
+        name: `${weeks}-Week Upper Lower`,
+        weeks,
+        days_per_week: 4,
+        status: "active",
+      });
+      expect(program?.days).toHaveLength(weeks * 4);
+      expect(program?.days.every((day) => day.exercises.length === 6)).toBe(true);
+    });
+  }
+});
+
 describe.runIf(hasDatabase).sequential("training lifecycle database integration", () => {
   const userId = randomUUID();
 

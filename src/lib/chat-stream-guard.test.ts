@@ -53,7 +53,7 @@ describe("guaranteed coach response stream", () => {
       delta: "I could not finish that step. Ask me to retry.",
     });
     expect(output.at(-1)).toEqual({ type: "finish", finishReason: "error" });
-    expect(reportError).toHaveBeenCalledOnce();
+    expect(reportError).toHaveBeenCalledTimes(2);
   });
 
   it("also recovers when the provider stream throws before finishing", async () => {
@@ -64,7 +64,21 @@ describe("guaranteed coach response stream", () => {
 
     expect(output.some((chunk) => chunk.type === "text-delta")).toBe(true);
     expect(output.at(-1)).toEqual({ type: "finish", finishReason: "error" });
-    expect(reportError).toHaveBeenCalledOnce();
+    expect(reportError).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports the finish reason when an output limit cuts off a tool-only turn", async () => {
+    const { output, reportError } = await guard([
+      { type: "start" },
+      { type: "finish", finishReason: "length" },
+    ]);
+
+    expect(output.some((chunk) => chunk.type === "text-delta")).toBe(true);
+    expect(reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("finishReason=length"),
+      }),
+    );
   });
 
   it("does not manufacture a reply after a real client abort", async () => {
