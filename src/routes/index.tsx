@@ -88,7 +88,7 @@ function LandingContent({ language }: { language: Language }) {
           src={coverImage}
           alt={t("landing.image_alt")}
           fetchPriority="high"
-          className="h-full w-full object-contain object-center"
+          className="h-full w-full object-cover object-center"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-transparent to-background" />
 
