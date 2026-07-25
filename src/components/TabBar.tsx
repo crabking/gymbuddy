@@ -1,14 +1,16 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { MessageCircle, CalendarRange, BarChart3, Settings } from "lucide-react";
 import { motion } from "motion/react";
+import { useLanguage } from "@/components/LanguageProvider";
 
 const TABS = [
-  { to: "/chat", label: "Coach", Icon: MessageCircle },
-  { to: "/program", label: "Program", Icon: CalendarRange },
-  { to: "/dashboard", label: "Dashboard", Icon: BarChart3 },
+  { to: "/chat", labelKey: "nav.coach", Icon: MessageCircle },
+  { to: "/program", labelKey: "nav.program", Icon: CalendarRange },
+  { to: "/dashboard", labelKey: "nav.dashboard", Icon: BarChart3 },
 ] as const;
 
 export function TabBar() {
+  const { t: tr } = useLanguage();
   const location = useRouterState({ select: (s) => s.location });
   const settingsActive =
     location.pathname.startsWith("/chat") &&
@@ -42,7 +44,7 @@ export function TabBar() {
                   active ? "text-primary" : "text-muted-foreground"
                 }`}
               >
-                {t.label}
+                {tr(t.labelKey)}
               </span>
             </Link>
           );
@@ -51,7 +53,7 @@ export function TabBar() {
           to="/chat"
           search={{ settings: true }}
           className="relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
-          aria-label="Settings"
+          aria-label={tr("nav.settings")}
           aria-current={settingsActive ? "page" : undefined}
         >
           {settingsActive && (
@@ -70,7 +72,7 @@ export function TabBar() {
               settingsActive ? "text-primary" : "text-muted-foreground"
             }`}
           >
-            Settings
+            {tr("nav.settings")}
           </span>
         </Link>
       </div>

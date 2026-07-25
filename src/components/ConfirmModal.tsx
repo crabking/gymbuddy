@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 
 // In-app confirmation dialog — replaces native window.confirm(), which mobile
 // browsers silently suppress after a few dismissals (making buttons feel dead).
@@ -6,7 +7,7 @@ export function ConfirmModal({
   open,
   title,
   body,
-  confirmLabel = "Confirm",
+  confirmLabel,
   danger,
   onConfirm,
   onCancel,
@@ -19,6 +20,7 @@ export function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useLanguage();
   const titleId = useId();
   const bodyId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -85,7 +87,7 @@ export function ConfirmModal({
             onClick={onCancel}
             className="min-h-11 flex-1 rounded-sm border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             ref={confirmRef}
@@ -97,7 +99,7 @@ export function ConfirmModal({
                 : "bg-primary text-primary-foreground"
             }`}
           >
-            {confirmLabel}
+            {confirmLabel ?? t("common.confirm")}
           </button>
         </div>
       </div>

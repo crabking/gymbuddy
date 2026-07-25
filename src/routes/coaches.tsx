@@ -5,15 +5,19 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, Dumbbell } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth.functions";
-import { getProfile, switchCoach } from "@/lib/gym-buddy.functions";
+import { getProfile, switchCoach, updateProfile } from "@/lib/gym-buddy.functions";
 import { COACH_IMAGES } from "@/lib/coach-assets";
 import { COACHES, DEFAULT_COACH_ID, getCoach, type CoachId, type CoachLevel } from "@/lib/coaches";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { VersionTag } from "@/components/VersionTag";
 import { clearAccountCache, isUnauthorizedError } from "@/lib/client-session";
 import { usePwaUpdateBlocker } from "@/lib/pwa-update";
+import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
+import { isLanguage, type Language } from "@/lib/i18n";
 
 export const Route = createFileRoute("/coaches")({
+  validateSearch: (search: Record<string, unknown>): { lang?: Language } =>
+    isLanguage(search.lang) ? { lang: search.lang } : {},
   head: () => ({
     meta: [
       { title: "Choose your coach — COACH" },
@@ -23,7 +27,7 @@ export const Route = createFileRoute("/coaches")({
       },
     ],
   }),
-  component: CoachSelect,
+  component: CoachSelectRoute,
 });
 
 const LEVEL_STYLE: Record<CoachLevel, string> = {
@@ -56,14 +60,27 @@ const IMAGE_CROP: Record<CoachId, string> = {
   nova: "origin-top scale-100",
 };
 
-function CoachSelect() {
+function CoachSelectRoute() {
+  const { lang = "en" } = Route.useSearch();
+  return (
+    <LanguageProvider language={lang}>
+      <CoachSelect language={lang} />
+    </LanguageProvider>
+  );
+}
+
+function CoachSelect({ language }: { language: Language }) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const getCurrentUserFn = useServerFn(getCurrentUser);
   const getProfileFn = useServerFn(getProfile);
   const switchCoachFn = useServerFn(switchCoach);
+  const updateProfileFn = useServerFn(updateProfile);
   const [selectedId, setSelectedId] = useState<CoachId>(DEFAULT_COACH_ID);
   const [currentCoachId, setCurrentCoachId] = useState<CoachId | null>(null);
+  const [accountLanguage, setAccountLanguage] = useState<Language | null>(null);
+  const [dataEpoch, setDataEpoch] = useState<number | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -89,13 +106,20 @@ function CoachSelect() {
         }
         setSignedIn(true);
         const profile = await getProfileFn({ data: undefined });
-        if (!active || !profile?.coach_id) return;
+        if (!active || !profile) return;
+        setAccountLanguage(
+          isLanguage(profile.preferred_language) ? profile.preferred_language : null,
+        );
+        setDataEpoch(profile.data_epoch);
+        if (!profile.coach_id) return;
         const coachId = getCoach(profile.coach_id).id;
         setCurrentCoachId(coachId);
         setSelectedId(coachId);
       } catch (error) {
         if (!active) return;
-        setLoadError(error instanceof Error ? error.message : "Could not load your account");
+        setLoadError(
+          language === "en" && error instanceof Error ? error.message : t("coaches.load_error"),
+        );
       } finally {
         if (active) setAuthReady(true);
       }
@@ -104,7 +128,7 @@ function CoachSelect() {
     return () => {
       active = false;
     };
-  }, [getCurrentUserFn, getProfileFn, retryNonce]);
+  }, [getCurrentUserFn, getProfileFn, language, retryNonce, t]);
 
   async function activateCoach(coachId: CoachId) {
     if (!authReady || savingRef.current) return;
@@ -112,20 +136,29 @@ function CoachSelect() {
     setSaving(true);
     try {
       if (signedIn) {
+        if (accountLanguage !== language && dataEpoch !== null) {
+          await updateProfileFn({
+            data: { preferred_language: language, expected_data_epoch: dataEpoch },
+          });
+        }
         if (coachId !== currentCoachId) {
           await switchCoachFn({ data: { coach_id: coachId } });
         }
         window.location.assign("/chat");
       } else {
-        await navigate({ to: "/auth", search: { coach: coachId } });
+        await navigate({ to: "/auth", search: { coach: coachId, lang: language } });
       }
     } catch (error) {
       if (isUnauthorizedError(error)) {
         await clearAccountCache(queryClient);
-        window.location.replace(`/auth?coach=${encodeURIComponent(coachId)}`);
+        window.location.replace(
+          `/auth?coach=${encodeURIComponent(coachId)}&lang=${encodeURIComponent(language)}`,
+        );
         return;
       }
-      toast.error(error instanceof Error ? error.message : "Could not select that coach");
+      toast.error(
+        language === "en" && error instanceof Error ? error.message : t("coaches.select_error"),
+      );
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -146,7 +179,8 @@ function CoachSelect() {
       <header className="mx-auto flex min-h-12 w-full max-w-5xl shrink-0 items-center justify-between border-b border-border px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-5">
         <Link
           to="/"
-          aria-label="Back"
+          search={{ lang: language }}
+          aria-label={t("common.back")}
           className="grid h-11 w-11 place-items-center text-muted-foreground transition hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -154,39 +188,51 @@ function CoachSelect() {
         <div className="flex items-center gap-2">
           <Dumbbell className="h-4 w-4 text-primary" />
           <span className="font-display text-xs font-black uppercase tracking-[0.12em]">
-            Choose your coach
+            {t("coaches.choose")}
           </span>
           <VersionTag />
         </div>
-        <span className="w-11" />
+        <div className="flex w-11 justify-end gap-0.5">
+          {(["en", "sv"] as const).map((lang) => (
+            <Link
+              key={lang}
+              to="/coaches"
+              search={{ lang }}
+              aria-label={lang === "sv" ? t("language.swedish") : t("language.english")}
+              className={language === lang ? "opacity-100" : "opacity-35"}
+            >
+              <span aria-hidden="true">{lang === "sv" ? "🇸🇪" : "🇬🇧"}</span>
+            </Link>
+          ))}
+        </div>
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-5">
         <div className="mb-1.5 flex shrink-0 items-end justify-between gap-3 px-0.5">
           <div>
             <p className="font-display text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-              Pick your intensity
+              {t("coaches.pick_intensity")}
             </p>
             <h1 className="font-display text-lg font-black uppercase leading-none sm:text-2xl">
-              Who fits you?
+              {t("coaches.who_fits")}
             </h1>
           </div>
           <div className="hidden gap-3 text-[8px] font-bold uppercase tracking-widest text-muted-foreground sm:flex">
-            <span className="text-cyan-300">Beginner</span>
-            <span className="text-lime-300">Intermediate</span>
-            <span className="text-red-400">Advanced</span>
+            <span className="text-cyan-300">{t("coaches.beginner")}</span>
+            <span className="text-lime-300">{t("coaches.intermediate")}</span>
+            <span className="text-red-400">{t("coaches.advanced")}</span>
           </div>
         </div>
 
         {loadError && (
           <div className="mb-1.5 flex min-h-11 shrink-0 items-center gap-2 border border-red-500/40 bg-red-500/10 px-2.5 text-[11px] text-red-200">
-            <span className="min-w-0 flex-1 truncate">Could not verify your account.</span>
+            <span className="min-w-0 flex-1 truncate">{t("coaches.account_error")}</span>
             <button
               type="button"
               onClick={() => setRetryNonce((value) => value + 1)}
               className="min-h-11 shrink-0 px-2 font-bold uppercase tracking-wide text-red-300"
             >
-              Retry
+              {t("common.retry")}
             </button>
           </div>
         )}
@@ -218,17 +264,25 @@ function CoachSelect() {
                 <button
                   type="button"
                   aria-pressed={active}
-                  aria-label={`Select ${coach.name}, ${coach.level} coach`}
+                  aria-label={t("coaches.select", {
+                    name: coach.name,
+                    level: t(`coaches.${coach.level}`),
+                  })}
                   onFocus={() => setSelectedId(coach.id)}
                   onClick={() => setSelectedId(coach.id)}
                   className="absolute inset-0 z-10"
                 >
-                  <span className="sr-only">Select {coach.name}</span>
+                  <span className="sr-only">
+                    {t("coaches.select", {
+                      name: coach.name,
+                      level: t(`coaches.${coach.level}`),
+                    })}
+                  </span>
                 </button>
                 <div
                   className={`pointer-events-none absolute left-1.5 top-1.5 z-20 border px-1.5 py-0.5 font-display text-[9px] font-black uppercase tracking-wide backdrop-blur-sm sm:text-[10px] ${LEVEL_STYLE[coach.level]}`}
                 >
-                  {coach.level}
+                  {t(`coaches.${coach.level}`)}
                 </div>
                 {active && (
                   <span className="pointer-events-none absolute right-1.5 top-1.5 z-20 grid h-5 w-5 place-items-center bg-white text-black shadow-[0_0_12px_rgba(255,255,255,0.8)]">
@@ -244,7 +298,7 @@ function CoachSelect() {
                       active ? "block" : "hidden sm:group-hover:block"
                     }`}
                   >
-                    {coach.summary}
+                    {language === "sv" ? coach.summary_sv : coach.summary}
                   </span>
                   {active && (
                     <button
@@ -253,7 +307,13 @@ function CoachSelect() {
                       onClick={() => void chooseCoach(coach.id)}
                       className={`pointer-events-auto mt-1.5 flex min-h-11 w-full items-center justify-between gap-1 px-2 font-display text-[10px] font-black uppercase tracking-wide transition active:scale-[0.98] disabled:opacity-60 sm:text-[11px] ${TRAIN_BUTTON[coach.level]}`}
                     >
-                      <span>{!authReady ? "Loading…" : saving ? "Saving…" : "Train with"}</span>
+                      <span>
+                        {!authReady
+                          ? t("common.loading")
+                          : saving
+                            ? t("common.saving")
+                            : t("coaches.train_with")}
+                      </span>
                       <ArrowUpRight className="h-3 w-3 shrink-0" />
                     </button>
                   )}
@@ -265,9 +325,11 @@ function CoachSelect() {
       </main>
       <ConfirmModal
         open={pendingCoachId !== null}
-        title={`Start over with ${pendingCoachId ? getCoach(pendingCoachId).name : "this coach"}?`}
-        body="Switching coach wipes your current chat, profile, plans, meals, logs, and coach memory. Your login stays active."
-        confirmLabel="Switch & reset"
+        title={t("coaches.switch_title", {
+          name: pendingCoachId ? getCoach(pendingCoachId).name : t("coaches.choose"),
+        })}
+        body={t("coaches.switch_body")}
+        confirmLabel={t("coaches.switch_confirm")}
         danger
         onCancel={() => setPendingCoachId(null)}
         onConfirm={() => {

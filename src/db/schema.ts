@@ -357,6 +357,33 @@ export const programs = pgTable(
   ],
 );
 
+/**
+ * Canonical bilingual movement library. Program/session rows reference this
+ * stable identity while image_path stays independently replaceable.
+ */
+export const exerciseCatalog = pgTable(
+  "exercise_catalog",
+  {
+    id: text("id").primaryKey(),
+    name_en: text("name_en").notNull(),
+    name_sv: text("name_sv").notNull(),
+    equipment: text("equipment").notNull(),
+    aliases: jsonb("aliases").notNull().default([]),
+    image_path: text("image_path").notNull(),
+    updated_at: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("exercise_catalog_name_en_idx").on(t.name_en),
+    uniqueIndex("exercise_catalog_name_sv_idx").on(t.name_sv),
+    check("exercise_catalog_id_check", sql`${t.id} ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'`),
+    check(
+      "exercise_catalog_equipment_check",
+      sql`${t.equipment} IN ('barbell', 'dumbbell', 'machine', 'cable', 'bodyweight', 'mixed')`,
+    ),
+    check("exercise_catalog_image_check", sql`length(${t.image_path}) BETWEEN 1 AND 500`),
+  ],
+);
+
 /** Idempotency ledger for replay-sensitive program mutations. */
 export const programOperations = pgTable(
   "program_operations",
@@ -426,6 +453,9 @@ export const programExercises = pgTable(
       .notNull()
       .references(() => programDays.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
+    exercise_id: text("exercise_id").references(() => exerciseCatalog.id, {
+      onDelete: "restrict",
+    }),
     name: text("name").notNull(),
     sets: integer("sets").notNull(),
     rep_range: text("rep_range").notNull(), // e.g. "6–8"
@@ -575,6 +605,9 @@ export const sessionExercises = pgTable(
       .notNull()
       .references(() => workoutSessions.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
+    exercise_id: text("exercise_id").references(() => exerciseCatalog.id, {
+      onDelete: "restrict",
+    }),
     name: text("name").notNull(),
     target: text("target"), // e.g. "4×6–8 @ 60kg"
     // Immutable number of rows copied from the workout plan. Rows with a

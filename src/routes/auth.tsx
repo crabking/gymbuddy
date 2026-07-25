@@ -11,14 +11,19 @@ import { COACH_IMAGES } from "@/lib/coach-assets";
 import { getCoach, isCoachId, type CoachId } from "@/lib/coaches";
 import { clearAccountCache } from "@/lib/client-session";
 import { usePwaUpdateBlocker } from "@/lib/pwa-update";
+import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
+import { isLanguage, type Language } from "@/lib/i18n";
 
 type AuthSearch = {
   coach?: CoachId;
+  lang?: Language;
 };
 
 export const Route = createFileRoute("/auth")({
-  validateSearch: (search: Record<string, unknown>): AuthSearch =>
-    isCoachId(search.coach) ? { coach: search.coach } : {},
+  validateSearch: (search: Record<string, unknown>): AuthSearch => ({
+    ...(isCoachId(search.coach) ? { coach: search.coach } : {}),
+    ...(isLanguage(search.lang) ? { lang: search.lang } : {}),
+  }),
   head: () => ({
     meta: [
       { title: "Sign in — COACH" },
@@ -29,15 +34,26 @@ export const Route = createFileRoute("/auth")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: AuthPage,
+  component: AuthRoute,
 });
 
-function AuthPage() {
+function AuthRoute() {
+  const { lang = "en" } = Route.useSearch();
+  return (
+    <LanguageProvider language={lang}>
+      <AuthPage language={lang} />
+    </LanguageProvider>
+  );
+}
+
+function AuthPage({ language }: { language: Language }) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const loginFn = useServerFn(login);
   const getCurrentUserFn = useServerFn(getCurrentUser);
   const { coach } = Route.useSearch();
+  const selectedCoach = isCoachId(coach) ? coach : undefined;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -61,11 +77,14 @@ function AuthPage() {
     submittingRef.current = true;
     setLoading(true);
     try {
-      await loginFn({ data: { email, password, coach_id: coach } });
+      await loginFn({
+        data: { email, password, coach_id: selectedCoach, preferred_language: language },
+      });
       await clearAccountCache(queryClient);
       window.location.replace("/chat");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Invalid email or password");
+      const message = err instanceof Error ? err.message.toLowerCase() : "";
+      toast.error(message.includes("too many") ? t("auth.too_many") : t("auth.invalid"));
     } finally {
       submittingRef.current = false;
       setLoading(false);
@@ -79,6 +98,7 @@ function AuthPage() {
           <div className="flex items-center gap-2">
             <Link
               to="/"
+              search={{ lang: language }}
               className="flex min-h-11 items-center gap-2 text-sm font-semibold text-primary"
             >
               <Dumbbell className="h-5 w-5" />
@@ -86,41 +106,55 @@ function AuthPage() {
             </Link>
             <VersionTag />
           </div>
-          <InstallAppButton className="flex min-h-11 items-center gap-2 rounded-xl border border-primary/60 bg-primary/10 px-3 text-xs font-bold text-primary transition active:scale-95" />
+          <div className="flex items-center gap-1">
+            {(["en", "sv"] as const).map((lang) => (
+              <Link
+                key={lang}
+                to="/auth"
+                search={{ coach: selectedCoach, lang }}
+                aria-label={lang === "sv" ? t("language.swedish") : t("language.english")}
+                className={language === lang ? "opacity-100" : "opacity-35"}
+              >
+                <span aria-hidden="true">{lang === "sv" ? "🇸🇪" : "🇬🇧"}</span>
+              </Link>
+            ))}
+            <InstallAppButton className="flex min-h-11 items-center gap-2 rounded-xl border border-primary/60 bg-primary/10 px-3 text-xs font-bold text-primary transition active:scale-95" />
+          </div>
         </header>
 
         <main className="flex flex-1 items-center py-8">
           <div className="w-full">
-            {coach && (
+            {selectedCoach && (
               <Link
                 to="/coaches"
+                search={{ lang: language }}
                 className="mb-7 flex items-center gap-3 border border-border bg-card p-3 transition hover:border-primary/60"
               >
                 <img
-                  src={COACH_IMAGES[coach].avatar}
+                  src={COACH_IMAGES[selectedCoach].avatar}
                   alt=""
                   className="h-14 w-14 object-cover object-top"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block font-display text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-                    Selected coach
+                    {t("auth.selected_coach")}
                   </span>
                   <span className="block text-base font-bold text-foreground">
-                    {getCoach(coach).name}
+                    {getCoach(selectedCoach).name}
                   </span>
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Change
+                  {t("common.change")}
                 </span>
               </Link>
             )}
             <h1 className="text-center font-display text-3xl font-black uppercase tracking-tight text-foreground">
-              Sign in
+              {t("auth.sign_in")}
             </h1>
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-3">
               <label htmlFor="auth-email" className="sr-only">
-                Email
+                {t("auth.email")}
               </label>
               <input
                 id="auth-email"
@@ -133,7 +167,7 @@ function AuthPage() {
                 className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
               />
               <label htmlFor="auth-password" className="sr-only">
-                Password
+                {t("auth.password")}
               </label>
               <input
                 id="auth-password"
@@ -142,7 +176,7 @@ function AuthPage() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
+                placeholder={t("auth.password")}
                 className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
               />
               <button
@@ -150,7 +184,7 @@ function AuthPage() {
                 disabled={loading}
                 className="mt-2 h-12 w-full rounded-xl bg-primary font-bold text-primary-foreground shadow-lg shadow-primary/30 transition active:scale-[0.98] disabled:opacity-60"
               >
-                {loading ? "…" : "Sign in"}
+                {loading ? "…" : t("auth.sign_in")}
               </button>
             </form>
           </div>

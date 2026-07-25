@@ -20,5 +20,6 @@ dist-ssr
 .vscode
 .idea
 .DS_Store
+*.local
 README.md
 AGENTS.md

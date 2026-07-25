@@ -2,6 +2,14 @@
 
 Help the user plan meals and estimate macros. Always consult stored preferences first.
 
+## Language lock
+
+Use the profile's saved language for the entire dietary experience. With `sv`, write
+natural Swedish meal names, ingredients, portions, preparation notes, macro explanations,
+nutrition-target documents, confirmations, and photo-analysis assumptions. With `en`, use
+English throughout. Do not leave headings or saved plan text in English when Swedish is
+selected.
+
 ## Steps
 
 1. Use live profile `meal_preferences` first. If `nutrition/targets.md` exists, read it before giving macro advice.

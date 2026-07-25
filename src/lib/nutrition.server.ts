@@ -7,6 +7,7 @@ import {
   localDateInTimeZone,
   normalizeTimeZone,
 } from "@/lib/local-date";
+import type { AppLanguage } from "@/lib/exercises";
 
 export type NutritionToday = {
   date: string;
@@ -228,27 +229,37 @@ export async function getNutrition(
 }
 
 /** Compact summary for injecting into the agent context. */
-export function summarizeNutrition(x: NutritionToday): string {
+export function summarizeNutrition(x: NutritionToday, language: AppLanguage = "en"): string {
   const knownCalories = Math.round(x.known_totals.calories);
   const cal =
     x.meal_count === 0
-      ? "no meals logged"
+      ? language === "sv"
+        ? "inga måltider loggade"
+        : "no meals logged"
       : x.calories == null
-        ? `at least ${knownCalories} kcal logged; ${x.unknown_meals.calories} meal(s) have no calorie estimate${
-            x.target_calories ? ` (target ${x.target_calories})` : ""
-          }`
+        ? language === "sv"
+          ? `minst ${knownCalories} kcal loggade; ${x.unknown_meals.calories} måltid(er) saknar kaloriuppskattning${
+              x.target_calories ? ` (mål ${x.target_calories})` : ""
+            }`
+          : `at least ${knownCalories} kcal logged; ${x.unknown_meals.calories} meal(s) have no calorie estimate${
+              x.target_calories ? ` (target ${x.target_calories})` : ""
+            }`
         : x.target_calories
           ? x.calories <= x.target_calories
             ? `${Math.round(x.calories)} / ${x.target_calories} kcal (${Math.round(
                 x.target_calories - x.calories,
-              )} left)`
+              )} ${language === "sv" ? "kvar" : "left"})`
             : `${Math.round(x.calories)} / ${x.target_calories} kcal (${Math.round(
                 x.calories - x.target_calories,
-              )} over)`
-          : `${Math.round(x.calories)} kcal (no target set)`;
+              )} ${language === "sv" ? "över" : "over"})`
+          : `${Math.round(x.calories)} kcal (${
+              language === "sv" ? "inget mål angivet" : "no target set"
+            })`;
   const macro = (label: string, exact: number | null, known: number, unknown: number) =>
     exact == null
-      ? `${label}≥${Math.round(known)} (${unknown || "no"} unknown)`
+      ? `${label}≥${Math.round(known)} (${unknown || (language === "sv" ? "inga" : "no")} ${
+          language === "sv" ? "okända" : "unknown"
+        })`
       : `${label}${Math.round(exact)}`;
   const macros = [
     macro("P", x.protein_g, x.known_totals.protein_g, x.unknown_meals.protein_g),
@@ -259,10 +270,18 @@ export function summarizeNutrition(x: NutritionToday): string {
     ? x.meals
         .map(
           (m) =>
-            `  - ${m.description}${m.calories != null ? ` (${m.calories} kcal)` : " (calories unknown)"}`,
+            `  - ${m.description}${
+              m.calories != null
+                ? ` (${m.calories} kcal)`
+                : language === "sv"
+                  ? " (kalorier okända)"
+                  : " (calories unknown)"
+            }`,
         )
         .join("\n")
-    : "  (nothing logged yet today)";
+    : language === "sv"
+      ? "  (inget loggat ännu i dag)"
+      : "  (nothing logged yet today)";
   const week = x.week_days.length
     ? x.week_days
         .map((d) => {
@@ -271,6 +290,11 @@ export function summarizeNutrition(x: NutritionToday): string {
           return `${d.date.slice(5)}:${Math.round(d.calories)}`;
         })
         .join(", ")
-    : "no data";
+    : language === "sv"
+      ? "inga data"
+      : "no data";
+  if (language === "sv") {
+    return `I dag: ${cal}, ${macros}, ${x.meals.length} måltid(er):\n${meals}\nDen här veckan (kcal/dag): ${week}`;
+  }
   return `Today ${cal}, ${macros}, ${x.meals.length} meal(s):\n${meals}\nThis week (kcal/day): ${week}`;
 }

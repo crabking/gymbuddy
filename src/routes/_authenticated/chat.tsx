@@ -50,8 +50,10 @@ import { getCoach } from "@/lib/coaches";
 import { clearAccountCache, hardNavigateToAuth, isUnauthorizedError } from "@/lib/client-session";
 import { classifyChatTransportError } from "@/lib/chat-client-error";
 import { isSameChatSubmission, type RetriableChatSubmission } from "@/lib/chat-submission";
+import { shouldAutoKickoffCoach, userFacingChatMessages } from "@/lib/chat-bootstrap";
 import { prepareChatImage } from "@/lib/image-upload";
 import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
+import { useLanguage } from "@/components/LanguageProvider";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -159,42 +161,52 @@ function formatTrackedTotal(
   return "—";
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  load_skill: "opening the playbook…",
-  list_workspace: "checking your workspace…",
-  read_file: "reading your notes…",
-  save_workout_plan: "saving your training plan…",
-  save_schedule: "saving your weekly schedule…",
-  save_nutrition_targets: "saving your nutrition targets…",
-  update_profile: "saving your details…",
-  complete_onboarding: "wrapping up setup…",
-  log_meal: "logging that meal…",
-  calc_program_timeline: "structuring the mesocycle…",
-  calc_starting_weights: "calibrating your starting loads…",
-  calc_nutrition_targets: "calculating your calorie target…",
-  substitute_exercise: "finding a swap…",
-  shift_schedule_weeks: "reshuffling the weeks…",
+const TOOL_LABELS: Record<string, { en: string; sv: string }> = {
+  load_skill: { en: "opening the playbook…", sv: "öppnar handboken…" },
+  list_workspace: { en: "checking your workspace…", sv: "kontrollerar din arbetsyta…" },
+  read_file: { en: "reading your notes…", sv: "läser dina anteckningar…" },
+  save_workout_plan: { en: "saving your training plan…", sv: "sparar ditt träningsprogram…" },
+  save_schedule: { en: "saving your weekly schedule…", sv: "sparar ditt veckoschema…" },
+  save_nutrition_targets: { en: "saving your nutrition targets…", sv: "sparar dina kostmål…" },
+  update_profile: { en: "saving your details…", sv: "sparar dina uppgifter…" },
+  complete_onboarding: { en: "wrapping up setup…", sv: "slutför introduktionen…" },
+  log_meal: { en: "logging that meal…", sv: "loggar måltiden…" },
+  calc_program_timeline: { en: "structuring the mesocycle…", sv: "bygger programperioden…" },
+  calc_starting_weights: {
+    en: "calibrating your starting loads…",
+    sv: "kalibrerar startvikterna…",
+  },
+  calc_nutrition_targets: {
+    en: "calculating your calorie target…",
+    sv: "beräknar ditt kalorimål…",
+  },
+  substitute_exercise: { en: "finding a swap…", sv: "hittar en ersättningsövning…" },
+  shift_schedule_weeks: { en: "reshuffling the weeks…", sv: "flyttar programveckorna…" },
 };
 
 function deriveActivity(
   latest: UIMessage | undefined,
   status: string,
   coachName: string,
+  language: "en" | "sv",
 ): string | null {
-  if (status === "submitted") return `${coachName} is thinking…`;
+  if (status === "submitted")
+    return language === "sv" ? `${coachName} tänker…` : `${coachName} is thinking…`;
   if (status !== "streaming") return null;
-  if (!latest || latest.role !== "assistant") return `${coachName} is thinking…`;
+  if (!latest || latest.role !== "assistant")
+    return language === "sv" ? `${coachName} tänker…` : `${coachName} is thinking…`;
   // Find the most recent in-progress tool part.
   for (let i = latest.parts.length - 1; i >= 0; i--) {
     const p = latest.parts[i] as { type?: string; state?: string };
     if (p.type?.startsWith("tool-")) {
       if (p.state === "output-available" || p.state === "output-error") break;
       const name = p.type.slice(5);
-      return `${coachName} is ${TOOL_LABELS[name] ?? "working…"}`;
+      const label = TOOL_LABELS[name]?.[language] ?? (language === "sv" ? "arbetar…" : "working…");
+      return language === "sv" ? `${coachName} ${label}` : `${coachName} is ${label}`;
     }
     if (p.type === "text") break; // text streaming, no active tool
   }
-  return `${coachName} is writing…`;
+  return language === "sv" ? `${coachName} skriver…` : `${coachName} is writing…`;
 }
 
 export const Route = createFileRoute("/_authenticated/chat")({
@@ -234,9 +246,10 @@ export const Route = createFileRoute("/_authenticated/chat")({
 });
 
 function CenterSpinner() {
+  const { t } = useLanguage();
   return (
     <div className="grid min-h-dvh place-items-center bg-background">
-      <Shimmer>Loading…</Shimmer>
+      <Shimmer>{t("common.loading")}</Shimmer>
     </div>
   );
 }
@@ -252,6 +265,7 @@ function InfoStatusRow({
   message: string;
   onRetry?: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <div className="flex min-h-12 items-center gap-3 px-3 py-2">
       <Icon className="h-5 w-5 shrink-0 text-primary" />
@@ -267,7 +281,7 @@ function InfoStatusRow({
           onClick={onRetry}
           className="min-h-11 shrink-0 px-2 text-xs font-bold text-primary"
         >
-          Retry
+          {t("common.retry")}
         </button>
       )}
     </div>
@@ -329,6 +343,7 @@ function buildStatus(profile: Profile, files: WorkspaceFile[] | undefined) {
 }
 
 function ChatScreen() {
+  const { language, t } = useLanguage();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const resetFn = useServerFn(resetOnboarding);
@@ -485,7 +500,11 @@ function ChatScreen() {
           await qc.refetchQueries({ queryKey: ["chat-messages"], type: "active" });
           clearChatErrorRef.current();
         })().catch(() => {
-          toast.error("Your reply was saved, but could not sync. Refresh to recover it.");
+          toast.error(
+            language === "sv"
+              ? "Ditt svar sparades men kunde inte synkroniseras. Uppdatera för att hämta det."
+              : "Your reply was saved, but could not sync. Refresh to recover it.",
+          );
         });
         return;
       }
@@ -499,9 +518,17 @@ function ChatScreen() {
           await qc.refetchQueries({ queryKey: ["chat-messages"], type: "active" });
           clearChatErrorRef.current();
         })().catch(() => {
-          toast.error("Refresh before sending another message.");
+          toast.error(
+            language === "sv"
+              ? "Uppdatera innan du skickar ett nytt meddelande."
+              : "Refresh before sending another message.",
+          );
         });
-        toast.error("That message could not be sent safely. Please write a new message.");
+        toast.error(
+          language === "sv"
+            ? "Meddelandet kunde inte skickas säkert. Skriv ett nytt meddelande."
+            : "That message could not be sent safely. Please write a new message.",
+        );
         return;
       }
       const failed = pendingSubmission.current;
@@ -515,7 +542,7 @@ function ChatScreen() {
         setInput((current) => current || failed.text);
         setPendingFiles((current) => (current.length ? current : failed.files));
       }
-      toast.error(err.message || "Chat failed");
+      toast.error(err.message || t("chat.chat_failed"));
     },
     onFinish: ({ isError }) => {
       if (!isError) {
@@ -574,13 +601,17 @@ function ChatScreen() {
   // onboarding skill; after onboarding it keeps driving the build (plan, meals…)
   // until everything is set up. The "__begin__" marker is filtered from the UI.
   const buildIncomplete = buildDoneCount < buildTotalSteps;
+  const visibleMessageCount = userFacingChatMessages(messages).length;
   const kicked = useRef(false);
   useEffect(() => {
     if (
-      (inOnboarding || buildIncomplete) &&
       !kicked.current &&
-      messages.length === 0 &&
-      status === "ready"
+      shouldAutoKickoffCoach({
+        messages,
+        inOnboarding,
+        buildIncomplete,
+        status,
+      })
     ) {
       kicked.current = true;
       kickoffInFlight.current = true;
@@ -593,7 +624,15 @@ function ChatScreen() {
         // useChat's onError exposes the setup retry state.
       });
     }
-  }, [inOnboarding, buildIncomplete, messages.length, status, sendMessage, kickoffFailed]);
+  }, [
+    inOnboarding,
+    buildIncomplete,
+    visibleMessageCount,
+    messages,
+    status,
+    sendMessage,
+    kickoffFailed,
+  ]);
 
   // When onboarding finishes, clear the chat into a fresh session — and re-arm
   // the kickoff so the coach immediately continues with the build steps.
@@ -610,7 +649,11 @@ function ChatScreen() {
   async function submit() {
     const text = input.trim();
     if ((!text && pendingFiles.length === 0) || busy) return;
-    const submittedText = text || "What's this? Log it if it's food.";
+    const submittedText =
+      text ||
+      (language === "sv"
+        ? "Vad är det här? Logga det om det är mat."
+        : "What's this? Log it if it's food.");
     const submittedFiles = [...pendingFiles];
     const files = submittedFiles.length ? toFileList(submittedFiles) : undefined;
     const retry = failedSubmission.current;
@@ -630,7 +673,7 @@ function ChatScreen() {
     if (!list || processingImage) return;
     const available = Math.max(0, 3 - pendingFiles.length);
     if (available === 0) {
-      toast.error("You can attach up to 3 photos");
+      toast.error(t("chat.max_photos"));
       return;
     }
     setProcessingImage(true);
@@ -640,7 +683,9 @@ function ChatScreen() {
         try {
           prepared.push(await prepareChatImage(file));
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Could not prepare that photo");
+          toast.error(
+            language === "en" && error instanceof Error ? error.message : t("chat.photo_failed"),
+          );
         }
       }
       if (prepared.length) setPendingFiles((current) => [...current, ...prepared].slice(0, 3));
@@ -655,7 +700,9 @@ function ChatScreen() {
       await clearAccountCache(qc);
       window.location.replace("/auth");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not sign out");
+      toast.error(
+        language === "en" && error instanceof Error ? error.message : t("chat.signout_failed"),
+      );
     }
   }
 
@@ -674,13 +721,24 @@ function ChatScreen() {
         await hardNavigateToAuth(qc);
         return;
       }
-      toast.error(error instanceof Error ? error.message : "Could not reset your account");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : language === "sv"
+            ? "Kunde inte återställa ditt konto"
+            : "Could not reset your account",
+      );
     }
   }
 
   function explainAgain() {
     if (busy) return;
-    void sendMessage({ text: "Can you explain that again, slower and with an example?" });
+    void sendMessage({
+      text:
+        language === "sv"
+          ? "Kan du förklara det igen, långsammare och med ett exempel?"
+          : "Can you explain that again, slower and with an example?",
+    });
   }
 
   async function startWorkout() {
@@ -700,24 +758,32 @@ function ChatScreen() {
         }),
       );
       if (!result.ok) {
-        toast.error(result.coach_note ?? "Could not start today's workout");
+        toast.error(result.coach_note ?? t("chat.start_failed"));
         return;
       }
-      toast.success(result.session?.title ? `${result.session.title} ready` : "Workout ready");
+      toast.success(
+        result.session?.title
+          ? language === "sv"
+            ? `${result.session.title} är klart`
+            : `${result.session.title} ready`
+          : t("chat.workout_ready"),
+      );
       if (!busy) {
         void sendMessage({ text: "__ui_event__ started today's workout from the app" });
       }
     } catch (error) {
       if (isDataEpochConflict(error)) {
         await refreshAfterDataEpochConflict(qc);
-        toast.error("Your coach changed on another device. Latest data loaded.");
+        toast.error(t("chat.account_changed"));
         return;
       }
       if (isUnauthorizedError(error)) {
         await hardNavigateToAuth(qc);
         return;
       }
-      toast.error(error instanceof Error ? error.message : "Could not start the workout");
+      toast.error(
+        language === "en" && error instanceof Error ? error.message : t("chat.start_failed"),
+      );
     } finally {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["workout-session"] }),
@@ -763,7 +829,9 @@ function ChatScreen() {
         if (result.error === "set_revision_conflict") {
           qc.setQueryData(["workout-session"], result.session);
           toast.error(
-            "That set changed on another device. Latest values loaded; review and retry.",
+            language === "sv"
+              ? "Setet ändrades på en annan enhet. Senaste värden har lästs in; granska och försök igen."
+              : "That set changed on another device. Latest values loaded; review and retry.",
           );
           return {
             ok: false,
@@ -773,8 +841,12 @@ function ChatScreen() {
         }
         toast.error(
           result.error === "actual_set_data_required"
-            ? "Enter the weight and reps you actually completed."
-            : "Could not save that set. Reloaded the latest workout.",
+            ? language === "sv"
+              ? "Ange vikten och repetitionerna du faktiskt genomförde."
+              : "Enter the weight and reps you actually completed."
+            : language === "sv"
+              ? "Kunde inte spara setet. Senaste passet har lästs in."
+              : "Could not save that set. Reloaded the latest workout.",
         );
         return { ok: false };
       }
@@ -787,13 +859,19 @@ function ChatScreen() {
     } catch (error) {
       if (isDataEpochConflict(error)) {
         await refreshAfterDataEpochConflict(qc);
-        toast.error("Your coach changed on another device. Latest workout loaded.");
+        toast.error(t("chat.account_changed"));
         return { ok: false };
       }
       if (isUnauthorizedError(error)) {
         await hardNavigateToAuth(qc);
       } else {
-        toast.error(error instanceof Error ? error.message : "Could not save that set");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : language === "sv"
+              ? "Kunde inte spara setet"
+              : "Could not save that set",
+        );
       }
       return { ok: false };
     } finally {
@@ -818,7 +896,9 @@ function ChatScreen() {
         toast.error(result.coach_note);
         return;
       }
-      toast.success("Workout done — nice work 🎉");
+      toast.success(
+        language === "sv" ? "Passet är klart — snyggt jobbat 🎉" : "Workout done — nice work 🎉",
+      );
       if (!busy) {
         void sendMessage({
           text: result.cycle_completed
@@ -829,13 +909,19 @@ function ChatScreen() {
     } catch (error) {
       if (isDataEpochConflict(error)) {
         await refreshAfterDataEpochConflict(qc);
-        toast.error("Your coach changed on another device. Latest workout loaded.");
+        toast.error(t("chat.account_changed"));
         return;
       }
       if (isUnauthorizedError(error)) {
         await hardNavigateToAuth(qc);
       } else {
-        toast.error(error instanceof Error ? error.message : "Could not finish the workout");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : language === "sv"
+              ? "Kunde inte avsluta passet"
+              : "Could not finish the workout",
+        );
       }
     } finally {
       await Promise.all([
@@ -849,11 +935,7 @@ function ChatScreen() {
   }
 
   // Hide internal markers (kickoff + UI events) from the transcript.
-  const visibleMessages: UIMessage[] = messages.filter((m) => {
-    if (m.role !== "user") return true;
-    const text = m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
-    return text !== "__begin__" && !text.startsWith("__ui_event__");
-  });
+  const visibleMessages = userFacingChatMessages(messages);
   const latest = visibleMessages[visibleMessages.length - 1];
   const latestText = latest
     ? latest.parts.map((p) => (p.type === "text" ? p.text : "")).join("")
@@ -867,21 +949,21 @@ function ChatScreen() {
       })
       .filter((x): x is { url: string } => x !== null) ?? [];
 
-  const activity = deriveActivity(latest, status, coach.name);
+  const activity = deriveActivity(latest, status, coach.name, language);
 
   const firstName = (profile as Profile)?.display_name?.split(" ")[0] || "athlete";
 
   const steps: Array<{ key: SetupKey; label: string; Icon: typeof User }> = [
-    { key: "profile", label: "Basics", Icon: User },
-    { key: "schedule", label: "Schedule", Icon: CalendarDays },
-    { key: "baseline", label: "Baseline", Icon: Dumbbell },
-    { key: "meals", label: "Meals", Icon: UtensilsCrossed },
+    { key: "profile", label: t("chat.profile_step"), Icon: User },
+    { key: "schedule", label: t("chat.schedule_step"), Icon: CalendarDays },
+    { key: "baseline", label: t("chat.baseline_step"), Icon: Dumbbell },
+    { key: "meals", label: t("chat.meals_step"), Icon: UtensilsCrossed },
   ];
 
   const buildSteps: Array<{ key: BuildKey; label: string; Icon: typeof User }> = [
-    { key: "schedule", label: "Schedule", Icon: CalendarDays },
-    { key: "plan", label: "Plan", Icon: Dumbbell },
-    { key: "meals", label: "Meals", Icon: UtensilsCrossed },
+    { key: "schedule", label: t("chat.schedule_step"), Icon: CalendarDays },
+    { key: "plan", label: t("chat.plan_step"), Icon: Dumbbell },
+    { key: "meals", label: t("chat.meals_step"), Icon: UtensilsCrossed },
   ];
 
   return (
@@ -914,11 +996,11 @@ function ChatScreen() {
                       <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
                     </span>
                   </span>
-                  Onboarding · {doneCount}/{totalSteps}
+                  {t("chat.onboarding")} · {doneCount}/{totalSteps}
                 </span>
               ) : buildDoneCount < buildTotalSteps ? (
                 <span className="mt-1 font-display text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-400/80">
-                  Build · {buildDoneCount}/{buildTotalSteps}
+                  {t("chat.build")} · {buildDoneCount}/{buildTotalSteps}
                 </span>
               ) : null}
             </div>
@@ -928,7 +1010,7 @@ function ChatScreen() {
               onClick={signOut}
               type="button"
               className="grid h-11 w-11 place-items-center rounded-lg text-red-400 transition hover:bg-red-500/10 hover:text-red-300"
-              aria-label="Sign out"
+              aria-label={t("chat.sign_out")}
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -947,7 +1029,13 @@ function ChatScreen() {
                     key={s.key}
                     disabled
                     className="group flex flex-1 flex-col items-center gap-1 disabled:cursor-default"
-                    aria-label={`${s.label} — ${done ? "done" : isCurrent ? "in progress" : "pending"}`}
+                    aria-label={`${s.label} — ${
+                      done
+                        ? t("common.done")
+                        : isCurrent
+                          ? t("common.in_progress")
+                          : t("common.pending")
+                    }`}
                   >
                     <div className="flex w-full items-center gap-1">
                       <div
@@ -1005,7 +1093,13 @@ function ChatScreen() {
                     key={s.key}
                     onClick={() => setOpenSection("all")}
                     className="group flex flex-1 flex-col items-center gap-1"
-                    aria-label={`${s.label} — ${done ? "done" : isCurrent ? "in progress" : "pending"}`}
+                    aria-label={`${s.label} — ${
+                      done
+                        ? t("common.done")
+                        : isCurrent
+                          ? t("common.in_progress")
+                          : t("common.pending")
+                    }`}
                   >
                     <div
                       className={`grid h-8 w-full place-items-center rounded-lg border transition-all ${
@@ -1055,12 +1149,20 @@ function ChatScreen() {
         {!inOnboarding && !keyboardOpen && (
           <div className="-mx-3 mt-3 divide-y divide-border border-t border-border bg-background/50">
             {nutritionQuery.isPending && !nutrition ? (
-              <InfoStatusRow Icon={Flame} label="Calories" message="Loading today’s totals…" />
+              <InfoStatusRow
+                Icon={Flame}
+                label={t("chat.calories")}
+                message={t("chat.loading_totals")}
+              />
             ) : nutritionQuery.isError && !nutrition ? (
               <InfoStatusRow
                 Icon={Flame}
-                label="Calories unavailable"
-                message="Nothing was changed. Check your connection."
+                label={t("chat.calories_unavailable")}
+                message={
+                  language === "sv"
+                    ? "Inget ändrades. Kontrollera anslutningen."
+                    : "Nothing was changed. Check your connection."
+                }
                 onRetry={() => void nutritionQuery.refetch()}
               />
             ) : (
@@ -1069,7 +1171,7 @@ function ChatScreen() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                      Calories
+                      {t("chat.calories")}
                     </span>
                     {nutritionQuery.isError ? (
                       <button
@@ -1077,7 +1179,7 @@ function ChatScreen() {
                         onClick={() => void nutritionQuery.refetch()}
                         className="min-h-11 shrink-0 text-[11px] font-bold text-amber-300"
                       >
-                        Last synced · retry
+                        {language === "sv" ? "Senast synkat · försök igen" : "Last synced · retry"}
                       </button>
                     ) : (
                       <span className="truncate text-[11px] text-muted-foreground">
@@ -1105,7 +1207,15 @@ function ChatScreen() {
               </div>
             )}
             {sessionQuery.isPending && !session ? (
-              <InfoStatusRow Icon={Dumbbell} label="Workout" message="Checking today’s workout…" />
+              <InfoStatusRow
+                Icon={Dumbbell}
+                label={t("chat.workout")}
+                message={
+                  language === "sv"
+                    ? "Kontrollerar dagens träningspass…"
+                    : "Checking today’s workout…"
+                }
+              />
             ) : session ? (
               <SessionTimerBar
                 session={session}
@@ -1114,17 +1224,29 @@ function ChatScreen() {
             ) : sessionQuery.isError ? (
               <InfoStatusRow
                 Icon={Dumbbell}
-                label="Workout unavailable"
-                message="Your saved workout is safe on the server."
+                label={t("chat.workout_unavailable")}
+                message={
+                  language === "sv"
+                    ? "Ditt sparade pass finns kvar på servern."
+                    : "Your saved workout is safe on the server."
+                }
                 onRetry={() => void sessionQuery.refetch()}
               />
             ) : todayTrainingQuery.isPending && !todayTraining ? (
-              <InfoStatusRow Icon={Dumbbell} label="Workout" message="Loading today’s plan…" />
+              <InfoStatusRow
+                Icon={Dumbbell}
+                label={t("chat.workout")}
+                message={t("chat.loading_workout")}
+              />
             ) : todayTrainingQuery.isError && !todayTraining ? (
               <InfoStatusRow
                 Icon={Dumbbell}
-                label="Plan unavailable"
-                message="Could not confirm whether today is a training day."
+                label={language === "sv" ? "Programmet är inte tillgängligt" : "Plan unavailable"}
+                message={
+                  language === "sv"
+                    ? "Kunde inte bekräfta om i dag är en träningsdag."
+                    : "Could not confirm whether today is a training day."
+                }
                 onRetry={() => void todayTrainingQuery.refetch()}
               />
             ) : (
@@ -1132,14 +1254,18 @@ function ChatScreen() {
                 <Dumbbell className="h-5 w-5 shrink-0 text-primary" />
                 <div className="min-w-0 flex-1">
                   <div className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    Workout
+                    {t("chat.workout")}
                   </div>
                   <div className="mt-0.5 flex items-center justify-between gap-3 text-xs">
                     <span className="min-w-0 truncate font-semibold text-foreground">
-                      {todayTraining?.label ?? "Rest day"}
+                      {todayTraining?.label ?? (language === "sv" ? "Vilodag" : "Rest day")}
                     </span>
                     {todayTraining?.detail && (
-                      <span className="shrink-0 text-muted-foreground">{todayTraining.detail}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {todayTraining.detail === "today"
+                          ? t("common.today")
+                          : todayTraining.detail}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1160,7 +1286,9 @@ function ChatScreen() {
             {kickoffFailed ? (
               <>
                 <p className="text-sm text-muted-foreground">
-                  Couldn’t reach {coach.name}. Your setup is safe.
+                  {language === "sv"
+                    ? `Kunde inte nå ${coach.name}. Din konfiguration är säker.`
+                    : `Couldn’t reach ${coach.name}. Your setup is safe.`}
                 </p>
                 <button
                   type="button"
@@ -1170,14 +1298,20 @@ function ChatScreen() {
                   }}
                   className="mt-3 min-h-11 rounded-xl border border-primary/60 px-4 text-sm font-bold text-primary"
                 >
-                  Retry
+                  {t("common.retry")}
                 </button>
               </>
             ) : inOnboarding ? (
-              <Shimmer>{`${coach.name} is getting set up…`}</Shimmer>
+              <Shimmer>
+                {language === "sv"
+                  ? `${coach.name} gör sig redo…`
+                  : `${coach.name} is getting set up…`}
+              </Shimmer>
             ) : (
               <p className="text-[15px] leading-relaxed text-muted-foreground">
-                Ask {coach.name} anything, or tap Program to see today's session.
+                {language === "sv"
+                  ? `Fråga ${coach.name} vad du vill eller tryck på Program för att se dagens pass.`
+                  : `Ask ${coach.name} anything, or tap Program to see today's session.`}
               </p>
             )}
           </div>
@@ -1203,14 +1337,14 @@ function ChatScreen() {
                     className="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-sm border border-border bg-secondary/40 px-3 font-display text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground transition hover:border-primary hover:text-primary"
                   >
                     <RefreshCw className="h-3 w-3" />
-                    Explain again
+                    {t("chat.explain_again")}
                   </button>
                 )}
               </div>
             ) : (
               <div className="flex flex-col items-end gap-3">
                 <div className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                  You
+                  {language === "sv" ? "Du" : "You"}
                 </div>
                 {latestImages.length > 0 && (
                   <div className="flex flex-wrap justify-end gap-2">
@@ -1271,7 +1405,9 @@ function ChatScreen() {
         <div className="border-t border-border bg-card/40 px-3 py-2">
           {sessionQuery.isPending && !session ? (
             <div className="flex min-h-11 items-center justify-center">
-              <Shimmer>Checking workout…</Shimmer>
+              <Shimmer>
+                {language === "sv" ? "Kontrollerar träningspasset…" : "Checking workout…"}
+              </Shimmer>
             </div>
           ) : session ? (
             <>
@@ -1281,7 +1417,9 @@ function ChatScreen() {
                   onClick={() => void sessionQuery.refetch()}
                   className="mb-2 min-h-11 w-full rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-300"
                 >
-                  Workout sync paused · Retry
+                  {language === "sv"
+                    ? "Synkronisering av passet pausad · Försök igen"
+                    : "Workout sync paused · Retry"}
                 </button>
               )}
               <WorkoutPanel
@@ -1297,7 +1435,9 @@ function ChatScreen() {
               onClick={() => void sessionQuery.refetch()}
               className="min-h-11 w-full rounded-xl border border-border px-3 text-sm font-bold text-primary"
             >
-              Couldn’t load the workout · Retry
+              {language === "sv"
+                ? "Kunde inte läsa in passet · Försök igen"
+                : "Couldn’t load the workout · Retry"}
             </button>
           ) : (
             <button
@@ -1311,7 +1451,11 @@ function ChatScreen() {
               ) : (
                 <Play className="h-4 w-4" />
               )}{" "}
-              {workoutMutations > 0 ? "Starting…" : "Start today’s workout"}
+              {workoutMutations > 0
+                ? language === "sv"
+                  ? "Startar…"
+                  : "Starting…"
+                : t("chat.start_workout")}
             </button>
           )}
         </div>
@@ -1351,7 +1495,7 @@ function ChatScreen() {
             onClick={() => cameraRef.current?.click()}
             disabled={processingImage || busy}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground hover:border-primary hover:text-primary disabled:opacity-50"
-            aria-label="Take photo"
+            aria-label={t("chat.take_photo")}
           >
             {processingImage ? (
               <RefreshCw className="h-5 w-5 animate-spin" />
@@ -1370,7 +1514,7 @@ function ChatScreen() {
             }}
             rows={1}
             enterKeyHint="send"
-            placeholder={`Ask ${coach.name}…`}
+            placeholder={t("chat.ask", { name: coach.name })}
             className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-border bg-card px-4 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none sm:text-[15px]"
           />
           <button
@@ -1379,7 +1523,7 @@ function ChatScreen() {
             onClick={busy ? () => stop() : submit}
             disabled={processingImage || (!busy && !input.trim() && pendingFiles.length === 0)}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition disabled:opacity-40"
-            aria-label={busy ? "Stop" : "Send"}
+            aria-label={busy ? (language === "sv" ? "Stoppa" : "Stop") : t("chat.send")}
           >
             {busy ? (
               <Square className="h-4 w-4" />
@@ -1411,6 +1555,7 @@ function ChatScreen() {
 }
 
 function PendingImage({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const { t } = useLanguage();
   const url = useMemo(() => URL.createObjectURL(file), [file]);
 
   useEffect(() => {
@@ -1424,7 +1569,7 @@ function PendingImage({ file, onRemove }: { file: File; onRemove: () => void }) 
         onClick={onRemove}
         type="button"
         className="absolute -right-2 -top-2 grid h-11 w-11 place-items-center rounded-full bg-background/95 ring-1 ring-border"
-        aria-label="Remove"
+        aria-label={t("chat.remove_photo")}
       >
         <X className="h-3 w-3" />
       </button>
@@ -1440,6 +1585,7 @@ type SetSaveOutcome =
   | { ok: false; conflict: true; latestSet: WorkoutSet | null };
 
 function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minutes: number }) {
+  const { t } = useLanguage();
   // Local 1s ticker so only this bar re-renders each second.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -1464,7 +1610,7 @@ function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minute
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <span className="font-display text-[9px] font-bold uppercase tracking-[0.16em] text-primary">
-            Live workout
+            {t("chat.live_workout")}
           </span>
           <span
             className={`shrink-0 font-display text-xs font-bold ${over ? "text-red-400" : "text-foreground"}`}
@@ -1510,6 +1656,7 @@ function WorkoutPanel({
   onFinish: () => void;
   disabled: boolean;
 }) {
+  const { language, t } = useLanguage();
   const allDone = session.total > 0 && session.done === session.total;
   const [expanded, setExpanded] = useState<string | null>(session.next?.id ?? null);
   const firstExerciseId = session.exercises[0]?.id ?? null;
@@ -1530,6 +1677,7 @@ function WorkoutPanel({
       </div>
       <div className="flex flex-col gap-1">
         {session.exercises.map((e) => {
+          const exerciseName = language === "sv" ? e.name_sv : e.name_en;
           const hasSets = e.sets.length > 0;
           const doneSets = e.sets.filter((s) => s.completed).length;
           const open = expanded === e.id;
@@ -1537,7 +1685,11 @@ function WorkoutPanel({
             <div key={e.id} className="rounded-lg border border-border/60 bg-card/50">
               <div className="flex min-h-11 items-center gap-2 px-2">
                 <span
-                  aria-label={e.completed ? `${e.name} complete` : `${e.name} incomplete`}
+                  aria-label={
+                    e.completed
+                      ? t("chat.exercise_complete", { name: exerciseName })
+                      : t("chat.exercise_incomplete", { name: exerciseName })
+                  }
                   className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${
                     e.completed
                       ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
@@ -1555,7 +1707,7 @@ function WorkoutPanel({
                   <span
                     className={`truncate ${e.completed ? "text-muted-foreground line-through" : "text-foreground"}`}
                   >
-                    {e.name}
+                    {exerciseName}
                     {e.target ? ` — ${e.target}` : ""}
                   </span>
                   {hasSets && (
@@ -1581,7 +1733,7 @@ function WorkoutPanel({
                             s.id,
                             expectedRevision,
                             completed,
-                            e.name,
+                            exerciseName,
                             remainingAfter === 0,
                             weight,
                             reps,
@@ -1603,7 +1755,7 @@ function WorkoutPanel({
           disabled={disabled}
           className="mt-2 min-h-11 w-full rounded-lg bg-emerald-500/20 px-3 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/30 disabled:opacity-50"
         >
-          Finish workout 🎉
+          {t("chat.finish_workout")}
         </button>
       )}
     </div>
@@ -1624,6 +1776,7 @@ function SetRow({
   ) => Promise<SetSaveOutcome>;
   disabled: boolean;
 }) {
+  const { t } = useLanguage();
   const enrichedSet = set as typeof set & { target_weight_kg?: number | null };
   const serverWeight = set.weight_kg != null ? String(set.weight_kg) : "";
   const serverReps = set.reps != null ? String(set.reps) : "";
@@ -1668,15 +1821,15 @@ function SetRow({
     const w = weight.trim() ? parseFloat(weight.replace(",", ".")) : null;
     const r = reps.trim() ? parseInt(reps, 10) : null;
     if (w != null && (!Number.isFinite(w) || w < 0 || w > 1000)) {
-      setError("Enter a valid weight");
+      setError(t("chat.valid_weight"));
       return;
     }
     if (r != null && (!Number.isFinite(r) || r < 1 || r > 1000)) {
-      setError("Enter valid reps");
+      setError(t("chat.valid_reps"));
       return;
     }
     if (completed && (!r || r < 1)) {
-      setError("Enter the reps you actually completed");
+      setError(t("chat.completed_reps"));
       return;
     }
     savingRef.current = true;
@@ -1701,7 +1854,7 @@ function SetRow({
         }
         setDirty(false);
         setConflict(false);
-        setError("Latest values loaded. Review them, then retry your change.");
+        setError(t("chat.latest_set_loaded"));
       }
     } finally {
       savingRef.current = false;
@@ -1720,7 +1873,7 @@ function SetRow({
     >
       <div className="flex items-center gap-2 text-xs">
         <span className="w-7 shrink-0 font-display text-[11px] font-bold text-muted-foreground">
-          S{set.set_index}
+          {t("common.set")} {set.set_index}
         </span>
         <input
           value={weight}
@@ -1735,7 +1888,7 @@ function SetRow({
           }}
           disabled={disabled || saving}
           inputMode="decimal"
-          aria-label={`Weight for set ${set.set_index}`}
+          aria-label={t("chat.weight_for_set", { count: set.set_index })}
           placeholder={
             enrichedSet.target_weight_kg != null ? `target ${enrichedSet.target_weight_kg}` : "kg"
           }
@@ -1755,15 +1908,19 @@ function SetRow({
           }}
           disabled={disabled || saving}
           inputMode="numeric"
-          aria-label={`Repetitions for set ${set.set_index}`}
-          placeholder={set.target_reps ?? "reps"}
+          aria-label={t("chat.reps_for_set", { count: set.set_index })}
+          placeholder={set.target_reps ?? t("common.reps")}
           className="h-11 w-16 rounded-md border border-border bg-background px-2 text-center text-sm text-foreground placeholder:text-[10px] placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-60"
         />
         <button
           type="button"
           onClick={() => void commit(!set.completed)}
           disabled={disabled || saving}
-          aria-label={`${set.completed ? "Mark incomplete" : "Complete"} set ${set.set_index}`}
+          aria-label={
+            set.completed
+              ? t("chat.mark_incomplete", { count: set.set_index })
+              : t("chat.complete_set", { count: set.set_index })
+          }
           className={`ml-auto grid h-11 w-11 shrink-0 place-items-center rounded-md border transition disabled:opacity-60 ${
             set.completed
               ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
@@ -1783,10 +1940,10 @@ function SetRow({
             error ? "text-red-400" : "text-amber-300"
           }`}
         >
-          <span>{error ?? "This set changed on another device."}</span>
+          <span>{error ?? t("chat.set_changed")}</span>
           {conflict && (
             <button type="button" onClick={useServerValues} className="min-h-11 px-2 font-bold">
-              Use server
+              {t("common.use_server")}
             </button>
           )}
         </div>
@@ -1806,6 +1963,7 @@ function SettingsDrawer({
   isAdmin?: boolean;
   onAdminReset?: () => void;
 }) {
+  const { language, t } = useLanguage();
   const qc = useQueryClient();
   const updateFn = useServerFn(updateProfile);
   const resetWsFn = useServerFn(resetWorkspace);
@@ -1822,6 +1980,22 @@ function SettingsDrawer({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   const { canInstall, isInstalled } = usePwaInstall();
+  const equipmentValue = profile.equipment
+    ? ({
+        full_gym: t("settings.equipment_full_gym"),
+        home_gym: t("settings.equipment_home_gym"),
+        dumbbells_only: t("settings.equipment_dumbbells_only"),
+        bodyweight: t("settings.equipment_bodyweight"),
+      }[profile.equipment] ?? profile.equipment)
+    : null;
+  const dietValue = profile.diet_style
+    ? ({
+        omnivore: t("settings.diet_omnivore"),
+        vegetarian: t("settings.diet_vegetarian"),
+        vegan: t("settings.diet_vegan"),
+        pescatarian: t("settings.diet_pescatarian"),
+      }[profile.diet_style] ?? profile.diet_style)
+    : null;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -1868,18 +2042,18 @@ function SettingsDrawer({
         }),
       );
       await qc.invalidateQueries({ queryKey: ["profile"] });
-      toast.success("Saved");
+      toast.success(t("common.saved"));
     } catch (err) {
       if (isDataEpochConflict(err)) {
         await refreshAfterDataEpochConflict(qc);
-        toast.error("Your coach changed on another device. Latest settings loaded.");
+        toast.error(`${t("chat.account_changed")} ${t("settings.latest_loaded")}`);
         return;
       }
       if (isUnauthorizedError(err)) {
         await hardNavigateToAuth(qc);
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Failed");
+      toast.error(language === "en" && err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -1889,18 +2063,18 @@ function SettingsDrawer({
         resetWsFn({ data: { expected_data_epoch: profile.data_epoch } }),
       );
       await qc.invalidateQueries({ queryKey: ["workspace-files"] });
-      toast.success("Workspace cleared");
+      toast.success(t("settings.workspace_cleared"));
     } catch (err) {
       if (isDataEpochConflict(err)) {
         await refreshAfterDataEpochConflict(qc);
-        toast.error("Your coach changed on another device. Latest data loaded.");
+        toast.error(t("chat.account_changed"));
         return;
       }
       if (isUnauthorizedError(err)) {
         await hardNavigateToAuth(qc);
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Failed");
+      toast.error(language === "en" && err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -1918,7 +2092,7 @@ function SettingsDrawer({
         await hardNavigateToAuth(qc);
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Failed");
+      toast.error(language === "en" && err instanceof Error ? err.message : t("common.failed"));
     } finally {
       await qc.invalidateQueries({ queryKey: ["memories"] });
     }
@@ -1935,19 +2109,19 @@ function SettingsDrawer({
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Settings"
+        aria-label={t("settings.title")}
         className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-background"
       >
         <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
           <div className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
-            Settings
+            {t("settings.title")}
           </div>
           <button
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
             className="grid h-11 w-11 place-items-center rounded-sm text-muted-foreground hover:bg-secondary"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -1955,7 +2129,7 @@ function SettingsDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex flex-col gap-4">
-            <SettingsGroup label="Memory">
+            <SettingsGroup label={t("settings.memory")}>
               <button
                 type="button"
                 onClick={() => setMemoryOpen((open) => !open)}
@@ -1965,14 +2139,16 @@ function SettingsDrawer({
                 <Brain className="h-4 w-4 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-foreground">
-                    Permanent memory
+                    {t("settings.permanent_memory")}
                   </span>
                   <span className="block truncate text-[11px] text-muted-foreground">
-                    Preferences, goals and achievements
+                    {t("settings.memory_subtitle")}
                   </span>
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {memories.length} {memories.length === 1 ? "memory" : "memories"}
+                  {memories.length === 1
+                    ? t("settings.memory_count", { count: memories.length })
+                    : t("settings.memories_count", { count: memories.length })}
                 </span>
                 <ChevronRight
                   className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${
@@ -1984,18 +2160,18 @@ function SettingsDrawer({
                 <div className="max-h-64 overflow-y-auto overscroll-contain border-t border-border/60">
                   {memoryQuery.isPending && !memoryQuery.data ? (
                     <div className="px-3.5 py-4 text-sm text-muted-foreground">
-                      Loading memories…
+                      {t("settings.loading_memories")}
                     </div>
                   ) : memoryQuery.isError && !memoryQuery.data ? (
                     <div className="flex min-h-14 items-center gap-2 px-3.5 py-2 text-sm text-red-300">
-                      <span className="min-w-0 flex-1">Could not load memories.</span>
+                      <span className="min-w-0 flex-1">{t("settings.load_memories_failed")}</span>
                       <button
                         type="button"
                         onClick={() => void memoryQuery.refetch()}
                         disabled={memoryQuery.isFetching}
                         className="min-h-11 px-2 font-bold text-primary disabled:opacity-50"
                       >
-                        Retry
+                        {t("common.retry")}
                       </button>
                     </div>
                   ) : (
@@ -2007,12 +2183,12 @@ function SettingsDrawer({
                           disabled={memoryQuery.isFetching}
                           className="min-h-11 w-full border-b border-amber-500/30 bg-amber-500/10 px-3.5 text-left text-xs font-bold text-amber-300 disabled:opacity-50"
                         >
-                          Showing last synced memories · Retry
+                          {t("settings.last_synced_memories")} · {t("common.retry")}
                         </button>
                       )}
                       {memories.length === 0 ? (
                         <div className="px-3.5 py-4 text-sm text-muted-foreground">
-                          Nothing remembered yet
+                          {t("settings.no_memories")}
                         </div>
                       ) : (
                         memories.map((memory) => (
@@ -2033,7 +2209,7 @@ function SettingsDrawer({
                               type="button"
                               onClick={() => void forgetMemory(memory.id)}
                               className="grid h-11 w-11 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400"
-                              aria-label={`Forget ${memory.content}`}
+                              aria-label={t("settings.forget", { memory: memory.content })}
                             >
                               <X className="h-4 w-4" />
                             </button>
@@ -2046,41 +2222,67 @@ function SettingsDrawer({
               )}
             </SettingsGroup>
 
-            <SettingsGroup label="Profile">
+            <SettingsGroup label={t("settings.profile")}>
+              <div className="flex min-h-14 items-center gap-3 px-3.5 py-2.5">
+                <span className="flex-1 text-sm text-foreground">{t("language.label")}</span>
+                <div
+                  className="flex rounded-lg border border-border bg-background p-1"
+                  role="group"
+                  aria-label={t("language.choose")}
+                >
+                  {(["en", "sv"] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={language === option}
+                      onClick={() => {
+                        if (language !== option) void save({ preferred_language: option });
+                      }}
+                      className={`min-h-11 rounded-md px-3 text-sm font-bold transition ${
+                        language === option
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {option === "en" ? "🇬🇧 EN" : "🇸🇪 SV"}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <EditRow
-                label="Name"
+                label={t("settings.name")}
                 value={profile.display_name}
                 open={editing === "display_name"}
                 onToggle={() => setEditing(editing === "display_name" ? null : "display_name")}
               >
                 <Text
-                  label="Name"
+                  label={t("settings.name")}
                   value={profile.display_name ?? ""}
                   onSave={(v) => save({ display_name: v })}
-                  placeholder="Your name"
+                  placeholder={t("settings.your_name")}
                 />
               </EditRow>
               <EditRow
-                label="Goal"
+                label={t("settings.goal")}
                 value={profile.goal}
                 open={editing === "goal"}
                 onToggle={() => setEditing(editing === "goal" ? null : "goal")}
               >
                 <Text
-                  label="Goal"
+                  label={t("settings.goal")}
                   value={profile.goal ?? ""}
                   onSave={(v) => save({ goal: v })}
-                  placeholder="e.g. hypertrophy + strength"
+                  placeholder={t("settings.goal_placeholder")}
                 />
               </EditRow>
               <EditRow
-                label="Days / week"
+                label={t("settings.days_week")}
                 value={profile.days_per_week != null ? String(profile.days_per_week) : null}
                 open={editing === "dpw"}
                 onToggle={() => setEditing(editing === "dpw" ? null : "dpw")}
               >
                 <Text
-                  label="Days per week"
+                  label={t("settings.days_per_week")}
                   value={profile.days_per_week?.toString() ?? ""}
                   onSave={(v) => save({ days_per_week: v ? Number(v) : null })}
                   placeholder="4"
@@ -2088,13 +2290,17 @@ function SettingsDrawer({
                 />
               </EditRow>
               <EditRow
-                label="Session length"
-                value={profile.session_minutes ? `${profile.session_minutes} min` : null}
+                label={t("settings.session_length")}
+                value={
+                  profile.session_minutes
+                    ? t("settings.minutes", { count: profile.session_minutes })
+                    : null
+                }
                 open={editing === "sm"}
                 onToggle={() => setEditing(editing === "sm" ? null : "sm")}
               >
                 <Text
-                  label="Session length in minutes"
+                  label={t("settings.session_minutes")}
                   value={profile.session_minutes?.toString() ?? ""}
                   onSave={(v) => save({ session_minutes: v ? Number(v) : null })}
                   placeholder="60"
@@ -2102,53 +2308,59 @@ function SettingsDrawer({
                 />
               </EditRow>
               <EditRow
-                label="Equipment"
-                value={profile.equipment}
+                label={t("settings.equipment")}
+                value={equipmentValue}
                 open={editing === "eq"}
                 onToggle={() => setEditing(editing === "eq" ? null : "eq")}
               >
                 <Text
-                  label="Equipment"
+                  label={t("settings.equipment")}
                   value={profile.equipment ?? ""}
                   onSave={(v) => save({ equipment: v })}
-                  placeholder="full_gym"
+                  placeholder={t("settings.equipment_placeholder")}
                 />
               </EditRow>
               <EditRow
-                label="Diet style"
-                value={profile.diet_style}
+                label={t("settings.diet_style")}
+                value={dietValue}
                 open={editing === "diet"}
                 onToggle={() => setEditing(editing === "diet" ? null : "diet")}
               >
                 <Text
-                  label="Diet style"
+                  label={t("settings.diet_style")}
                   value={profile.diet_style ?? ""}
                   onSave={(v) => save({ diet_style: v })}
-                  placeholder="omnivore"
+                  placeholder={t("settings.diet_placeholder")}
                 />
               </EditRow>
               <EditRow
-                label="Injuries / limits"
+                label={t("settings.injuries")}
                 value={profile.injuries}
                 open={editing === "inj"}
                 onToggle={() => setEditing(editing === "inj" ? null : "inj")}
               >
                 <Text
-                  label="Injuries or limitations"
+                  label={t("settings.injuries_full")}
                   value={profile.injuries ?? ""}
                   onSave={(v) => save({ injuries: v || null })}
-                  placeholder="e.g. tweaky left shoulder"
+                  placeholder={t("settings.injuries_placeholder")}
                 />
               </EditRow>
             </SettingsGroup>
 
-            <SettingsGroup label="Coach">
-              <Link to="/coaches" className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3">
+            <SettingsGroup label={t("settings.coach")}>
+              <Link
+                to="/coaches"
+                search={{ lang: language }}
+                className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3"
+              >
                 <Dumbbell className="h-4 w-4 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-foreground">Switch coach</span>
+                  <span className="block text-sm font-medium text-foreground">
+                    {t("settings.switch_coach")}
+                  </span>
                   <span className="block text-[11px] text-muted-foreground">
-                    Starts over with a clean profile
+                    {t("settings.switch_coach_body")}
                   </span>
                 </span>
                 <span className="font-display text-[10px] font-bold uppercase tracking-wider text-primary">
@@ -2159,23 +2371,25 @@ function SettingsDrawer({
             </SettingsGroup>
 
             {canInstall && !isInstalled && (
-              <SettingsGroup label="App">
+              <SettingsGroup label={t("settings.app")}>
                 <InstallAppButton
-                  label="Install COACH"
+                  label={t("settings.install")}
                   className="flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm font-medium text-primary"
                 />
               </SettingsGroup>
             )}
 
-            <SettingsGroup label="Danger zone">
+            <SettingsGroup label={t("settings.danger")}>
               <button
                 type="button"
                 onClick={() => setConfirm("workspace")}
                 className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3 text-left"
               >
                 <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
-                <span className="flex-1 text-sm font-medium text-red-400">Reset workspace</span>
-                <span className="text-xs text-muted-foreground/70">Files only</span>
+                <span className="flex-1 text-sm font-medium text-red-400">
+                  {t("settings.reset_workspace")}
+                </span>
+                <span className="text-xs text-muted-foreground/70">{t("settings.files_only")}</span>
               </button>
               {isAdmin && onAdminReset && (
                 <button
@@ -2184,8 +2398,12 @@ function SettingsDrawer({
                   className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3 text-left"
                 >
                   <RefreshCw className="h-4 w-4 shrink-0 text-red-400" />
-                  <span className="flex-1 text-sm font-medium text-red-400">Reset everything</span>
-                  <span className="text-xs text-muted-foreground/70">Profile + data</span>
+                  <span className="flex-1 text-sm font-medium text-red-400">
+                    {t("settings.reset_all")}
+                  </span>
+                  <span className="text-xs text-muted-foreground/70">
+                    {t("settings.profile_data")}
+                  </span>
                 </button>
               )}
             </SettingsGroup>
@@ -2195,9 +2413,9 @@ function SettingsDrawer({
 
       <ConfirmModal
         open={confirm === "workspace"}
-        title="Reset workspace?"
-        body="Clears all of the agent's files. Your profile and login stay."
-        confirmLabel="Reset"
+        title={t("settings.reset_workspace_title")}
+        body={t("settings.reset_workspace_body")}
+        confirmLabel={t("settings.reset")}
         danger
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
@@ -2207,9 +2425,9 @@ function SettingsDrawer({
       />
       <ConfirmModal
         open={confirm === "everything"}
-        title="Reset everything?"
-        body="Wipes your profile, program, memory, logs, and chat history, then signs out every device. You'll restart onboarding from scratch."
-        confirmLabel="Reset all"
+        title={t("settings.reset_all_title")}
+        body={t("settings.reset_all_body")}
+        confirmLabel={t("settings.reset_all_confirm")}
         danger
         onCancel={() => setConfirm(null)}
         onConfirm={() => {

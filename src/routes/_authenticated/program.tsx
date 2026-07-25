@@ -7,6 +7,8 @@ import { CalendarRange, Check, X, Dumbbell, Moon, ChevronRight, Sparkles } from 
 import { getProgramFull } from "@/lib/gym-buddy.functions";
 import { TabBar } from "@/components/TabBar";
 import { Shimmer } from "@/components/ai-elements/shimmer";
+import { useLanguage } from "@/components/LanguageProvider";
+import type { TranslationKey } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_authenticated/program")({
   head: () => ({ meta: [{ title: "Program — COACH" }] }),
@@ -22,8 +24,8 @@ const todayStr = () => {
 type Program = NonNullable<Awaited<ReturnType<typeof getProgramFull>>>;
 type Day = Program["days"][number];
 
-function fmtDate(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", {
+function fmtDate(dateStr: string, language: "en" | "sv") {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(language === "sv" ? "sv-SE" : "en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -35,26 +37,35 @@ function statusStyle(day: Day, today: string) {
     return {
       border: "border-emerald-500/40",
       chip: "bg-emerald-500/15 text-emerald-400",
-      label: "Done",
+      labelKey: "common.done" as TranslationKey,
     };
   if (day.status === "skipped")
-    return { border: "border-red-500/30", chip: "bg-red-500/10 text-red-400", label: "Skipped" };
+    return {
+      border: "border-red-500/30",
+      chip: "bg-red-500/10 text-red-400",
+      labelKey: "common.skipped" as TranslationKey,
+    };
   if (day.date === today)
-    return { border: "border-primary/70", chip: "bg-primary/15 text-primary", label: "Today" };
+    return {
+      border: "border-primary/70",
+      chip: "bg-primary/15 text-primary",
+      labelKey: "common.today" as TranslationKey,
+    };
   if (day.date < today)
     return {
       border: "border-amber-500/35",
       chip: "bg-amber-500/10 text-amber-300",
-      label: "Review",
+      labelKey: "common.review" as TranslationKey,
     };
   return {
     border: "border-border",
     chip: "bg-secondary/60 text-muted-foreground",
-    label: "Planned",
+    labelKey: "common.planned" as TranslationKey,
   };
 }
 
 function ProgramPage() {
+  const { language, t } = useLanguage();
   const today = todayStr();
   const {
     data: program,
@@ -80,11 +91,27 @@ function ProgramPage() {
   const week = selectedWeek ?? currentWeek;
   const [openDayId, setOpenDayId] = useState<string | null>(null);
   const openDay = program?.days.find((day) => day.id === openDayId) ?? null;
+  const firstOpenExerciseId = openDay?.exercises[0]?.id ?? null;
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  const [guideFailed, setGuideFailed] = useState(false);
+  const selectedExercise =
+    openDay?.exercises.find((exercise) => exercise.id === selectedExerciseId) ??
+    openDay?.exercises[0] ??
+    null;
+
+  const displayExerciseName = (exercise: Day["exercises"][number]) =>
+    language === "sv" ? exercise.name_sv : exercise.name_en;
 
   useEffect(() => {
     setSelectedWeek(null);
     setOpenDayId(null);
+    setSelectedExerciseId(null);
   }, [program?.id]);
+
+  useEffect(() => {
+    setSelectedExerciseId(firstOpenExerciseId);
+    setGuideFailed(false);
+  }, [openDay?.id, firstOpenExerciseId]);
 
   const doneCount = program?.days.filter((d) => d.status === "completed").length ?? 0;
 
@@ -94,12 +121,13 @@ function ProgramPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display text-lg font-bold text-foreground">
-              {program ? program.name : "Program"}
+              {program ? program.name : t("program.title")}
             </h1>
             {program && (
               <p className="text-[11px] text-muted-foreground">
-                {program.status === "completed" ? "Completed · " : ""}
-                {program.weeks} weeks · {program.days_per_week}x/week · {program.start_date} →{" "}
+                {program.status === "completed" ? `${t("common.completed")} · ` : ""}
+                {program.weeks} {t("common.weeks")} ·{" "}
+                {t("program.times_week", { count: program.days_per_week })} · {program.start_date} →{" "}
                 {program.end_date}
               </p>
             )}
@@ -111,7 +139,7 @@ function ProgramPage() {
                 <span className="text-muted-foreground">/{program.days.length}</span>
               </div>
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                sessions
+                {t("common.sessions")}
               </div>
             </div>
           )}
@@ -140,7 +168,10 @@ function ProgramPage() {
                         : "border-border bg-secondary/40 text-muted-foreground"
                   }`}
                 >
-                  <span className="font-display">W{w}</span>
+                  <span className="font-display">
+                    {t("common.week_short")}
+                    {w}
+                  </span>
                   {isDeload && <Moon className="h-2.5 w-2.5 opacity-70" />}
                   {w === currentWeek && (
                     <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-primary" />
@@ -155,7 +186,7 @@ function ProgramPage() {
       <main className="flex-1 overflow-y-auto px-4 py-4">
         {isLoading && (
           <div className="grid h-40 place-items-center">
-            <Shimmer>Loading program…</Shimmer>
+            <Shimmer>{t("program.load")}</Shimmer>
           </div>
         )}
 
@@ -163,18 +194,16 @@ function ProgramPage() {
           <div className="mx-auto mt-16 max-w-xs text-center">
             <X className="mx-auto h-10 w-10 text-red-400" />
             <h2 className="mt-3 font-display text-lg font-bold text-foreground">
-              Couldn’t load your program
+              {t("program.load_failed")}
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Your saved program is still on the server. Check your connection and retry.
-            </p>
+            <p className="mt-2 text-sm text-muted-foreground">{t("program.load_failed_body")}</p>
             <button
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
               className="mt-5 min-h-11 rounded-xl border border-primary/60 px-5 text-sm font-bold text-primary disabled:opacity-50"
             >
-              {isFetching ? "Retrying…" : "Retry"}
+              {isFetching ? t("common.retrying") : t("common.retry")}
             </button>
           </div>
         )}
@@ -186,23 +215,23 @@ function ProgramPage() {
             disabled={isFetching}
             className="mb-3 flex min-h-11 w-full items-center justify-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-300 disabled:opacity-50"
           >
-            Showing last synced program · {isFetching ? "Retrying…" : "Retry sync"}
+            {t("program.last_synced")} ·{" "}
+            {isFetching ? t("common.retrying") : t("program.retry_sync")}
           </button>
         )}
 
         {!isLoading && !isError && !program && (
           <div className="mx-auto mt-16 max-w-xs text-center">
             <Sparkles className="mx-auto h-10 w-10 text-primary" />
-            <h2 className="mt-3 font-display text-lg font-bold text-foreground">No program yet</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Ask your coach to build your full training program — every week, day by day, will show
-              up here.
-            </p>
+            <h2 className="mt-3 font-display text-lg font-bold text-foreground">
+              {t("program.no_program")}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">{t("program.no_program_body")}</p>
             <Link
               to="/chat"
               className="mt-5 inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground"
             >
-              Talk to your coach <ChevronRight className="h-4 w-4" />
+              {t("program.talk_coach")} <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
         )}
@@ -220,26 +249,26 @@ function ProgramPage() {
               {program.status === "completed" && (
                 <div className="mb-1 rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-3">
                   <div className="font-display text-sm font-bold text-emerald-300">
-                    Cycle complete
+                    {t("program.cycle_complete")}
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
-                    Every workout is preserved. Review it with your coach and start the next cycle.
+                    {t("program.cycle_complete_body")}
                   </div>
                   <Link
                     to="/chat"
                     className="mt-2 inline-flex min-h-11 items-center gap-1 text-xs font-bold text-emerald-300"
                   >
-                    Plan the next cycle <ChevronRight className="h-3.5 w-3.5" />
+                    {t("program.next_cycle")} <ChevronRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
               )}
               <div className="flex items-center justify-between">
                 <h2 className="font-display text-sm font-bold uppercase tracking-widest text-foreground">
-                  Week {week}
+                  {t("common.week")} {week}
                 </h2>
                 {(program.deload_weeks as number[]).includes(week) && (
                   <span className="flex items-center gap-1 rounded-sm bg-indigo-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-indigo-300">
-                    <Moon className="h-3 w-3" /> Deload
+                    <Moon className="h-3 w-3" /> {t("common.deload")}
                   </span>
                 )}
               </div>
@@ -258,7 +287,7 @@ function ProgramPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            {fmtDate(day.date)}
+                            {fmtDate(day.date, language)}
                           </div>
                           <div className="mt-0.5 flex items-center gap-1.5 font-display text-[15px] font-bold text-foreground">
                             <Dumbbell className="h-3.5 w-3.5 text-primary" />
@@ -275,7 +304,7 @@ function ProgramPage() {
                             <Check className="h-3 w-3" strokeWidth={3} />
                           )}
                           {day.status === "skipped" && <X className="h-3 w-3" strokeWidth={3} />}
-                          {s.label}
+                          {t(s.labelKey)}
                         </span>
                       </div>
                     </button>
@@ -290,63 +319,116 @@ function ProgramPage() {
       <Drawer.Root open={!!openDay} onOpenChange={(o) => !o && setOpenDayId(null)}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
-          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] rounded-t-3xl border-t border-border bg-card outline-none">
+          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 h-[92dvh] max-h-[52rem] rounded-t-3xl border-t border-border bg-card outline-none">
             {openDay && (
-              <div className="overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-border" />
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                      Week {openDay.week} · {fmtDate(openDay.date)}
-                      {openDay.is_deload ? " · Deload" : ""}
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="shrink-0 px-4 pb-3 pt-3">
+                  <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-border" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        {t("common.week")} {openDay.week} · {fmtDate(openDay.date, language)}
+                        {openDay.is_deload ? ` · ${t("common.deload")}` : ""}
+                      </div>
+                      <h3 className="mt-1 font-display text-xl font-bold text-foreground">
+                        {openDay.title}
+                      </h3>
                     </div>
-                    <h3 className="mt-1 font-display text-xl font-bold text-foreground">
-                      {openDay.title}
-                    </h3>
-                  </div>
-                  <Drawer.Close
-                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground transition hover:text-foreground"
-                    aria-label="Close workout details"
-                  >
-                    <X className="h-4 w-4" />
-                  </Drawer.Close>
-                </div>
-                {openDay.focus && <p className="text-sm text-muted-foreground">{openDay.focus}</p>}
-                {openDay.resolution_note && (
-                  <p className="mt-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
-                    {openDay.resolution_note}
-                  </p>
-                )}
-                <div className="mt-4 flex flex-col gap-2">
-                  {openDay.exercises.map((e) => (
-                    <div
-                      key={e.id}
-                      className="flex items-center justify-between rounded-xl border border-border bg-background px-3.5 py-3"
+                    <Drawer.Close
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground transition hover:text-foreground"
+                      aria-label={t("program.close_details")}
                     >
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-foreground">{e.name}</div>
-                        {e.notes && <div className="text-xs text-muted-foreground">{e.notes}</div>}
-                      </div>
-                      <div className="shrink-0 text-right font-display text-sm font-bold text-foreground">
-                        {e.sets}×{e.rep_range}
-                        {e.target_weight_kg != null && (
-                          <div className="text-xs font-semibold text-primary">
-                            {e.target_weight_kg} kg
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                      <X className="h-4 w-4" />
+                    </Drawer.Close>
+                  </div>
+                  {openDay.focus && (
+                    <p className="text-sm text-muted-foreground">{openDay.focus}</p>
+                  )}
                 </div>
-                {openDay.date <= today && openDay.status === "planned" && (
-                  <Link
-                    to="/chat"
-                    search={{ start: true }}
-                    className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-primary-foreground"
-                  >
-                    <Dumbbell className="h-4 w-4" /> Start due workout
-                  </Link>
-                )}
+
+                <div className="relative min-h-0 flex-[1.15] overflow-hidden border-y border-border bg-black">
+                  {selectedExercise?.image_path && !guideFailed ? (
+                    <img
+                      key={selectedExercise.id}
+                      src={selectedExercise.image_path}
+                      alt={t("program.exercise_guide_alt", {
+                        name: displayExerciseName(selectedExercise),
+                      })}
+                      onError={() => setGuideFailed(true)}
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <div className="grid h-full place-items-center px-8 text-center text-sm text-muted-foreground">
+                      {selectedExercise
+                        ? t("program.image_unavailable")
+                        : t("program.select_exercise")}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col">
+                  {selectedExercise && (
+                    <div className="flex shrink-0 items-center justify-between border-b border-border bg-secondary/35 px-4 py-2">
+                      <span className="min-w-0 truncate text-sm font-bold text-foreground">
+                        {displayExerciseName(selectedExercise)}
+                      </span>
+                      <span className="shrink-0 font-display text-sm font-bold text-primary">
+                        {selectedExercise.sets}×{selectedExercise.rep_range}
+                      </span>
+                    </div>
+                  )}
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                    {openDay.resolution_note && (
+                      <p className="mb-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+                        {openDay.resolution_note}
+                      </p>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      {openDay.exercises.map((e) => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          aria-pressed={selectedExercise?.id === e.id}
+                          onClick={() => {
+                            setSelectedExerciseId(e.id);
+                            setGuideFailed(false);
+                          }}
+                          className={`flex min-h-14 items-center justify-between rounded-xl border px-3.5 py-2.5 text-left transition ${
+                            selectedExercise?.id === e.id
+                              ? "border-primary bg-primary/10 shadow-[0_0_16px_rgba(232,36,63,0.16)]"
+                              : "border-border bg-background"
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-foreground">
+                              {displayExerciseName(e)}
+                            </div>
+                            {e.notes && (
+                              <div className="text-xs text-muted-foreground">{e.notes}</div>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right font-display text-sm font-bold text-foreground">
+                            {e.sets}×{e.rep_range}
+                            {e.target_weight_kg != null && (
+                              <div className="text-xs font-semibold text-primary">
+                                {e.target_weight_kg} kg
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {openDay.date <= today && openDay.status === "planned" && (
+                      <Link
+                        to="/chat"
+                        search={{ start: true }}
+                        className="mt-2 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-primary-foreground"
+                      >
+                        <Dumbbell className="h-4 w-4" /> {t("program.start_due")}
+                      </Link>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </Drawer.Content>

@@ -11,6 +11,7 @@ const LoginSchema = z
     email: z.string().trim().email().max(254),
     password: z.string().min(1).max(1024),
     coach_id: z.enum(COACH_IDS).optional(),
+    preferred_language: z.enum(["en", "sv"]).optional(),
   })
   .strict();
 
@@ -37,7 +38,7 @@ export const login = createServerFn({ method: "POST" })
 
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
-    const { users } = await import("@/db/schema");
+    const { profiles, users } = await import("@/db/schema");
     const {
       verifyPassword,
       createSession,
@@ -47,11 +48,8 @@ export const login = createServerFn({ method: "POST" })
       DUMMY_PASSWORD_HASH,
     } = await import("./auth.server");
 
-    const [user] = await getDb()
-      .select()
-      .from(users)
-      .where(eq(users.email, normalizedEmail))
-      .limit(1);
+    const db = getDb();
+    const [user] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
 
     const passwordIsValid = await verifyPassword(
       data.password,
@@ -64,6 +62,15 @@ export const login = createServerFn({ method: "POST" })
     if (data.coach_id) {
       const { switchUserCoach } = await import("./coach-switch.server");
       await switchUserCoach(user.id, data.coach_id);
+    }
+    if (data.preferred_language) {
+      await db
+        .insert(profiles)
+        .values({ id: user.id, preferred_language: data.preferred_language })
+        .onConflictDoUpdate({
+          target: profiles.id,
+          set: { preferred_language: data.preferred_language },
+        });
     }
 
     await invalidateSession(getCookie(SESSION_COOKIE));

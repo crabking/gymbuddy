@@ -172,6 +172,7 @@ suite("chat/reset concurrency invariants", () => {
   });
 
   it("switches coaches atomically, clears coach state, and keeps the login session", async () => {
+    await db!.update(profiles).set({ preferred_language: "sv" }).where(eq(profiles.id, userId));
     await db!.insert(measurements).values({
       user_id: userId,
       metric_key: "waist",
@@ -201,6 +202,7 @@ suite("chat/reset concurrency invariants", () => {
     expect(profile).toMatchObject({
       coach_id: "maya",
       coach_gender: "female",
+      preferred_language: "sv",
       onboarding_completed: false,
       data_epoch: 2,
     });

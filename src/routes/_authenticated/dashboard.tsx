@@ -23,6 +23,8 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { toast } from "sonner";
 import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
 import { hardNavigateToAuth, isUnauthorizedError } from "@/lib/client-session";
+import { useLanguage } from "@/components/LanguageProvider";
+import { findExercise } from "@/lib/exercises";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — COACH" }] }),
@@ -39,8 +41,11 @@ const C = {
   ink: "#8a8a8a",
 };
 
-const fmtShort = (d: string) =>
-  new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtShort = (d: string, language: "en" | "sv") =>
+  new Date(`${d}T00:00:00`).toLocaleDateString(language === "sv" ? "sv-SE" : "en-US", {
+    month: "short",
+    day: "numeric",
+  });
 const pad2 = (value: number) => String(value).padStart(2, "0");
 const todayStr = () => {
   const date = new Date();
@@ -112,6 +117,7 @@ function StatTile({
 }
 
 function DashboardPage() {
+  const { language, t } = useLanguage();
   const qc = useQueryClient();
   const localContext = {
     date: todayStr(),
@@ -126,6 +132,10 @@ function DashboardPage() {
   const [selectedLift, setSelectedLift] = useState<string | null>(null);
   const lifts = data?.strengthByLift ?? [];
   const lift = lifts.find((l) => l.name === selectedLift) ?? lifts[0] ?? null;
+  const localizedExerciseName = (name: string) => {
+    const exercise = findExercise(name);
+    return language === "sv" && exercise ? exercise.name_sv : (exercise?.name_en ?? name);
+  };
 
   const [weightInput, setWeightInput] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
@@ -240,7 +250,13 @@ function DashboardPage() {
         return;
       }
       setHistoryLoadError(true);
-      toast.error(error instanceof Error ? error.message : "Could not load older sessions");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : language === "sv"
+            ? "Kunde inte läsa in äldre pass"
+            : "Could not load older sessions",
+      );
     } finally {
       loadingHistoryRef.current = false;
       setLoadingHistory(false);
@@ -249,9 +265,15 @@ function DashboardPage() {
 
   async function submitWeight() {
     if (savingWeightRef.current) return;
-    if (!data) return toast.error("Refresh your dashboard before logging weight");
+    if (!data)
+      return toast.error(
+        language === "sv"
+          ? "Uppdatera översikten innan du loggar vikt"
+          : "Refresh your dashboard before logging weight",
+      );
     const kg = parseFloat(weightInput.replace(",", "."));
-    if (!kg || kg < 25 || kg > 400) return toast.error("Enter a weight in kg");
+    if (!kg || kg < 25 || kg > 400)
+      return toast.error(language === "sv" ? "Ange en vikt i kg" : "Enter a weight in kg");
     savingWeightRef.current = true;
     setSavingWeight(true);
     try {
@@ -267,7 +289,7 @@ function DashboardPage() {
       );
       setWeightInput("");
       await qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast.success(`Logged ${kg} kg`);
+      toast.success(language === "sv" ? `Loggade ${kg} kg` : `Logged ${kg} kg`);
     } catch (err) {
       if (isUnauthorizedError(err)) {
         await hardNavigateToAuth(qc);
@@ -275,10 +297,16 @@ function DashboardPage() {
       }
       if (err instanceof Error && err.message.includes("data_epoch_conflict")) {
         await qc.invalidateQueries({ queryKey: ["dashboard"] });
-        toast.error("Your account changed on another screen. Dashboard refreshed.");
+        toast.error(
+          language === "sv"
+            ? "Ditt konto ändrades på en annan skärm. Översikten har uppdaterats."
+            : "Your account changed on another screen. Dashboard refreshed.",
+        );
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Could not log weight");
+      toast.error(
+        language === "en" && err instanceof Error ? err.message : t("dashboard.save_failed"),
+      );
     } finally {
       savingWeightRef.current = false;
       setSavingWeight(false);
@@ -289,15 +317,17 @@ function DashboardPage() {
     <div className="flex h-dvh flex-col bg-background">
       <header className="border-b border-border bg-card px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div>
-          <h1 className="font-display text-lg font-bold text-foreground">Dashboard</h1>
-          <p className="text-[11px] text-muted-foreground">Your training, tracked.</p>
+          <h1 className="font-display text-lg font-bold text-foreground">{t("dashboard.title")}</h1>
+          <p className="text-[11px] text-muted-foreground">{t("dashboard.subtitle")}</p>
         </div>
       </header>
 
       <main className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {isLoading && (
           <div className="grid h-40 place-items-center">
-            <Shimmer>Crunching your numbers…</Shimmer>
+            <Shimmer>
+              {language === "sv" ? "Sammanställer dina siffror…" : "Crunching your numbers…"}
+            </Shimmer>
           </div>
         )}
 
@@ -305,18 +335,16 @@ function DashboardPage() {
           <div className="mx-auto mt-16 max-w-xs text-center">
             <XCircle className="mx-auto h-10 w-10 text-red-400" />
             <h2 className="mt-3 font-display text-lg font-bold text-foreground">
-              Couldn’t load your dashboard
+              {t("dashboard.load_failed")}
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Your tracking data is still safe on the server.
-            </p>
+            <p className="mt-2 text-sm text-muted-foreground">{t("dashboard.load_failed_body")}</p>
             <button
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
               className="mt-5 min-h-11 rounded-xl border border-primary/60 px-5 text-sm font-bold text-primary disabled:opacity-50"
             >
-              {isFetching ? "Retrying…" : "Retry"}
+              {isFetching ? t("common.retrying") : t("common.retry")}
             </button>
           </div>
         )}
@@ -328,7 +356,8 @@ function DashboardPage() {
             disabled={isFetching}
             className="flex min-h-11 w-full items-center justify-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-300 disabled:opacity-50"
           >
-            Showing last synced data · {isFetching ? "Retrying…" : "Retry sync"}
+            {t("dashboard.last_synced")} ·{" "}
+            {isFetching ? t("common.retrying") : t("program.retry_sync")}
           </button>
         )}
 
@@ -338,35 +367,35 @@ function DashboardPage() {
             <div className="grid grid-cols-4 gap-2">
               <StatTile
                 icon={Trophy}
-                label="Sessions"
+                label={t("dashboard.sessions")}
                 value={String(data.stats.sessions_completed)}
                 accent={C.strength}
               />
               <StatTile
                 icon={Flame}
-                label="Streak"
-                value={`${data.stats.streak_weeks}w`}
+                label={t("dashboard.streak")}
+                value={`${data.stats.streak_weeks}${language === "sv" ? "v" : "w"}`}
                 accent={C.calories}
               />
               <StatTile
                 icon={Scale}
-                label="Weight"
+                label={t("dashboard.weight")}
                 value={data.stats.current_weight_kg ? `${data.stats.current_weight_kg}` : "—"}
                 accent={C.weight}
               />
               <StatTile
                 icon={Dumbbell}
-                label="Kcal goal"
+                label={t("dashboard.kcal_goal")}
                 value={data.stats.calorie_target ? String(data.stats.calorie_target) : "—"}
                 accent={C.volume}
               />
             </div>
 
             {/* Strength per lift */}
-            <Card title="Strength — top set & est. 1RM">
+            <Card title={t("dashboard.strength")}>
               {lifts.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
-                  Complete workouts with logged sets and your strength curves show up here.
+                  {t("dashboard.strength_empty")}
                 </p>
               ) : (
                 <>
@@ -382,7 +411,7 @@ function DashboardPage() {
                             : "border-border bg-secondary/40 text-muted-foreground"
                         }`}
                       >
-                        {l.name}
+                        {localizedExerciseName(l.name)}
                       </button>
                     ))}
                   </div>
@@ -395,7 +424,7 @@ function DashboardPage() {
                         <CartesianGrid stroke={C.grid} strokeDasharray="3 6" vertical={false} />
                         <XAxis
                           dataKey="date"
-                          tickFormatter={fmtShort}
+                          tickFormatter={(value) => fmtShort(String(value), language)}
                           tick={{ fill: C.ink, fontSize: 10 }}
                           axisLine={{ stroke: C.grid }}
                           tickLine={false}
@@ -408,16 +437,28 @@ function DashboardPage() {
                         />
                         <Tooltip
                           contentStyle={tooltipStyle}
-                          labelFormatter={(d) => fmtShort(String(d))}
+                          labelFormatter={(d) => fmtShort(String(d), language)}
                           formatter={(v: number, name: string) => [
                             `${v} kg`,
-                            name === "top_weight_kg" ? "Top set" : "Est. 1RM",
+                            name === "top_weight_kg"
+                              ? language === "sv"
+                                ? "Topp-set"
+                                : "Top set"
+                              : language === "sv"
+                                ? "Ber. 1RM"
+                                : "Est. 1RM",
                           ]}
                         />
                         <Legend
                           formatter={(v) => (
                             <span style={{ color: C.ink, fontSize: 11 }}>
-                              {v === "top_weight_kg" ? "Top set" : "Est. 1RM"}
+                              {v === "top_weight_kg"
+                                ? language === "sv"
+                                  ? "Topp-set"
+                                  : "Top set"
+                                : language === "sv"
+                                  ? "Ber. 1RM"
+                                  : "Est. 1RM"}
                             </span>
                           )}
                         />
@@ -445,10 +486,10 @@ function DashboardPage() {
             </Card>
 
             {/* Weekly volume */}
-            <Card title="Weekly volume — completed sets">
+            <Card title={t("dashboard.volume")}>
               {data.weeklyVolume.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
-                  Finish sessions to build your weekly volume history.
+                  {t("dashboard.volume_empty")}
                 </p>
               ) : (
                 <div className="h-36">
@@ -460,7 +501,7 @@ function DashboardPage() {
                       <CartesianGrid stroke={C.grid} strokeDasharray="3 6" vertical={false} />
                       <XAxis
                         dataKey="week"
-                        tickFormatter={fmtShort}
+                        tickFormatter={(value) => fmtShort(String(value), language)}
                         tick={{ fill: C.ink, fontSize: 10 }}
                         axisLine={{ stroke: C.grid }}
                         tickLine={false}
@@ -472,10 +513,17 @@ function DashboardPage() {
                       />
                       <Tooltip
                         contentStyle={tooltipStyle}
-                        labelFormatter={(d) => `Week of ${fmtShort(String(d))}`}
+                        labelFormatter={(d) =>
+                          `${language === "sv" ? "Veckan från" : "Week of"} ${fmtShort(
+                            String(d),
+                            language,
+                          )}`
+                        }
                         formatter={(v: number, name: string) => [
-                          name === "sets" ? `${v} sets` : `${v} kg total`,
-                          name === "sets" ? "Sets" : "Tonnage",
+                          name === "sets"
+                            ? `${v} ${language === "sv" ? "set" : "sets"}`
+                            : `${v} kg ${language === "sv" ? "totalt" : "total"}`,
+                          name === "sets" ? "Sets" : language === "sv" ? "Tonnage" : "Tonnage",
                         ]}
                       />
                       <Bar dataKey="sets" fill={C.volume} radius={[4, 4, 0, 0]} maxBarSize={22} />
@@ -486,10 +534,10 @@ function DashboardPage() {
             </Card>
 
             {/* Bodyweight */}
-            <Card title="Bodyweight">
+            <Card title={t("dashboard.bodyweight")}>
               <div className="mb-3 flex items-center gap-2">
                 <input
-                  aria-label="Today’s bodyweight in kilograms"
+                  aria-label={t("dashboard.bodyweight_input")}
                   value={weightInput}
                   onChange={(e) => setWeightInput(e.target.value)}
                   onKeyDown={(event) => {
@@ -497,7 +545,7 @@ function DashboardPage() {
                   }}
                   inputMode="decimal"
                   enterKeyHint="done"
-                  placeholder="Log today's weight (kg)"
+                  placeholder={t("dashboard.bodyweight_placeholder")}
                   className="h-10 flex-1 rounded-xl border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                 />
                 <button
@@ -505,7 +553,7 @@ function DashboardPage() {
                   onClick={submitWeight}
                   disabled={savingWeight}
                   className="grid h-11 w-11 place-items-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50"
-                  aria-label="Log weight"
+                  aria-label={t("dashboard.log_weight")}
                 >
                   <Plus
                     className={`h-4 w-4 ${savingWeight ? "animate-pulse" : ""}`}
@@ -515,7 +563,7 @@ function DashboardPage() {
               </div>
               {data.bodyweight.length === 0 ? (
                 <p className="py-4 text-center text-xs text-muted-foreground">
-                  Log your first weight to start the trend.
+                  {t("dashboard.bodyweight_empty")}
                 </p>
               ) : (
                 <div className="h-32">
@@ -527,7 +575,7 @@ function DashboardPage() {
                       <CartesianGrid stroke={C.grid} strokeDasharray="3 6" vertical={false} />
                       <XAxis
                         dataKey="date"
-                        tickFormatter={fmtShort}
+                        tickFormatter={(value) => fmtShort(String(value), language)}
                         tick={{ fill: C.ink, fontSize: 10 }}
                         axisLine={{ stroke: C.grid }}
                         tickLine={false}
@@ -540,8 +588,8 @@ function DashboardPage() {
                       />
                       <Tooltip
                         contentStyle={tooltipStyle}
-                        labelFormatter={(d) => fmtShort(String(d))}
-                        formatter={(v: number) => [`${v} kg`, "Weight"]}
+                        labelFormatter={(d) => fmtShort(String(d), language)}
+                        formatter={(v: number) => [`${v} kg`, t("dashboard.weight")]}
                       />
                       <Line
                         type="monotone"
@@ -557,7 +605,7 @@ function DashboardPage() {
             </Card>
 
             {selectedMetric && (
-              <Card title="Coach tracking">
+              <Card title={t("dashboard.coach_tracking")}>
                 <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
                   {customMeasurements.map((measurement) => (
                     <button
@@ -593,7 +641,7 @@ function DashboardPage() {
                       <CartesianGrid stroke={C.grid} strokeDasharray="3 6" vertical={false} />
                       <XAxis
                         dataKey="date"
-                        tickFormatter={fmtShort}
+                        tickFormatter={(value) => fmtShort(String(value), language)}
                         tick={{ fill: C.ink, fontSize: 10 }}
                         axisLine={{ stroke: C.grid }}
                         tickLine={false}
@@ -605,7 +653,7 @@ function DashboardPage() {
                       />
                       <Tooltip
                         contentStyle={tooltipStyle}
-                        labelFormatter={(date) => fmtShort(String(date))}
+                        labelFormatter={(date) => fmtShort(String(date), language)}
                         formatter={(value: number) => [
                           `${value} ${selectedMetric.unit}`,
                           selectedMetric.label,
@@ -625,10 +673,10 @@ function DashboardPage() {
             )}
 
             {/* Calories */}
-            <Card title="Calories — last 3 weeks">
+            <Card title={t("dashboard.calories")}>
               {!hasCalorieData ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
-                  Log meals (or snap photos in chat) to see daily calories here.
+                  {t("dashboard.calories_empty")}
                 </p>
               ) : (
                 <div className="h-36">
@@ -640,7 +688,7 @@ function DashboardPage() {
                       <CartesianGrid stroke={C.grid} strokeDasharray="3 6" vertical={false} />
                       <XAxis
                         dataKey="date"
-                        tickFormatter={fmtShort}
+                        tickFormatter={(value) => fmtShort(String(value), language)}
                         tick={{ fill: C.ink, fontSize: 10 }}
                         axisLine={{ stroke: C.grid }}
                         tickLine={false}
@@ -677,10 +725,14 @@ function DashboardPage() {
                           return (
                             <div style={tooltipStyle} className="px-3 py-2 shadow-xl">
                               <div className="font-semibold text-foreground">
-                                {fmtShort(point.date)}
+                                {fmtShort(point.date, language)}
                               </div>
-                              <div className="mt-1 text-muted-foreground">Calories: {calories}</div>
-                              <div className="text-muted-foreground">Protein: {protein}</div>
+                              <div className="mt-1 text-muted-foreground">
+                                {t("chat.calories")}: {calories}
+                              </div>
+                              <div className="text-muted-foreground">
+                                {language === "sv" ? "Protein" : "Protein"}: {protein}
+                              </div>
                             </div>
                           );
                         }}
@@ -691,7 +743,7 @@ function DashboardPage() {
                           stroke={C.ink}
                           strokeDasharray="4 4"
                           label={{
-                            value: "target",
+                            value: language === "sv" ? "mål" : "target",
                             fill: C.ink,
                             fontSize: 10,
                             position: "insideTopRight",
@@ -713,21 +765,31 @@ function DashboardPage() {
               {hasCalorieData && (
                 <p className="mt-1 text-center text-[10px] text-muted-foreground">
                   {partialCalorieDays.length > 0
-                    ? `Amber is partial (+ ?); gaps are not zero.${
-                        fullyUnknownCalorieDays.length > 0
-                          ? ` ${fullyUnknownCalorieDays.length} day${fullyUnknownCalorieDays.length === 1 ? "" : "s"} had no estimate at all.`
-                          : ""
-                      }`
-                    : "Gaps mean no meals were logged; they are not counted as zero."}
+                    ? language === "sv"
+                      ? `Gult är delvis känt (+ ?); luckor är inte noll.${
+                          fullyUnknownCalorieDays.length > 0
+                            ? ` ${fullyUnknownCalorieDays.length} ${
+                                fullyUnknownCalorieDays.length === 1
+                                  ? "dag saknade"
+                                  : "dagar saknade"
+                              } helt uppskattning.`
+                            : ""
+                        }`
+                      : `Amber is partial (+ ?); gaps are not zero.${
+                          fullyUnknownCalorieDays.length > 0
+                            ? ` ${fullyUnknownCalorieDays.length} day${fullyUnknownCalorieDays.length === 1 ? "" : "s"} had no estimate at all.`
+                            : ""
+                        }`
+                    : t("dashboard.gaps")}
                 </p>
               )}
             </Card>
 
             {/* Session history */}
-            <Card title="Session history">
+            <Card title={t("dashboard.history")}>
               {displayedHistory.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
-                  Your completed and skipped sessions will appear here.
+                  {t("dashboard.history_empty")}
                 </p>
               ) : (
                 <div className="flex flex-col gap-2">
@@ -753,10 +815,12 @@ function DashboardPage() {
                               {s.title}
                             </div>
                             <div className="text-[11px] text-muted-foreground">
-                              {fmtShort(s.date)}
-                              {s.duration_min != null ? ` · ${s.duration_min} min` : ""} ·{" "}
-                              {s.exercises.filter((e) => e.completed).length}/{s.exercises.length}{" "}
-                              exercises
+                              {fmtShort(s.date, language)}
+                              {s.duration_min != null
+                                ? ` · ${t("common.minutes_short", { count: s.duration_min })}`
+                                : ""}{" "}
+                              · {s.exercises.filter((e) => e.completed).length}/{s.exercises.length}{" "}
+                              {t("common.exercises")}
                             </div>
                           </div>
                         </div>
@@ -769,7 +833,15 @@ function DashboardPage() {
                                 : "text-primary"
                           }`}
                         >
-                          {s.status}
+                          {s.status === "completed"
+                            ? t("common.completed")
+                            : s.status === "skipped"
+                              ? t("common.skipped")
+                              : s.status === "abandoned"
+                                ? language === "sv"
+                                  ? "Avbrutet"
+                                  : "Abandoned"
+                                : s.status}
                         </span>
                       </div>
                     );
@@ -782,15 +854,15 @@ function DashboardPage() {
                       className="min-h-11 w-full rounded-xl border border-border px-3 text-xs font-bold text-primary disabled:opacity-50"
                     >
                       {loadingHistory
-                        ? "Loading older sessions…"
+                        ? t("dashboard.loading_older")
                         : historyLoadError
-                          ? "Retry older sessions"
-                          : "Load 20 more"}
+                          ? t("dashboard.retry_older")
+                          : t("dashboard.load_more")}
                     </button>
                   )}
                   {!canLoadMoreHistory && displayedHistory.length > 50 && (
                     <p className="px-2 py-2 text-center text-[11px] text-muted-foreground">
-                      Full server history loaded.
+                      {t("dashboard.history_loaded")}
                     </p>
                   )}
                 </div>

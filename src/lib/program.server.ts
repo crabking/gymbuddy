@@ -2,12 +2,14 @@ import { createHash } from "node:crypto";
 import { and, eq, asc, desc, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import {
+  exerciseCatalog,
   programDays,
   programExercises,
   programOperations,
   programs,
   workoutSessions,
 } from "@/db/schema";
+import { findExercise, getExercise, type AppLanguage, type ExerciseId } from "@/lib/exercises";
 import {
   acquireAccountMutationLock,
   requireExpectedDataEpoch,
@@ -51,7 +53,9 @@ export type WeekTemplateDay = {
   title: string;
   focus?: string | null;
   exercises: Array<{
-    name: string;
+    exercise_id?: ExerciseId | string | null;
+    /** Legacy/tool compatibility; resolved to a canonical exercise identity. */
+    name?: string | null;
     sets: number;
     rep_range: string;
     start_weight_kg?: number | null;
@@ -111,15 +115,19 @@ export async function generateProgram(
     week_template: input.week_template.map((day) => ({
       title: day.title.trim(),
       focus: day.focus?.trim() || null,
-      exercises: day.exercises.map((exercise) => ({
-        name: exercise.name.trim(),
-        sets: exercise.sets,
-        rep_range: exercise.rep_range.trim(),
-        start_weight_kg: exercise.start_weight_kg ?? null,
-        increment_kg: exercise.increment_kg ?? null,
-        increment_every_weeks: exercise.increment_every_weeks ?? null,
-        notes: exercise.notes?.trim() || null,
-      })),
+      exercises: day.exercises.map((exercise) => {
+        const canonical = resolveProgramExercise(exercise);
+        return {
+          exercise_id: canonical.id,
+          name: canonical.name_en,
+          sets: exercise.sets,
+          rep_range: exercise.rep_range.trim(),
+          start_weight_kg: exercise.start_weight_kg ?? null,
+          increment_kg: exercise.increment_kg ?? null,
+          increment_every_weeks: exercise.increment_every_weeks ?? null,
+          notes: exercise.notes?.trim() || null,
+        };
+      }),
     })),
   });
 
@@ -230,21 +238,25 @@ export async function generateProgram(
           .returning({ id: programDays.id });
         if (!day) throw new Error("Failed to create program day");
 
-        const rows = template.exercises.map((exercise, position) => ({
-          program_day_id: day.id,
-          position,
-          name: exercise.name.trim(),
-          sets: isDeload ? Math.max(1, Math.ceil(exercise.sets * 0.6)) : exercise.sets,
-          rep_range: exercise.rep_range.trim(),
-          target_weight_kg: calculateTargetWeight({
-            startWeightKg: exercise.start_weight_kg ?? null,
-            incrementKg: exercise.increment_kg ?? 2.5,
-            incrementEveryWeeks: exercise.increment_every_weeks ?? 2,
-            completedTrainingWeeks: trainingWeeksSeen,
-            isDeload,
-          }),
-          notes: exercise.notes?.trim() || null,
-        }));
+        const rows = template.exercises.map((exercise, position) => {
+          const canonical = resolveProgramExercise(exercise);
+          return {
+            program_day_id: day.id,
+            position,
+            exercise_id: canonical.id,
+            name: canonical.name_en,
+            sets: isDeload ? Math.max(1, Math.ceil(exercise.sets * 0.6)) : exercise.sets,
+            rep_range: exercise.rep_range.trim(),
+            target_weight_kg: calculateTargetWeight({
+              startWeightKg: exercise.start_weight_kg ?? null,
+              incrementKg: exercise.increment_kg ?? 2.5,
+              incrementEveryWeeks: exercise.increment_every_weeks ?? 2,
+              completedTrainingWeeks: trainingWeeksSeen,
+              isDeload,
+            }),
+            notes: exercise.notes?.trim() || null,
+          };
+        });
         if (rows.length) await tx.insert(programExercises).values(rows);
       }
       if (!isDeloadWeek(input.deload_weeks, week)) trainingWeeksSeen++;
@@ -272,6 +284,15 @@ export async function generateProgram(
 
 function isDeloadWeek(deloads: number[], w: number) {
   return deloads.includes(w);
+}
+
+function resolveProgramExercise(exercise: WeekTemplateDay["exercises"][number]) {
+  const canonical =
+    getExercise(exercise.exercise_id) ??
+    findExercise(exercise.name) ??
+    findExercise(exercise.exercise_id);
+  if (!canonical) throw new Error("exercise_not_in_catalog");
+  return canonical;
 }
 
 function validateProgramInput(input: GenerateProgramInput) {
@@ -317,9 +338,7 @@ function validateProgramInput(input: GenerateProgramInput) {
       throw new Error("invalid_exercise_count");
     }
     for (const exercise of day.exercises) {
-      if (!exercise.name.trim() || exercise.name.length > 160) {
-        throw new Error("invalid_exercise_name");
-      }
+      resolveProgramExercise(exercise);
       if (!Number.isInteger(exercise.sets) || exercise.sets < 1 || exercise.sets > 30) {
         throw new Error("invalid_exercise_sets");
       }
@@ -437,13 +456,25 @@ async function hydrateProgram(program: typeof programs.$inferSelect | null) {
     .where(eq(programDays.program_id, program.id))
     .orderBy(asc(programDays.date));
   const dayIds = days.map((d) => d.id);
-  const exercises = dayIds.length
+  const exerciseRows = dayIds.length
     ? await db
-        .select()
+        .select({
+          exercise: programExercises,
+          catalog_name_en: exerciseCatalog.name_en,
+          catalog_name_sv: exerciseCatalog.name_sv,
+          image_path: exerciseCatalog.image_path,
+        })
         .from(programExercises)
+        .leftJoin(exerciseCatalog, eq(exerciseCatalog.id, programExercises.exercise_id))
         .where(inArray(programExercises.program_day_id, dayIds))
         .orderBy(asc(programExercises.position))
     : [];
+  const exercises = exerciseRows.map((row) => ({
+    ...row.exercise,
+    name_en: row.catalog_name_en ?? row.exercise.name,
+    name_sv: row.catalog_name_sv ?? row.exercise.name,
+    image_path: row.image_path,
+  }));
   const byDay = new Map<string, typeof exercises>();
   for (const ex of exercises) {
     const list = byDay.get(ex.program_day_id) ?? [];
@@ -490,11 +521,26 @@ export async function getTodayProgramDay(userId: string, today: string) {
     .limit(1);
   if (!day) return null;
   const exercises = await db
-    .select()
+    .select({
+      exercise: programExercises,
+      catalog_name_en: exerciseCatalog.name_en,
+      catalog_name_sv: exerciseCatalog.name_sv,
+      image_path: exerciseCatalog.image_path,
+    })
     .from(programExercises)
+    .leftJoin(exerciseCatalog, eq(exerciseCatalog.id, programExercises.exercise_id))
     .where(eq(programExercises.program_day_id, day.id))
     .orderBy(asc(programExercises.position));
-  return { ...day, program_name: program.name, exercises };
+  return {
+    ...day,
+    program_name: program.name,
+    exercises: exercises.map((row) => ({
+      ...row.exercise,
+      name_en: row.catalog_name_en ?? row.exercise.name,
+      name_sv: row.catalog_name_sv ?? row.exercise.name,
+      image_path: row.image_path,
+    })),
+  };
 }
 
 /** Oldest unresolved day. Overdue work remains authoritative until resolved. */
@@ -511,12 +557,27 @@ export async function getNextProgramDay(userId: string, today: string) {
     .limit(1);
   const day = days[0];
   if (!day) return null;
-  const exercises = await db
-    .select()
+  const exerciseRows = await db
+    .select({
+      exercise: programExercises,
+      catalog_name_en: exerciseCatalog.name_en,
+      catalog_name_sv: exerciseCatalog.name_sv,
+      image_path: exerciseCatalog.image_path,
+    })
     .from(programExercises)
+    .leftJoin(exerciseCatalog, eq(exerciseCatalog.id, programExercises.exercise_id))
     .where(eq(programExercises.program_day_id, day.id))
     .orderBy(asc(programExercises.position));
-  return { ...day, program_name: program.name, exercises };
+  return {
+    ...day,
+    program_name: program.name,
+    exercises: exerciseRows.map((row) => ({
+      ...row.exercise,
+      name_en: row.catalog_name_en ?? row.exercise.name,
+      name_sv: row.catalog_name_sv ?? row.exercise.name,
+      image_path: row.image_path,
+    })),
+  };
 }
 
 export async function markProgramDay(
@@ -808,9 +869,10 @@ export async function adjustProgramExercise(
   if (!validOperationSourceKey(opts.source_key)) {
     return { ok: false as const, error: "invalid_source_key" };
   }
+  const canonical = getExercise(opts.exercise) ?? findExercise(opts.exercise);
   const sourceKey = opts.source_key.trim();
   const payloadHash = operationPayloadHash("adjust_program", {
-    exercise: needle,
+    exercise: canonical?.id ?? needle,
     from_week: opts.from_week,
     delta_kg: opts.delta_kg ?? null,
     set_weight_kg: opts.set_weight_kg ?? null,
@@ -877,20 +939,31 @@ export async function adjustProgramExercise(
           days.map((day) => day.id),
         ),
       );
-    const names = [...new Set(rows.map((row) => row.name.trim().toLowerCase()))];
-    const exactName = names.find((name) => name === needle);
-    const candidateNames = exactName ? [exactName] : names.filter((name) => name.includes(needle));
-    if (!candidateNames.length) {
+    let matches = canonical
+      ? rows.filter(
+          (row) => row.exercise_id === canonical.id || findExercise(row.name)?.id === canonical.id,
+        )
+      : [];
+    if (!canonical) {
+      const names = [...new Set(rows.map((row) => row.name.trim().toLowerCase()))];
+      const exactName = names.find((name) => name === needle);
+      const candidateNames = exactName
+        ? [exactName]
+        : names.filter((name) => name.includes(needle));
+      if (candidateNames.length > 1) {
+        return finish({
+          ok: false as const,
+          error: "exercise_ambiguous",
+          candidates: candidateNames.slice(0, 10),
+        });
+      }
+      matches = candidateNames.length
+        ? rows.filter((row) => row.name.trim().toLowerCase() === candidateNames[0])
+        : [];
+    }
+    if (!matches.length) {
       return finish({ ok: false as const, error: "exercise_not_found" });
     }
-    if (candidateNames.length > 1) {
-      return finish({
-        ok: false as const,
-        error: "exercise_ambiguous",
-        candidates: candidateNames.slice(0, 10),
-      });
-    }
-    const matches = rows.filter((row) => row.name.trim().toLowerCase() === candidateNames[0]);
     for (const match of matches) {
       const raw =
         opts.set_weight_kg != null
@@ -1080,18 +1153,39 @@ export async function listProgramCycles(userId: string, limit = 20) {
 export function summarizeProgram(
   p: Awaited<ReturnType<typeof getCurrentProgram>>,
   today: string,
+  language: AppLanguage = "en",
 ): string {
-  if (!p) return "(no structured program yet — build one with generate_program)";
+  if (!p) {
+    return language === "sv"
+      ? "(inget strukturerat program ännu — bygg ett med generate_program)"
+      : "(no structured program yet — build one with generate_program)";
+  }
   const done = p.days.filter((d) => d.status === "completed").length;
   const skipped = p.days.filter((d) => d.status === "skipped").length;
   const overdue = p.days.filter((d) => d.status === "planned" && d.date < today);
   const upcoming = p.days.filter((d) => d.status === "planned" && d.date >= today).slice(0, 3);
   const up = upcoming
-    .map((d) => `  - ${d.date} (wk ${d.week}) ${d.title}${d.is_deload ? " [deload]" : ""}`)
+    .map(
+      (d) =>
+        `  - ${d.date} (${language === "sv" ? "v" : "wk"} ${d.week}) ${d.title}${
+          d.is_deload ? (language === "sv" ? " [återhämtning]" : " [deload]") : ""
+        }`,
+    )
     .join("\n");
   if (p.status === "completed") {
+    if (language === "sv") {
+      return `"${p.name}" — SLUTFÖRT (${done} pass, ${skipped} överhoppade), ${p.start_date} → ${p.end_date}.
+Programperioden är stängd och sparad. Granska resultaten och erbjud sedan nästa programperiod.`;
+    }
     return `"${p.name}" — COMPLETED (${done} workouts, ${skipped} skipped), ${p.start_date} → ${p.end_date}.
 The cycle is closed and preserved. Review the results, then offer to build the next program cycle.`;
+  }
+  if (language === "sv") {
+    return `"${p.name}" — AKTIVT, ${p.weeks} veckor, ${p.days_per_week} ggr/vecka, ${p.start_date} → ${p.end_date}
+Förlopp: ${done} klara, ${skipped} överhoppade, ${p.days.length - done - skipped} återstår (i dag: ${today})
+Försenade pass som kräver ett uttryckligt beslut om slutfört/överhoppat: ${overdue.length}
+Närmast:
+${up || "  (inget schemalagt — granska försenade pass eller avsluta programperioden)"}`;
   }
   return `"${p.name}" — ACTIVE, ${p.weeks} wks, ${p.days_per_week}x/wk, ${p.start_date} → ${p.end_date}
 Progress: ${done} done, ${skipped} skipped, ${p.days.length - done - skipped} remaining (today: ${today})

@@ -2,6 +2,12 @@
 
 Build or update the user's training schedule and persist it as a markdown file in their workspace.
 
+## Language lock
+
+Use the profile's saved language in every visible and saved field. With `sv`, localize day
+labels, focus areas, time descriptions, notes, workspace markdown, confirmations, and the
+summary. Stable enum values and file paths remain unchanged. With `en`, use English.
+
 ## Two modes — pick what the user actually wants
 
 - **rolling** (default): label-free "Day 1, Day 2, …" the user fits into their week however they want. Crossover between weeks is fine — only the count per week matters. Use this unless the user asks for fixed weekdays.

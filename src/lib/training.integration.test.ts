@@ -517,9 +517,14 @@ describe.runIf(hasDatabase).sequential("training lifecycle database integration"
       deload_weeks: [5, 10, 15],
       progression_rules: "Progress after successful training weeks.",
       why: "Exercise the full production-sized cycle.",
-      week_template: ["Upper A", "Lower A", "Upper B", "Lower B"].map((title) => ({
+      week_template: [
+        { title: "Upper A", exercise_id: "bench-press", name: "Bench Press" },
+        { title: "Lower A", exercise_id: "back-squat", name: "Back Squat" },
+        { title: "Upper B", exercise_id: "barbell-row", name: "Barbell Row" },
+        { title: "Lower B", exercise_id: "romanian-deadlift", name: "Romanian Deadlift" },
+      ].map(({ title, exercise_id, name }) => ({
         title,
-        exercises: [{ name: `${title} lift`, sets: 3, rep_range: "8", start_weight_kg: 50 }],
+        exercises: [{ exercise_id, name, sets: 3, rep_range: "8", start_weight_kg: 50 }],
       })),
       source_key: `full-cycle-${userId}`,
     };
@@ -577,13 +582,13 @@ describe.runIf(hasDatabase).sequential("training lifecycle database integration"
       date: "2030-02-11",
     });
     const beforeAdjustment = shiftedProgram?.days[0]?.exercises.find(
-      (exercise) => exercise.name === "Upper A lift",
+      (exercise) => exercise.exercise_id === "bench-press",
     )?.target_weight_kg;
     if (beforeAdjustment == null) throw new Error("Missing bench target");
     const adjustmentKey = `adjust-bench-${userId}`;
     await expect(
       adjustProgramExercise(userId, {
-        exercise: "Upper A lift",
+        exercise: "bench-press",
         from_week: 1,
         delta_kg: 5,
         set_weight_kg: null,
@@ -592,7 +597,7 @@ describe.runIf(hasDatabase).sequential("training lifecycle database integration"
     ).resolves.toMatchObject({ ok: true });
     await expect(
       adjustProgramExercise(userId, {
-        exercise: "Upper A lift",
+        exercise: "bench-press",
         from_week: 1,
         delta_kg: 5,
         set_weight_kg: null,
@@ -601,7 +606,7 @@ describe.runIf(hasDatabase).sequential("training lifecycle database integration"
     ).resolves.toMatchObject({ ok: true, idempotent_replay: true });
     await expect(
       adjustProgramExercise(userId, {
-        exercise: "Upper A lift",
+        exercise: "bench-press",
         from_week: 1,
         delta_kg: 10,
         set_weight_kg: null,
@@ -610,7 +615,7 @@ describe.runIf(hasDatabase).sequential("training lifecycle database integration"
     ).resolves.toMatchObject({ ok: false, error: "idempotency_key_reused" });
     const afterAdjustment = await getActiveProgram(userId, "2030-02-04");
     expect(
-      afterAdjustment?.days[0]?.exercises.find((exercise) => exercise.name === "Upper A lift")
+      afterAdjustment?.days[0]?.exercises.find((exercise) => exercise.exercise_id === "bench-press")
         ?.target_weight_kg,
     ).toBe(beforeAdjustment + 5);
     const resolutionKey = `resolve-shifted-day-${userId}`;

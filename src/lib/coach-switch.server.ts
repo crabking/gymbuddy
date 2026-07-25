@@ -42,7 +42,10 @@ async function resetUserCoachingState(userId: string, options: ResetOptions) {
       .delete(chatRuns)
       .where(and(eq(chatRuns.user_id, userId), lte(chatRuns.expires_at, now)));
     const [profile] = await tx
-      .select({ coach_id: profiles.coach_id })
+      .select({
+        coach_id: profiles.coach_id,
+        preferred_language: profiles.preferred_language,
+      })
       .from(profiles)
       .where(eq(profiles.id, userId))
       .limit(1);
@@ -98,7 +101,8 @@ async function resetUserCoachingState(userId: string, options: ResetOptions) {
         weight_kg: null,
         age: null,
         sex: null,
-        preferred_language: null,
+        // Language is an app preference, not coach-owned training state.
+        preferred_language: profile.preferred_language,
         activity_level: null,
         recent_training_baseline: null,
         diet_style: null,

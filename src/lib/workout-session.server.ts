@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, asc, desc, gte, inArray, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import {
+  exerciseCatalog,
   workoutSessions,
   sessionExercises,
   sessionSets,
@@ -10,6 +11,13 @@ import {
   programOperations,
   programs,
 } from "@/db/schema";
+import {
+  exerciseName,
+  findExercise,
+  getExercise,
+  type AppLanguage,
+  type ExerciseId,
+} from "@/lib/exercises";
 import {
   acquireAccountMutationLock,
   requireExpectedDataEpoch,
@@ -49,7 +57,11 @@ export type SessionSet = {
 export type SessionExercise = {
   id: string;
   position: number;
+  exercise_id: string | null;
   name: string;
+  name_en: string;
+  name_sv: string;
+  image_path: string | null;
   target: string | null;
   completed: boolean;
   completed_at: string | null;
@@ -78,11 +90,23 @@ export async function getActiveSession(userId: string): Promise<ActiveSession> {
     .limit(1);
   if (!session) return null;
 
-  const rows = await db
-    .select()
+  const rawRows = await db
+    .select({
+      exercise: sessionExercises,
+      catalog_name_en: exerciseCatalog.name_en,
+      catalog_name_sv: exerciseCatalog.name_sv,
+      image_path: exerciseCatalog.image_path,
+    })
     .from(sessionExercises)
+    .leftJoin(exerciseCatalog, eq(exerciseCatalog.id, sessionExercises.exercise_id))
     .where(eq(sessionExercises.session_id, session.id))
     .orderBy(asc(sessionExercises.position));
+  const rows = rawRows.map((row) => ({
+    ...row.exercise,
+    name_en: row.catalog_name_en ?? row.exercise.name,
+    name_sv: row.catalog_name_sv ?? row.exercise.name,
+    image_path: row.image_path,
+  }));
 
   const exIds = rows.map((r) => r.id);
   const allSets = exIds.length
@@ -112,7 +136,11 @@ export async function getActiveSession(userId: string): Promise<ActiveSession> {
   const exercises: SessionExercise[] = rows.map((r) => ({
     id: r.id,
     position: r.position,
+    exercise_id: r.exercise_id,
     name: r.name,
+    name_en: r.name_en,
+    name_sv: r.name_sv,
+    image_path: r.image_path,
     target: r.target,
     completed: r.completed,
     completed_at: r.completed_at,
@@ -152,7 +180,8 @@ export async function startSession(
     source_key?: string | null;
     title?: string | null;
     exercises?: Array<{
-      name: string;
+      exercise_id?: ExerciseId | string | null;
+      name?: string | null;
       target?: string | null;
       sets?: number | null;
       rep_range?: string | null;
@@ -198,13 +227,17 @@ export async function startSession(
     program_day_id: requestedProgramDayId,
     title: opts.title?.trim() || null,
     exercises:
-      opts.exercises?.map((exercise) => ({
-        name: exercise.name.trim(),
-        target: exercise.target?.trim() || null,
-        sets: exercise.sets ?? null,
-        rep_range: exercise.rep_range?.trim() || null,
-        weight_kg: exercise.weight_kg ?? null,
-      })) ?? null,
+      opts.exercises?.map((exercise) => {
+        const canonical = resolveSessionExercise(exercise);
+        return {
+          exercise_id: canonical.id,
+          name: canonical.name_en,
+          target: exercise.target?.trim() || null,
+          sets: exercise.sets ?? null,
+          rep_range: exercise.rep_range?.trim() || null,
+          weight_kg: exercise.weight_kg ?? null,
+        };
+      }) ?? null,
     override_reason: opts.override_reason?.trim() || null,
   });
 
@@ -361,7 +394,11 @@ export async function startSession(
       };
     }
 
-    let list = opts.exercises ?? [];
+    let list =
+      opts.exercises?.map((exercise) => {
+        const canonical = resolveSessionExercise(exercise);
+        return { ...exercise, exercise_id: canonical.id, name: canonical.name_en };
+      }) ?? [];
     let title = opts.title?.trim() || "Workout";
     if (programDay) {
       const plannedExercises = await tx
@@ -377,8 +414,20 @@ export async function startSession(
             "This scheduled workout has no exercises. Repair the program before training.",
         };
       }
+      const unresolvedExercise = plannedExercises.find(
+        (exercise) => !getExercise(exercise.exercise_id) && !findExercise(exercise.name),
+      );
+      if (unresolvedExercise) {
+        return {
+          ok: false as const,
+          error: "program_exercise_not_in_catalog",
+          coach_note:
+            "This workout contains an unsupported legacy exercise. Replace it before training.",
+        };
+      }
       list = plannedExercises.map((exercise) => ({
-        name: exercise.name,
+        exercise_id: (getExercise(exercise.exercise_id) ?? findExercise(exercise.name))!.id,
+        name: (getExercise(exercise.exercise_id) ?? findExercise(exercise.name))!.name_en,
         target: `${exercise.sets}×${exercise.rep_range}${exercise.target_weight_kg != null ? ` @ ${exercise.target_weight_kg}kg` : ""}`,
         sets: exercise.sets,
         rep_range: exercise.rep_range,
@@ -413,6 +462,7 @@ export async function startSession(
         .values({
           session_id: session.id,
           position: index,
+          exercise_id: exercise.exercise_id,
           name: exercise.name.trim(),
           target: exercise.target?.trim() || null,
           planned_set_count: numberOfSets,
@@ -444,7 +494,8 @@ export async function startSession(
 function validateAdHocExercises(
   exercises:
     | Array<{
-        name: string;
+        exercise_id?: ExerciseId | string | null;
+        name?: string | null;
         target?: string | null;
         sets?: number | null;
         rep_range?: string | null;
@@ -455,7 +506,11 @@ function validateAdHocExercises(
   if (!exercises) return null;
   if (exercises.length < 1 || exercises.length > 30) return "invalid_exercise_count";
   for (const exercise of exercises) {
-    if (!exercise.name.trim() || exercise.name.length > 160) return "invalid_exercise_name";
+    try {
+      resolveSessionExercise(exercise);
+    } catch {
+      return "exercise_not_in_catalog";
+    }
     if (
       exercise.sets != null &&
       (!Number.isInteger(exercise.sets) || exercise.sets < 1 || exercise.sets > 30)
@@ -476,6 +531,17 @@ function validateAdHocExercises(
   return null;
 }
 
+function resolveSessionExercise(
+  exercise: NonNullable<Parameters<typeof validateAdHocExercises>[0]>[number],
+) {
+  const canonical =
+    getExercise(exercise.exercise_id) ??
+    findExercise(exercise.name) ??
+    findExercise(exercise.exercise_id);
+  if (!canonical) throw new Error("exercise_not_in_catalog");
+  return canonical;
+}
+
 async function getSessionById(userId: string, sessionId: string): Promise<ActiveSession> {
   const db = getDb();
   const [session] = await db
@@ -484,11 +550,23 @@ async function getSessionById(userId: string, sessionId: string): Promise<Active
     .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.user_id, userId)))
     .limit(1);
   if (!session) return null;
-  const rows = await db
-    .select()
+  const rawRows = await db
+    .select({
+      exercise: sessionExercises,
+      catalog_name_en: exerciseCatalog.name_en,
+      catalog_name_sv: exerciseCatalog.name_sv,
+      image_path: exerciseCatalog.image_path,
+    })
     .from(sessionExercises)
+    .leftJoin(exerciseCatalog, eq(exerciseCatalog.id, sessionExercises.exercise_id))
     .where(eq(sessionExercises.session_id, session.id))
     .orderBy(asc(sessionExercises.position));
+  const rows = rawRows.map((row) => ({
+    ...row.exercise,
+    name_en: row.catalog_name_en ?? row.exercise.name,
+    name_sv: row.catalog_name_sv ?? row.exercise.name,
+    image_path: row.image_path,
+  }));
   const exIds = rows.map((row) => row.id);
   const allSets = exIds.length
     ? await db
@@ -516,7 +594,11 @@ async function getSessionById(userId: string, sessionId: string): Promise<Active
   const exercises = rows.map((row) => ({
     id: row.id,
     position: row.position,
+    exercise_id: row.exercise_id,
     name: row.name,
+    name_en: row.name_en,
+    name_sv: row.name_sv,
+    image_path: row.image_path,
     target: row.target,
     completed: row.completed,
     completed_at: row.completed_at,
@@ -558,8 +640,9 @@ export async function markExerciseDone(
   if (opts.source_key != null && (!sourceKey || opts.source_key.length > 200)) {
     return { ok: false, error: "invalid_source_key", session: await getActiveSession(userId) };
   }
+  const canonical = getExercise(match) ?? findExercise(match);
   const payloadHash = operationPayloadHash("mark_exercise", {
-    exercise: needle,
+    exercise: canonical?.id ?? needle,
     done,
     performed_sets:
       performedSets?.map((set) => ({
@@ -663,7 +746,13 @@ export async function markExerciseDone(
       .from(sessionExercises)
       .where(eq(sessionExercises.session_id, active.id))
       .orderBy(asc(sessionExercises.position));
-    const exact = exercises.find((exercise) => exercise.name.trim().toLowerCase() === needle);
+    const exact = canonical
+      ? exercises.find(
+          (exercise) =>
+            exercise.exercise_id === canonical.id ||
+            findExercise(exercise.name)?.id === canonical.id,
+        )
+      : exercises.find((exercise) => exercise.name.trim().toLowerCase() === needle);
     const partial = exact
       ? [exact]
       : exercises.filter((exercise) => exercise.name.trim().toLowerCase().includes(needle));
@@ -1466,9 +1555,16 @@ export async function getWorkoutHistory(userId: string, opts: WorkoutHistoryOpti
 }
 
 /** Compact enough for every prompt, with exact recent sets and full-cycle totals. */
-export function summarizeWorkoutHistory(rows: Awaited<ReturnType<typeof getWorkoutHistory>>) {
+export function summarizeWorkoutHistory(
+  rows: Awaited<ReturnType<typeof getWorkoutHistory>>,
+  language: AppLanguage = "en",
+) {
   const completed = rows.filter((session) => session.status === "completed");
-  if (!completed.length) return "(no completed workouts recorded for this cycle)";
+  if (!completed.length) {
+    return language === "sv"
+      ? "(inga slutförda träningspass sparade för den här programperioden)"
+      : "(no completed workouts recorded for this cycle)";
+  }
 
   const aggregate = new Map<
     string,
@@ -1476,9 +1572,10 @@ export function summarizeWorkoutHistory(rows: Awaited<ReturnType<typeof getWorko
   >();
   for (const session of [...completed].reverse()) {
     for (const exercise of session.exercises) {
-      const key = exercise.name.trim().toLowerCase();
+      const displayName = exerciseName(exercise.exercise_id, language, exercise.name);
+      const key = exercise.exercise_id ?? exercise.name.trim().toLowerCase();
       const current = aggregate.get(key) ?? {
-        name: exercise.name,
+        name: displayName,
         sets: 0,
         best_weight_kg: null,
         latest: null,
@@ -1503,15 +1600,21 @@ export function summarizeWorkoutHistory(rows: Awaited<ReturnType<typeof getWorko
     .slice(0, 8)
     .map((session) => {
       const week = session.program_day
-        ? `W${session.program_day.week}D${session.program_day.day_index}`
-        : "ad-hoc";
+        ? `${language === "sv" ? "V" : "W"}${session.program_day.week}${
+            language === "sv" ? "D" : "D"
+          }${session.program_day.day_index}`
+        : language === "sv"
+          ? "fristående"
+          : "ad-hoc";
       const work = session.exercises
         .map((exercise) => {
           const sets = exercise.sets
             .filter((set) => set.completed)
             .map((set) => `${set.weight_kg != null ? `${set.weight_kg}kg` : "BW"}×${set.reps}`)
             .join("/");
-          return `${exercise.name} ${sets || "(completion only)"}`;
+          return `${exerciseName(exercise.exercise_id, language, exercise.name)} ${
+            sets || (language === "sv" ? "(endast slutfört)" : "(completion only)")
+          }`;
         })
         .join("; ");
       return `  - ${session.session_date} ${week} ${session.title}: ${work}`;
@@ -1519,12 +1622,24 @@ export function summarizeWorkoutHistory(rows: Awaited<ReturnType<typeof getWorko
     .join("\n");
   const totals = [...aggregate.values()]
     .slice(0, 20)
-    .map(
-      (exercise) =>
-        `  - ${exercise.name}: ${exercise.sets} sets, best ${exercise.best_weight_kg != null ? `${exercise.best_weight_kg}kg` : "bodyweight"}, latest ${exercise.latest ?? "n/a"}`,
+    .map((exercise) =>
+      language === "sv"
+        ? `  - ${exercise.name}: ${exercise.sets} set, bäst ${
+            exercise.best_weight_kg != null ? `${exercise.best_weight_kg}kg` : "kroppsvikt"
+          }, senast ${exercise.latest ?? "saknas"}`
+        : `  - ${exercise.name}: ${exercise.sets} sets, best ${
+            exercise.best_weight_kg != null ? `${exercise.best_weight_kg}kg` : "bodyweight"
+          }, latest ${exercise.latest ?? "n/a"}`,
     )
     .join("\n");
 
+  if (language === "sv") {
+    return `Slutförda pass i programperioden: ${completed.length}
+Senaste exakta prestationer:
+${recent}
+Totalt per övning i programperioden:
+${totals}`;
+  }
   return `Cycle workouts completed: ${completed.length}
 Recent exact performance:
 ${recent}
@@ -1570,24 +1685,48 @@ export async function getRecentSessions(userId: string, days: number, localToday
 }
 
 /** Compact live-session summary for the agent context (with pace signal). */
-export function summarizeSession(s: ActiveSession): string {
-  if (!s) return "(no active workout session)";
+export function summarizeSession(s: ActiveSession, language: AppLanguage = "en"): string {
+  if (!s) {
+    return language === "sv" ? "(inget aktivt träningspass)" : "(no active workout session)";
+  }
   const startedMin = Math.round((Date.now() - new Date(s.started_at).getTime()) / 60000);
   const lines = s.exercises
-    .map((e) => `  ${e.completed ? "[x]" : "[ ]"} ${e.name}${e.target ? ` — ${e.target}` : ""}`)
+    .map(
+      (e) =>
+        `  ${e.completed ? "[x]" : "[ ]"} ${
+          language === "sv" ? e.name_sv : e.name_en
+        }${e.target ? ` — ${e.target}` : ""}`,
+    )
     .join("\n");
+  if (language === "sv") {
+    return `Aktivt pass "${s.title}" — pågått i ${startedMin} min, ${s.done}/${s.total} klara\n${lines}`;
+  }
   return `Active session "${s.title}" — running ${startedMin} min, ${s.done}/${s.total} done\n${lines}`;
 }
 
 /** History summary line for coach context. */
 export function summarizeRecentSessions(
   rows: Awaited<ReturnType<typeof getRecentSessions>>,
+  language: AppLanguage = "en",
 ): string {
-  if (!rows.length) return "(no sessions in the last 7 days)";
+  if (!rows.length) {
+    return language === "sv"
+      ? "(inga träningspass de senaste 7 dagarna)"
+      : "(no sessions in the last 7 days)";
+  }
+  const status = (value: string) => {
+    if (language !== "sv") return value;
+    if (value === "completed") return "slutfört";
+    if (value === "skipped") return "överhoppat";
+    if (value === "active") return "aktivt";
+    return value;
+  };
   return rows
     .map(
       (r) =>
-        `  - ${r.date}: ${r.title} — ${r.status}${r.duration_min != null ? ` (${r.duration_min} min)` : ""}`,
+        `  - ${r.date}: ${r.title} — ${status(r.status)}${
+          r.duration_min != null ? ` (${r.duration_min} min)` : ""
+        }`,
     )
     .join("\n");
 }

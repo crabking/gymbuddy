@@ -3,6 +3,14 @@ import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage }
 import { z } from "zod";
 import { getChatModel } from "@/lib/ai-provider.server";
 import { getCoach } from "@/lib/coaches";
+import {
+  EXERCISE_IDS,
+  exerciseCatalogForPrompt,
+  exerciseName,
+  exerciseSubstitutions,
+  getExercise,
+  type AppLanguage,
+} from "@/lib/exercises";
 import { isIsoDate, localDateInTimeZone, normalizeTimeZone } from "@/lib/local-date";
 
 // Bundle skill markdown at build time.
@@ -349,6 +357,7 @@ export const Route = createFileRoute("/api/chat")({
             profile?.coach_id ?? (profile?.coach_gender === "female" ? "reya" : "rex"),
           );
           const coachName = selectedCoach.name;
+          const appLanguage: AppLanguage = profile?.preferred_language === "sv" ? "sv" : "en";
 
           // Seed the agent's config tree (.agent/) on first use.
           await ensureAgentConfig(userId, coachName);
@@ -386,7 +395,9 @@ export const Route = createFileRoute("/api/chat")({
                     return `- ${f.path}  —  ${(f.summary || "(empty)").slice(0, 80)}`;
                   })
                   .join("\n")
-              : "(workspace is empty)";
+              : appLanguage === "sv"
+                ? "(arbetsytan är tom)"
+                : "(workspace is empty)";
 
           // Phone/browser wall-clock so the coach's sense of "now" matches the
           // user's device rather than the server.
@@ -434,7 +445,9 @@ export const Route = createFileRoute("/api/chat")({
                 .map((w) => `${w.logged_date}: ${w.weight_kg}kg`)
                 .reverse()
                 .join(" → ")
-            : "(no weight logs yet)";
+            : appLanguage === "sv"
+              ? "(inga viktloggar ännu)"
+              : "(no weight logs yet)";
 
           const skillCatalog = Object.entries(SKILLS)
             .map(([name, s]) => `- ${name}: ${s.description}`)
@@ -442,7 +455,7 @@ export const Route = createFileRoute("/api/chat")({
 
           const onboarded = !!profile?.onboarding_completed;
           const now = new Date();
-          const todayName = now.toLocaleDateString("en-US", {
+          const todayName = now.toLocaleDateString(appLanguage === "sv" ? "sv-SE" : "en-US", {
             weekday: "long",
             timeZone: clientTimezone ?? fallbackTimezone,
           });
@@ -456,12 +469,24 @@ export const Route = createFileRoute("/api/chat")({
             timezone: clientTimezone ?? null,
             utc_offset: clientOffset ?? null,
             training_day_today: dueProgramDay
-              ? `${dueProgramDay.title}${dueProgramDay.is_deload ? " (deload)" : ""} — ${
+              ? `${dueProgramDay.title}${
+                  dueProgramDay.is_deload
+                    ? appLanguage === "sv"
+                      ? " (återhämtning)"
+                      : " (deload)"
+                    : ""
+                } — ${
                   dueProgramDay.date === todayDate
-                    ? "scheduled today"
-                    : `make-up session originally scheduled ${dueProgramDay.date}`
+                    ? appLanguage === "sv"
+                      ? "schemalagt i dag"
+                      : "scheduled today"
+                    : appLanguage === "sv"
+                      ? `ersättningspass, ursprungligen schemalagt ${dueProgramDay.date}`
+                      : `make-up session originally scheduled ${dueProgramDay.date}`
                 }`
-              : "rest day (no planned program session is due today)",
+              : appLanguage === "sv"
+                ? "vilodag (inget planerat programpass är aktuellt i dag)"
+                : "rest day (no planned program session is due today)",
             onboarded,
             name: profile?.display_name ?? null,
             goal: profile?.goal ?? null,
@@ -510,6 +535,16 @@ The user's saved language is \`${profile?.preferred_language ?? "not chosen yet"
   other setup question and save the answer immediately.
 - If the user explicitly asks to switch language later, follow them and update
   \`preferred_language\`.
+- Localize the entire coaching experience, not just conversational filler. In Swedish,
+  write program/day titles, exercise notes, nutrition plans, meal suggestions, workspace
+  documents, tool-facing summaries, confirmations, and units naturally in Swedish.
+- Exercise identities are language-neutral IDs. Show the localized display name; never
+  translate an ID or invent a movement outside the catalog.
+
+## EXERCISE CATALOG
+Every generated program and ad-hoc workout must select \`exercise_id\` from this list.
+Each ID is permanently paired with its bilingual name and movement guide:
+${exerciseCatalogForPrompt(appLanguage)}
 
 You are an AGENT, not a chatbot. You have:
 - A per-user WORKSPACE — a private, persistent reference tree. You may list, read, and search it. Durable changes happen only through the typed coaching save tools below. Your own config lives under \`.agent/\`. Read a file before referencing it — never guess.
@@ -591,7 +626,7 @@ ${
   onboarded
     ? `## LIVE MODULES — you are wired into these in real time (this is current, not history)
 ### Program (structured, dated)
-${summarizeProgram(program, todayDate)}
+${summarizeProgram(program, todayDate, appLanguage)}
 Due program session: ${
         dueProgramDay
           ? `${dueProgramDay.date} — ${dueProgramDay.title}${dueProgramDay.is_deload ? " [DELOAD]" : ""} (${
@@ -601,17 +636,25 @@ Due program session: ${
       }
 
 ### Workout session
-${summarizeSession(activeSession)}
+${summarizeSession(activeSession, appLanguage)}
 - "Start today's workout" → call \`start_workout_session\` (no exercise list needed — it auto-loads today's program day). Ad-hoc sessions need an explicit exercise list.
 - When they finish an exercise, call \`mark_exercise_done\`, then hype them and name the NEXT unchecked exercise.
 - All done → \`complete_workout_session\` and celebrate. Never claim an exercise is done unless it shows [x] above or you just marked it.
 
 ### Session history (last 7 days)
-${summarizeRecentSessions(recentSessions)}
-Last completed session: ${lastCompleted ? `${lastCompleted.title} on ${lastCompleted.date}${lastCompleted.duration_min != null ? ` (${lastCompleted.duration_min} min)` : ""}` : "(none this week)"}
+${summarizeRecentSessions(recentSessions, appLanguage)}
+Last completed session: ${
+        lastCompleted
+          ? `${lastCompleted.title} ${appLanguage === "sv" ? "den" : "on"} ${lastCompleted.date}${
+              lastCompleted.duration_min != null ? ` (${lastCompleted.duration_min} min)` : ""
+            }`
+          : appLanguage === "sv"
+            ? "(inget den här veckan)"
+            : "(none this week)"
+      }
 
 ### Current/last cycle performance (durable server history)
-${summarizeWorkoutHistory(cycleWorkoutHistory)}
+${summarizeWorkoutHistory(cycleWorkoutHistory, appLanguage)}
 - Every workout, exercise, set, actual weight, rep count, status, and timestamp is stored on the user's account.
 - Use \`get_workout_history\` when the user asks for an exact older session or when reviewing a cycle. Never guess from chat memory.
 - When the user reports actual weights/reps for an exercise, pass them through \`mark_exercise_done.performed_sets\` so the exact work is recorded.
@@ -623,7 +666,7 @@ ${weightTrend}
 - When the user mentions their weight ("I'm 82kg today"), call \`log_weight\`.
 
 ### Nutrition (today)
-${summarizeNutrition(nutrition)}
+${summarizeNutrition(nutrition, appLanguage)}
 - You already KNOW what they've eaten today and how much room is left — use it. When they mention eating something, call \`log_meal\`. Answer "what have I had today / how many calories left" straight from the numbers above.
 
 ### Coach-defined measurements (latest value per metric)
@@ -767,19 +810,24 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
                 }
               }),
             execute: async (input) => {
+              const swedish = profile?.preferred_language === "sv";
               const rows = input.days
                 .map((d) => `- **${d.label}** — ${d.focus} (${d.time_of_day})`)
                 .join("\n");
               const header =
                 input.mode === "rolling"
-                  ? `# Training schedule (rolling — ${input.sessions_per_week}x/week, no fixed weekdays)`
-                  : `# Weekly schedule (${input.sessions_per_week}x/week)`;
+                  ? swedish
+                    ? `# Träningsschema (rullande — ${input.sessions_per_week} ggr/vecka, inga fasta veckodagar)`
+                    : `# Training schedule (rolling — ${input.sessions_per_week}x/week, no fixed weekdays)`
+                  : swedish
+                    ? `# Veckoschema (${input.sessions_per_week} ggr/vecka)`
+                    : `# Weekly schedule (${input.sessions_per_week}x/week)`;
               const md = `${header}
-Session length: ~${input.session_minutes} min
+${swedish ? "Passlängd" : "Session length"}: ~${input.session_minutes} min
 
 ${rows}
 
-## Notes
+## ${swedish ? "Anteckningar" : "Notes"}
 ${input.notes}
 `;
               await guardMutation(async () => {
@@ -792,8 +840,9 @@ ${input.notes}
               return {
                 ok: true,
                 path: "schedule/current.md",
-                next_step:
-                  "Tell the user the schedule is saved and visible in Settings. Then pitch the best workout-plan template in 2–3 sentences and ask if they want to run it.",
+                next_step: swedish
+                  ? "Berätta på svenska att schemat är sparat och syns i Inställningar. Presentera sedan bästa programmallen på 2–3 meningar och fråga om användaren vill köra den."
+                  : "Tell the user the schedule is saved and visible in Settings. Then pitch the best workout-plan template in 2–3 sentences and ask if they want to run it.",
               };
             },
           });
@@ -814,16 +863,24 @@ ${input.notes}
               })
               .strict(),
             execute: async (input) => {
-              const md = `# Nutrition targets
-- **Calories:** ${input.daily_calories} kcal/day
-- **Protein:** ${input.protein_g} g
-- **Carbs:** ${input.carbs_g} g
-- **Fat:** ${input.fat_g} g
-- **Meals/day:** ${input.meals_per_day}
-- **Diet style:** ${input.diet_style}
-- **Dislikes / avoid:** ${input.dislikes}
+              const swedish = profile?.preferred_language === "sv";
+              const dietStyleSv: Record<typeof input.diet_style, string> = {
+                omnivore: "allätare",
+                vegetarian: "vegetarisk",
+                vegan: "vegansk",
+                pescatarian: "pescetarisk",
+                other: "annan",
+              };
+              const md = `# ${swedish ? "Kostmål" : "Nutrition targets"}
+- **${swedish ? "Kalorier" : "Calories"}:** ${input.daily_calories} kcal/${swedish ? "dag" : "day"}
+- **${swedish ? "Protein" : "Protein"}:** ${input.protein_g} g
+- **${swedish ? "Kolhydrater" : "Carbs"}:** ${input.carbs_g} g
+- **${swedish ? "Fett" : "Fat"}:** ${input.fat_g} g
+- **${swedish ? "Måltider per dag" : "Meals/day"}:** ${input.meals_per_day}
+- **${swedish ? "Kosthållning" : "Diet style"}:** ${swedish ? dietStyleSv[input.diet_style] : input.diet_style}
+- **${swedish ? "Ogillar / undvik" : "Dislikes / avoid"}:** ${input.dislikes}
 
-## Notes
+## ${swedish ? "Anteckningar" : "Notes"}
 ${input.notes}
 `;
               await guardMutation(async () => {
@@ -836,8 +893,9 @@ ${input.notes}
               return {
                 ok: true,
                 path: "nutrition/targets.md",
-                next_step:
-                  "Tell the user the nutrition targets are saved, and that their setup is complete.",
+                next_step: swedish
+                  ? "Berätta på svenska att kostmålen är sparade och att konfigurationen är klar."
+                  : "Tell the user the nutrition targets are saved, and that their setup is complete.",
               };
             },
           });
@@ -982,7 +1040,7 @@ ${input.notes}
                   .array(
                     z
                       .object({
-                        name: z.string().trim().min(1).max(200),
+                        exercise_id: z.enum(EXERCISE_IDS),
                         target: z.string().trim().max(200).nullable(),
                         sets: z.number().int().min(1).max(20).nullable(),
                         rep_range: z.string().trim().max(40).nullable(),
@@ -1015,7 +1073,11 @@ ${input.notes}
                 }),
               );
               if (!r.ok) return { ok: false, error: r.error, coach_note: r.coach_note };
-              return { ok: true, resumed: r.resumed, session: summarizeSession(r.session) };
+              return {
+                ok: true,
+                resumed: r.resumed,
+                session: summarizeSession(r.session, appLanguage),
+              };
             },
           });
 
@@ -1024,7 +1086,7 @@ ${input.notes}
               "Check off (or un-check) an exercise in the active workout. performed_sets is the complete ordered list of sets the user has performed for this exercise so far. ALWAYS include it when marking done so durable history captures exact work. A shorter-than-planned list is saved and leaves the exercise open; extra real sets are appended and preserved.",
             inputSchema: z
               .object({
-                exercise: z.string().trim().min(1).max(200),
+                exercise_id: z.enum(EXERCISE_IDS),
                 done: z.boolean().nullable().describe("false to un-check; defaults to true"),
                 performed_sets: z
                   .array(
@@ -1042,10 +1104,10 @@ ${input.notes}
                   ),
               })
               .strict(),
-            execute: async ({ exercise, done, performed_sets }) => {
+            execute: async ({ exercise_id, done, performed_sets }) => {
               const r = await guardMutation(() =>
-                markExerciseDone(userId, exercise, done ?? true, performed_sets ?? undefined, {
-                  source_key: sourceKey(messageKey, markExerciseSourceOperation(exercise)),
+                markExerciseDone(userId, exercise_id, done ?? true, performed_sets ?? undefined, {
+                  source_key: sourceKey(messageKey, markExerciseSourceOperation(exercise_id)),
                   expected_data_epoch: dataEpoch,
                 }),
               );
@@ -1055,8 +1117,12 @@ ${input.notes}
                 marked: r.marked,
                 idempotent_replay: r.idempotent_replay ?? false,
                 pace_warning: r.pace_warning ?? null,
-                next: r.session?.next?.name ?? null,
-                session: summarizeSession(r.session),
+                next: r.session?.next
+                  ? appLanguage === "sv"
+                    ? r.session.next.name_sv
+                    : r.session.next.name_en
+                  : null,
+                session: summarizeSession(r.session, appLanguage),
               };
             },
           });
@@ -1091,8 +1157,12 @@ ${input.notes}
                 cycle_completed: r.cycle_completed,
                 program_name: r.program_name,
                 next_step: r.cycle_completed
-                  ? "The full program cycle is complete. Celebrate, review results, and offer to build the next cycle."
-                  : "Continue with the next scheduled workout.",
+                  ? appLanguage === "sv"
+                    ? "Hela programperioden är slutförd. Fira, granska resultaten och erbjud nästa programperiod på svenska."
+                    : "The full program cycle is complete. Celebrate, review results, and offer to build the next cycle."
+                  : appLanguage === "sv"
+                    ? "Fortsätt med nästa schemalagda pass på svenska."
+                    : "Continue with the next scheduled workout.",
               };
             },
           });
@@ -1132,7 +1202,7 @@ ${input.notes}
                         )
                       : null,
                   exercises: session.exercises.map((exercise) => ({
-                    name: exercise.name,
+                    name: exerciseName(exercise.exercise_id, appLanguage, exercise.name),
                     completed: exercise.completed,
                     sets: exercise.sets.map((set) => ({
                       set: set.set_index,
@@ -1172,7 +1242,7 @@ ${input.notes}
                           .array(
                             z
                               .object({
-                                name: z.string().trim().min(1).max(200),
+                                exercise_id: z.enum(EXERCISE_IDS),
                                 sets: z.number().int().min(1).max(20),
                                 rep_range: z.string().trim().min(1).max(40),
                                 start_weight_kg: z.number().min(0).max(2_000).nullable(),
@@ -1210,7 +1280,20 @@ ${input.notes}
                     exercises: d.exercises.map((e) => ({ ...e })),
                   })),
                 });
-                const md = `# Program — ${programInput.name}\nGoal: ${programInput.goal}\n${programInput.weeks} weeks, ${programInput.week_template.length}x/week, ${generated.start_date} → ${generated.end_date}\nDeloads: ${programInput.deload_weeks.join(", ") || "none"}\n\n## Progression\n${programInput.progression_rules}\n\n## Why\n${programInput.why}\n\n(Full day-by-day program lives in the Program tab.)\n`;
+                const swedish = profile?.preferred_language === "sv";
+                const md = `# Program — ${programInput.name}
+${swedish ? "Mål" : "Goal"}: ${programInput.goal}
+${programInput.weeks} ${swedish ? "veckor" : "weeks"}, ${programInput.week_template.length} ${swedish ? "ggr/vecka" : "x/week"}, ${generated.start_date} → ${generated.end_date}
+${swedish ? "Återhämtningsveckor" : "Deloads"}: ${programInput.deload_weeks.join(", ") || (swedish ? "inga" : "none")}
+
+## ${swedish ? "Progression" : "Progression"}
+${programInput.progression_rules}
+
+## ${swedish ? "Varför" : "Why"}
+${programInput.why}
+
+(${swedish ? "Det fullständiga programmet dag för dag finns på fliken Program." : "Full day-by-day program lives in the Program tab."})
+`;
                 await writeWorkspaceFile(userId, "plans/current.md", md);
                 return generated;
               });
@@ -1218,7 +1301,9 @@ ${input.notes}
                 ok: true,
                 ...result,
                 next_step:
-                  "Tell the user the full program is live in the Program tab (every week, day by day). Then move to nutrition targets if not set.",
+                  profile?.preferred_language === "sv"
+                    ? "Berätta på svenska att hela programmet finns på fliken Program, vecka för vecka och dag för dag. Gå sedan vidare till kostmålen om de saknas."
+                    : "Tell the user the full program is live in the Program tab (every week, day by day). Then move to nutrition targets if not set.",
               };
             },
           });
@@ -1228,7 +1313,7 @@ ${input.notes}
               "Adjust target weights for one exercise across future weeks of the active program (e.g. bench felt too heavy → drop 2.5kg from week 5 onward). Use when real performance diverges from the plan.",
             inputSchema: z
               .object({
-                exercise: z.string().trim().min(1).max(200),
+                exercise_id: z.enum(EXERCISE_IDS),
                 from_week: z.number().int().min(1).max(52),
                 delta_kg: z.number().min(-500).max(500).nullable(),
                 set_weight_kg: z.number().min(0).max(2_000).nullable(),
@@ -1240,10 +1325,13 @@ ${input.notes}
             execute: async (input) =>
               guardMutation(() =>
                 adjustProgramExercise(userId, {
-                  ...input,
+                  exercise: input.exercise_id,
+                  from_week: input.from_week,
+                  delta_kg: input.delta_kg,
+                  set_weight_kg: input.set_weight_kg,
                   source_key: sourceKey(
                     messageKey,
-                    `adjust_program:${input.exercise.trim().toLowerCase()}:${input.from_week}`,
+                    `adjust_program:${input.exercise_id}:${input.from_week}`,
                   ),
                   expected_data_epoch: dataEpoch,
                 }),
@@ -1706,7 +1794,7 @@ ${input.notes}
               "Get 2-3 concrete substitute exercises for a lift the user dislikes or can't do. Returns options with equipment need + trade-off. ALWAYS use this before swapping an exercise — never lazy-swap or silently drop.",
             inputSchema: z
               .object({
-                exercise: z.string().trim().min(1).max(200),
+                exercise_id: z.enum(EXERCISE_IDS),
                 reason: z
                   .string()
                   .trim()
@@ -1715,195 +1803,25 @@ ${input.notes}
                   .describe("dislike | boredom | injury:<area> | no_equipment:<what> | form_issue"),
               })
               .strict(),
-            execute: ({ exercise, reason }) => {
-              const key = exercise
-                .toLowerCase()
-                .replace(/[^a-z ]/g, "")
-                .trim();
-              const map: Record<
-                string,
-                Array<{ name: string; equipment: string; tradeoff: string }>
-              > = {
-                "back squat": [
-                  {
-                    name: "Hack squat",
-                    equipment: "hack squat machine",
-                    tradeoff: "Quad-biased, easier on lower back, less core.",
-                  },
-                  {
-                    name: "Front squat",
-                    equipment: "barbell + rack",
-                    tradeoff: "Quad-biased, upright torso, wrist mobility needed.",
-                  },
-                  {
-                    name: "Belt squat",
-                    equipment: "belt squat machine",
-                    tradeoff: "Zero spinal load, great for back-sensitive lifters.",
-                  },
-                  {
-                    name: "Bulgarian split squat + heavy leg press combo",
-                    equipment: "DBs + leg press",
-                    tradeoff: "Unilateral + machine — matches BB squat volume without the bar.",
-                  },
-                ],
-                deadlift: [
-                  {
-                    name: "Trap-bar deadlift",
-                    equipment: "trap bar",
-                    tradeoff: "More quad, easier on lower back, similar posterior chain.",
-                  },
-                  {
-                    name: "Romanian deadlift + heavy back extension",
-                    equipment: "barbell / GHR",
-                    tradeoff: "Hamstring/glute focus, less axial load.",
-                  },
-                  {
-                    name: "Rack pull (mid-shin)",
-                    equipment: "barbell + rack",
-                    tradeoff: "Heavier loads, shorter ROM, back-focused.",
-                  },
-                  {
-                    name: "Sumo deadlift",
-                    equipment: "barbell",
-                    tradeoff: "Shorter ROM, more adductor/glute, less lower back.",
-                  },
-                ],
-                "bench press": [
-                  {
-                    name: "Dumbbell bench press",
-                    equipment: "DBs + bench",
-                    tradeoff: "Bigger ROM, shoulder-friendly, less absolute load.",
-                  },
-                  {
-                    name: "Low-incline barbell bench",
-                    equipment: "BB + adjustable bench",
-                    tradeoff: "Shifts stress off shoulder, still heavy.",
-                  },
-                  {
-                    name: "Machine chest press",
-                    equipment: "chest press machine",
-                    tradeoff: "Fixed path, safe to failure, less stabilizer work.",
-                  },
-                  {
-                    name: "Weighted dips",
-                    equipment: "dip station + belt",
-                    tradeoff: "Great chest+tri, only if shoulders are healthy.",
-                  },
-                ],
-                "overhead press": [
-                  {
-                    name: "Seated DB shoulder press",
-                    equipment: "DBs + bench",
-                    tradeoff: "Bigger ROM, less lower-back stress.",
-                  },
-                  {
-                    name: "Landmine press",
-                    equipment: "landmine / corner",
-                    tradeoff: "Shoulder-friendly angle, great for impingement.",
-                  },
-                  {
-                    name: "Machine shoulder press",
-                    equipment: "machine",
-                    tradeoff: "Stable, easy to progress.",
-                  },
-                ],
-                "barbell row": [
-                  {
-                    name: "Chest-supported T-bar row",
-                    equipment: "T-bar / chest-supported machine",
-                    tradeoff: "Zero lower-back load, pure back.",
-                  },
-                  {
-                    name: "Seal row",
-                    equipment: "bench + BB",
-                    tradeoff: "Fully supported, strict, great hypertrophy.",
-                  },
-                  {
-                    name: "Single-arm DB row",
-                    equipment: "DB + bench",
-                    tradeoff: "Unilateral, low back-friendly.",
-                  },
-                ],
-                "pull up": [
-                  {
-                    name: "Lat pulldown",
-                    equipment: "cable stack",
-                    tradeoff: "Scalable load, same movement pattern.",
-                  },
-                  {
-                    name: "Assisted pull-up (band or machine)",
-                    equipment: "band or assist machine",
-                    tradeoff: "Same movement, progresses to bodyweight.",
-                  },
-                  {
-                    name: "Inverted row",
-                    equipment: "bar or rings",
-                    tradeoff: "Horizontal pull, easier scaling.",
-                  },
-                ],
-                lunges: [
-                  {
-                    name: "Bulgarian split squat",
-                    equipment: "bench + DBs",
-                    tradeoff: "More stable, higher load, brutal on quads/glutes.",
-                  },
-                  {
-                    name: "Reverse lunges",
-                    equipment: "DBs",
-                    tradeoff: "Less knee stress than forward lunges.",
-                  },
-                  {
-                    name: "Step-ups",
-                    equipment: "box + DBs",
-                    tradeoff: "Knee-friendly, glute-biased with high step.",
-                  },
-                ],
-                "hip thrust": [
-                  {
-                    name: "Single-leg hip thrust",
-                    equipment: "bench",
-                    tradeoff: "Unilateral, no bar needed.",
-                  },
-                  {
-                    name: "Cable pull-through",
-                    equipment: "cable + rope",
-                    tradeoff: "Hip-hinge glute pattern, low back-friendly.",
-                  },
-                  {
-                    name: "45° back extension (glute bias)",
-                    equipment: "back-ext bench",
-                    tradeoff: "Glute+hamstring, huge ROM.",
-                  },
-                  {
-                    name: "Machine glute drive",
-                    equipment: "glute drive machine",
-                    tradeoff: "Best of both — set up fast, heavy load.",
-                  },
-                ],
-              };
-              const options = map[key] ?? [
-                {
-                  name: "Machine variant of the same pattern",
-                  equipment: "any relevant machine",
-                  tradeoff: "Fixed path, easier progression.",
-                },
-                {
-                  name: "Dumbbell variant",
-                  equipment: "DBs",
-                  tradeoff: "Bigger ROM, unilateral option.",
-                },
-                {
-                  name: "Unilateral variant",
-                  equipment: "varies",
-                  tradeoff: "Fixes imbalances, less absolute load.",
-                },
-              ];
+            execute: ({ exercise_id, reason }) => {
+              const selectedExercise = getExercise(exercise_id);
+              const exercise = selectedExercise?.name_en ?? exercise_id;
+              const language = profile?.preferred_language === "sv" ? "sv" : "en";
+              const catalogOptions = exerciseSubstitutions(exercise_id).map((item) => ({
+                exercise_id: item.id,
+                name: language === "sv" ? item.name_sv : item.name_en,
+                equipment: item.equipment,
+              }));
               return {
                 ok: true,
+                exercise_id,
                 exercise,
                 reason,
-                options,
-                note: "Ask the user which they prefer and confirm they have the equipment before locking it in.",
+                options: catalogOptions,
+                note:
+                  language === "sv"
+                    ? "Fråga vilket alternativ användaren föredrar och bekräfta utrustningen innan bytet sparas."
+                    : "Ask which option the user prefers and confirm the equipment before saving the swap.",
               };
             },
           });

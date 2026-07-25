@@ -190,6 +190,28 @@ describe.runIf(databaseAvailable).sequential("fresh legacy migration chain", () 
 
       for (const migration of hardeningMigrations) await applyMigration(client, migration);
 
+      const [catalog] = (
+        await client.query<{
+          exercises: number;
+          english_names: number;
+          swedish_names: number;
+          guide_paths: number;
+        }>(
+          `SELECT
+             count(*)::int AS exercises,
+             count(DISTINCT name_en)::int AS english_names,
+             count(DISTINCT name_sv)::int AS swedish_names,
+             count(DISTINCT image_path)::int AS guide_paths
+           FROM exercise_catalog`,
+        )
+      ).rows;
+      expect(catalog).toEqual({
+        exercises: 55,
+        english_names: 55,
+        swedish_names: 55,
+        guide_paths: 55,
+      });
+
       const [{ active_cycles }] = (
         await client.query<{ active_cycles: number }>(
           `SELECT count(*)::int AS active_cycles
