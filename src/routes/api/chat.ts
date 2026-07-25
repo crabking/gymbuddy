@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   consumeStream,
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   streamText,
   tool,
   stepCountIs,
@@ -19,6 +21,7 @@ import {
   type AppLanguage,
 } from "@/lib/exercises";
 import { isIsoDate, localDateInTimeZone, normalizeTimeZone } from "@/lib/local-date";
+import { pipeGuaranteedCoachResponse } from "@/lib/chat-stream-guard";
 
 // Bundle skill markdown at build time.
 import onboardingSkill from "@/agent/skills/onboarding.md?raw";
@@ -599,6 +602,7 @@ or major changes require clear confirmation in that newest message.
 ## Rules
 - Never mention tool or skill names to the user.
 - Do your tool work SILENTLY. Never narrate internal steps — no "let me load/pull up/check…", no "I'll start the flow…". Call the tools without commentary and make your visible reply pure coach-speak from the first word.
+- A failed tool call is feedback, never the end of a conversation. Read its error, correct the input or choose a safe alternative, and ALWAYS finish the turn with a visible in-character reply. If it cannot be completed, briefly say what blocked it and invite one retry. Never repeat the same failed call with identical input more than once in a turn.
 - MOBILE REPLY BUDGET: default to 1–3 short sentences and aim for under 55 words total. Ask at most ONE question. Simple confirmations should be one sentence. If a list is truly useful, cap it at 3 compact bullets. Only go longer when the user explicitly asks for detail or safety requires it. The phone UI shows one message at a time, often above an open keyboard, so NEVER dump a full plan, spreadsheet, recap, or long list into chat.
 - Never fabricate the content of a workspace file — always \`read_file\` first if you're going to reference it.
 - When something durable comes up (a new schedule, a plan, an injury, a preference), save it to the workspace as markdown so future sessions have it.
@@ -1929,56 +1933,84 @@ ${programInput.why}
               toolMs: 60_000,
             },
             maxOutputTokens: 1_200,
-            stopWhen: stepCountIs(12),
+            stopWhen: stepCountIs(8),
             // Never let the hard tool-loop ceiling end on another invisible
             // tool call. The final step must produce a user-facing handoff.
             prepareStep: ({ stepNumber }) =>
-              stepNumber >= 11 ? { toolChoice: "none" as const } : undefined,
+              stepNumber >= 7 ? { toolChoice: "none" as const } : undefined,
             experimental_repairToolCall: async ({ toolCall }) => {
               const repairedInput = unwrapToolInputContent(toolCall.input);
               return repairedInput ? { ...toolCall, input: repairedInput } : null;
             },
           });
 
-          const streamResponse = result.toUIMessageStreamResponse({
+          const fallbackText =
+            appLanguage === "sv"
+              ? "Jag kunde inte slutföra det steget, men jag är kvar och dina sparade uppgifter är säkra. Be mig försöka igen så fortsätter vi där vi slutade. 🔄"
+              : "I couldn't finish that step, but I'm still here and your saved data is safe. Ask me to try again and we'll continue from where we stopped. 🔄";
+          let shouldCompactChat = false;
+          const guaranteedStream = createUIMessageStream<UIMessage>({
             originalMessages: [incomingMessage],
-            consumeSseStream: consumeStream,
-            onError: (error) => {
-              console.error("Chat stream failed", error);
-              return appLanguage === "sv"
-                ? "Coachens svar avbröts. Försök igen — dina sparade uppgifter finns kvar."
-                : "The coach response was interrupted. Try again — your saved data is safe.";
-            },
-            onEnd: async ({ responseMessage, isAborted }) => {
-              if (isAborted || !(await epochIsCurrent())) return;
-              const hasVisibleText = responseMessage.parts.some(
-                (part) => part.type === "text" && part.text.trim().length > 0,
-              );
-              if (!hasVisibleText) {
-                console.error("Chat response ended without visible text", {
-                  userId,
-                  messageKey,
-                  coach: coachName,
-                });
-                return;
-              }
-              await persistCanonicalAssistantAndMemoryJob(
-                userId,
-                dataEpoch,
-                messageKey,
-                responseMessage,
-              );
-              await compactCanonicalChatHistory(userId);
-              void processPendingMemoryJob(userId).catch((error) => {
-                console.error("Permanent-memory worker failed", error);
+            execute: async ({ writer }) => {
+              await pipeGuaranteedCoachResponse({
+                source: result.toUIMessageStream<UIMessage>(),
+                write: (chunk) => writer.write(chunk),
+                fallbackText,
+                reportError: (error) => {
+                  console.error("Chat stream failed", error);
+                },
               });
             },
+            onError: (error) => {
+              console.error("Chat stream failed", error);
+              return fallbackText;
+            },
+            onEnd: async ({ responseMessage, isAborted }) => {
+              if (isAborted) return;
+              try {
+                if (!(await epochIsCurrent())) return;
+                const hasVisibleText = responseMessage.parts.some(
+                  (part) => part.type === "text" && part.text.trim().length > 0,
+                );
+                if (!hasVisibleText) {
+                  console.error("Chat response ended without visible text", {
+                    userId,
+                    messageKey,
+                    coach: coachName,
+                  });
+                  return;
+                }
+                await persistCanonicalAssistantAndMemoryJob(
+                  userId,
+                  dataEpoch,
+                  messageKey,
+                  responseMessage,
+                );
+                shouldCompactChat = true;
+                void processPendingMemoryJob(userId).catch((error) => {
+                  console.error("Permanent-memory worker failed", error);
+                });
+              } catch (error) {
+                // Persistence must never turn a reply the user already received
+                // into a broken or infinitely pending client request.
+                console.error("Failed to persist completed chat response", error);
+              }
+            },
+          });
+          const streamResponse = createUIMessageStreamResponse({
+            stream: guaranteedStream,
+            consumeSseStream: consumeStream,
           });
           return finalizeStreamingResponse(streamResponse, async () => {
             try {
               await releaseChatLease(lease);
             } catch (error) {
               console.error("Failed to release chat lease", error);
+            }
+            if (shouldCompactChat) {
+              void compactCanonicalChatHistory(userId).catch((error) => {
+                console.error("Rolling chat compaction failed", error);
+              });
             }
           });
         } catch (error) {

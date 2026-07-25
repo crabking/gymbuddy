@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { convertFileListToFileUIParts, DefaultChatTransport, type UIMessage } from "ai";
-import { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -457,7 +457,6 @@ function ChatScreen() {
   const failedSubmission = useRef<RetriableChatSubmission<File> | null>(null);
   const kickoffMessageId = useRef<string | null>(null);
   const kickoffInFlight = useRef(false);
-  const orphanRetryAttempted = useRef<string | null>(null);
   const startIntentHandled = useRef(false);
   const clearChatErrorRef = useRef<() => void>(() => undefined);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -977,34 +976,28 @@ function ChatScreen() {
       })
       .filter((x): x is { url: string } => x !== null) ?? [];
   const unanswered = retryableUnansweredUserMessage(messages, status);
-  const unansweredId = unanswered?.id ?? null;
-  const unansweredText = unanswered?.text ?? null;
 
-  const retryUnanswered = useCallback(async () => {
-    if (!unansweredId || !unansweredText || busy) return;
-    orphanRetryAttempted.current = unansweredId;
+  async function retryUnanswered() {
+    if (!unanswered || busy) return;
+    const retryText =
+      language === "sv"
+        ? `Fortsätt från mitt förra obesvarade meddelande: ${unanswered.text}`
+        : `Continue from my previous unanswered message: ${unanswered.text}`;
+    const messageId = crypto.randomUUID();
     pendingSubmission.current = {
-      messageId: unansweredId,
-      text: unansweredText,
+      messageId,
+      text: retryText,
       files: [],
     };
     try {
-      await sendMessage({ text: unansweredText, messageId: unansweredId });
+      await sendMessage(createChatSubmissionMessage(messageId, retryText, []));
     } catch (error) {
       const failed = pendingSubmission.current;
       pendingSubmission.current = null;
       if (failed) failedSubmission.current = failed;
       toast.error(error instanceof Error ? error.message : t("chat.chat_failed"));
     }
-  }, [busy, sendMessage, t, unansweredId, unansweredText]);
-
-  useEffect(() => {
-    if (!unansweredId || orphanRetryAttempted.current === unansweredId) return;
-    const timer = window.setTimeout(() => {
-      void retryUnanswered();
-    }, 3_000);
-    return () => window.clearTimeout(timer);
-  }, [retryUnanswered, unansweredId]);
+  }
 
   const activity = deriveActivity(latest, status, coach.name, language);
 

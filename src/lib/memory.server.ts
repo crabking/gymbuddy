@@ -11,21 +11,30 @@ const MAX_PROMPT_MEMORY_CHARS = 24_000;
 const MAX_MEMORY_JOB_ATTEMPTS = 5;
 const TERMINAL_JOB_TRANSCRIPT = "[processed]";
 
+const extractedMemoryArraySchema = z
+  .array(
+    z.object({
+      topic: z.enum(["Preference", "Goal", "Injury", "Achievement", "Event", "Personal"]),
+      content: z.string().min(1).max(500),
+    }),
+  )
+  .max(MAX_NEW_MEMORIES_PER_TURN);
+
 const extractedMemoriesObjectSchema = z.object({
-  memories: z
-    .array(
-      z.object({
-        topic: z.enum(["Preference", "Goal", "Injury", "Achievement", "Event", "Personal"]),
-        content: z.string().min(1).max(500),
-      }),
-    )
-    .max(MAX_NEW_MEMORIES_PER_TURN),
+  memories: extractedMemoryArraySchema,
 });
 
-const extractedMemoriesSchema = z.union([
-  extractedMemoriesObjectSchema,
-  z.object({ content: extractedMemoriesObjectSchema }),
-]);
+// Keep the JSON Schema root an object: Anthropic rejects a root-level union
+// for structured output. The optional content field tolerates the wrapper some
+// OpenAI-compatible providers add without changing that root contract.
+const extractedMemoriesSchema = z
+  .object({
+    memories: extractedMemoryArraySchema.optional(),
+    content: extractedMemoriesObjectSchema.optional(),
+  })
+  .refine((value) => value.memories !== undefined || value.content !== undefined, {
+    message: "Expected memories or content.memories",
+  });
 
 function clean(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -306,8 +315,8 @@ ${job.transcript}`,
         .orderBy(asc(memories.created_at));
       const seen = new Set(existingRows.map((row) => clean(row.content).toLowerCase()));
       const available = Math.max(0, MAX_MEMORIES - existingRows.length);
-      const extracted = "memories" in result.object ? result.object : result.object.content;
-      const fresh = extracted.memories
+      const extracted = result.object.memories ?? result.object.content?.memories ?? [];
+      const fresh = extracted
         .map((entry) => ({
           topic: clean(entry.topic).slice(0, 50),
           content: clean(entry.content).slice(0, 500),
