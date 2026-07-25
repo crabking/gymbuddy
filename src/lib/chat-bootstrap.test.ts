@@ -11,16 +11,27 @@ function message(id: string, role: "user" | "assistant", text: string): UIMessag
 }
 
 describe("chat bootstrap", () => {
-  it("retries setup when only an orphaned kickoff marker was persisted", () => {
+  it("retries post-onboarding setup when only an orphaned kickoff marker was persisted", () => {
     const messages = [message("kickoff", "user", "__begin__")];
     expect(
       shouldAutoKickoffCoach({
         messages,
-        inOnboarding: true,
+        inOnboarding: false,
         buildIncomplete: true,
         status: "ready",
       }),
     ).toBe(true);
+  });
+
+  it("never blocks onboarding on an automatic model request", () => {
+    expect(
+      shouldAutoKickoffCoach({
+        messages: [],
+        inOnboarding: true,
+        buildIncomplete: true,
+        status: "ready",
+      }),
+    ).toBe(false);
   });
 
   it("does not start another setup turn when visible conversation exists", () => {

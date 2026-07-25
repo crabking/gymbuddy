@@ -60,6 +60,33 @@ function getCoachPortrait(id: string | null | undefined) {
   return { ...coach, portrait: COACH_IMAGES[coach.id].avatar };
 }
 
+const ONBOARDING_OPENERS = {
+  eli: {
+    en: "I’m Eli. We’ll keep this simple. What should I call you?",
+    sv: "Jag är Eli. Vi tar det enkelt. Vad ska jag kalla dig?",
+  },
+  rex: {
+    en: "CT here. Let’s lock this in—what should I call you?",
+    sv: "CT här. Nu kör vi—vad ska jag kalla dig?",
+  },
+  brutus: {
+    en: "TANK IS HERE. NAME, ATHLETE?",
+    sv: "TANK ÄR HÄR. NAMN, ATLET?",
+  },
+  maya: {
+    en: "I’m Maya. We’ll build this comfortably—what should I call you?",
+    sv: "Jag är Maya. Vi bygger det här tryggt—vad ska jag kalla dig?",
+  },
+  reya: {
+    en: "Nova here. Let’s get you set up—what should I call you?",
+    sv: "Nova här. Nu ställer vi in allt—vad ska jag kalla dig?",
+  },
+  nova: {
+    en: "Athena. We begin with precision. What should I call you?",
+    sv: "Athena. Vi börjar med precision. Vad ska jag kalla dig?",
+  },
+} as const;
+
 function useChatViewport() {
   const [viewport, setViewport] = useState<{
     height: number | null;
@@ -597,9 +624,9 @@ function ChatScreen() {
   const buildDoneCount = Object.values(buildStatus_).filter(Boolean).length;
   const buildTotalSteps = Object.keys(buildStatus_).length;
 
-  // Auto-boot the coach on a fresh session: during onboarding it runs the
-  // onboarding skill; after onboarding it keeps driving the build (plan, meals…)
-  // until everything is set up. The "__begin__" marker is filtered from the UI.
+  // After onboarding, auto-boot the coach to keep driving the build (plan,
+  // meals…) until everything is set up. Fresh onboarding uses an instant local
+  // opener below, so it can never be blocked by a failed model request.
   const buildIncomplete = buildDoneCount < buildTotalSteps;
   const visibleMessageCount = userFacingChatMessages(messages).length;
   const kicked = useRef(false);
@@ -952,6 +979,10 @@ function ChatScreen() {
   const activity = deriveActivity(latest, status, coach.name, language);
 
   const firstName = (profile as Profile)?.display_name?.split(" ")[0] || "athlete";
+  const onboardingOpener =
+    (profile as Profile).preferred_language === null
+      ? `${coach.name}. English or svenska?`
+      : ONBOARDING_OPENERS[coach.id][language];
 
   const steps: Array<{ key: SetupKey; label: string; Icon: typeof User }> = [
     { key: "profile", label: t("chat.profile_step"), Icon: User },
@@ -1283,7 +1314,9 @@ function ChatScreen() {
       >
         {!latest && (
           <div className="mx-auto max-w-md text-center">
-            {kickoffFailed ? (
+            {inOnboarding ? (
+              <p className="text-[15px] leading-relaxed text-foreground">{onboardingOpener}</p>
+            ) : kickoffFailed ? (
               <>
                 <p className="text-sm text-muted-foreground">
                   {language === "sv"
@@ -1301,11 +1334,11 @@ function ChatScreen() {
                   {t("common.retry")}
                 </button>
               </>
-            ) : inOnboarding ? (
+            ) : buildIncomplete ? (
               <Shimmer>
                 {language === "sv"
-                  ? `${coach.name} gör sig redo…`
-                  : `${coach.name} is getting set up…`}
+                  ? `${coach.name} förbereder nästa steg…`
+                  : `${coach.name} is preparing the next step…`}
               </Shimmer>
             ) : (
               <p className="text-[15px] leading-relaxed text-muted-foreground">
