@@ -61,8 +61,9 @@ const en = {
 
   "landing.image_alt": "Your AI fitness coach",
   "landing.eyebrow": "Your complete fitness system",
-  "landing.title": "One coach. Everything connected.",
-  "landing.body": "Plan, train, eat, track, and improve with one coach that remembers you.",
+  "landing.title": "Delete the other five apps.",
+  "landing.body":
+    "Planning, coaching, calories, macros, gains, weight loss. One coach that tracks it all, remembers everything, and runs the whole thing for you.",
   "landing.start": "Start training",
   "landing.feature.workout.title": "Workout coaching",
   "landing.feature.workout.body": "Form guidance, exercise help, and motivation while you train.",
@@ -319,8 +320,9 @@ const sv: Record<TranslationKey, string> = {
 
   "landing.image_alt": "Din AI-coach för träning",
   "landing.eyebrow": "Ditt kompletta träningssystem",
-  "landing.title": "En coach. Allt hänger ihop.",
-  "landing.body": "Planera, träna, ät, följ upp och utvecklas med en coach som minns dig.",
+  "landing.title": "Radera de andra fem apparna.",
+  "landing.body":
+    "Planering, coachning, kalorier, makros, muskler, viktnedgång. En coach som håller koll, minns allt och styr alltihop åt dig.",
   "landing.start": "Börja träna",
   "landing.feature.workout.title": "Coachning under passet",
   "landing.feature.workout.body": "Teknikhjälp, övningsstöd och motivation medan du tränar.",
