@@ -4,8 +4,9 @@ import { COACHES } from "@/lib/coaches";
 describe("coach personality prompts", () => {
   it("gives every coach a mandatory, character-specific emoji style", () => {
     for (const coach of COACHES) {
-      expect(coach.personality).toContain("Every visible reply must include");
-      expect(coach.personality).toMatch(/\p{Extended_Pictographic}/u);
+      expect(coach.personality).toContain("Every visible reply must include at least one emoji.");
+      expect(coach.personality).toContain("Never use a canned palette or generic decoration");
+      expect(coach.personality).not.toMatch(/\b(?:usually|favor)\b/);
     }
   });
 });
