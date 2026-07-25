@@ -1,5 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
+import {
+  consumeStream,
+  convertToModelMessages,
+  streamText,
+  tool,
+  stepCountIs,
+  type UIMessage,
+} from "ai";
 import { z } from "zod";
 import { getChatModel } from "@/lib/ai-provider.server";
 import { getCoach } from "@/lib/coaches";
@@ -131,6 +138,30 @@ export function hasConfirmationQuote(message: UIMessage, quote: string): boolean
   const normalizedMessage = normalizeConfirmationText(newestText);
   const normalizedQuote = normalizeConfirmationText(quote);
   return normalizedQuote.length > 0 && normalizedMessage.includes(normalizedQuote);
+}
+
+/**
+ * Some providers occasionally wrap otherwise valid tool arguments in a
+ * top-level `content` object. Repair only that exact, unambiguous shape.
+ */
+export function unwrapToolInputContent(input: string): string | null {
+  try {
+    const parsed = JSON.parse(input) as unknown;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      Object.keys(parsed).length !== 1 ||
+      !("content" in parsed)
+    ) {
+      return null;
+    }
+    const content = (parsed as { content?: unknown }).content;
+    if (!content || typeof content !== "object" || Array.isArray(content)) return null;
+    return JSON.stringify(content);
+  } catch {
+    return null;
+  }
 }
 
 export function selectDueProgramDay<T extends { date: string; status: string }>(
@@ -591,7 +622,7 @@ At the start of a new build phase, briefly name what is already saved from the w
 
 Current build checklist from workspace:
 - Schedule saved: ${files?.some((f) => f.path === "schedule/current.md") ? "yes" : "no"}
-- Workout plan saved: ${files?.some((f) => f.path === "plans/current.md") ? "yes" : "no"}
+- Workout plan saved: ${program || files?.some((f) => f.path === "plans/current.md") ? "yes" : "no"}
 - Nutrition targets saved: ${files?.some((f) => f.path === "nutrition/targets.md") ? "yes" : "no"}
 
 ## Typed save tools — pre-flight checklist (CRITICAL)
@@ -1899,12 +1930,38 @@ ${programInput.why}
             },
             maxOutputTokens: 1_200,
             stopWhen: stepCountIs(12),
+            // Never let the hard tool-loop ceiling end on another invisible
+            // tool call. The final step must produce a user-facing handoff.
+            prepareStep: ({ stepNumber }) =>
+              stepNumber >= 11 ? { toolChoice: "none" as const } : undefined,
+            experimental_repairToolCall: async ({ toolCall }) => {
+              const repairedInput = unwrapToolInputContent(toolCall.input);
+              return repairedInput ? { ...toolCall, input: repairedInput } : null;
+            },
           });
 
           const streamResponse = result.toUIMessageStreamResponse({
             originalMessages: [incomingMessage],
+            consumeSseStream: consumeStream,
+            onError: (error) => {
+              console.error("Chat stream failed", error);
+              return appLanguage === "sv"
+                ? "Coachens svar avbröts. Försök igen — dina sparade uppgifter finns kvar."
+                : "The coach response was interrupted. Try again — your saved data is safe.";
+            },
             onEnd: async ({ responseMessage, isAborted }) => {
               if (isAborted || !(await epochIsCurrent())) return;
+              const hasVisibleText = responseMessage.parts.some(
+                (part) => part.type === "text" && part.text.trim().length > 0,
+              );
+              if (!hasVisibleText) {
+                console.error("Chat response ended without visible text", {
+                  userId,
+                  messageKey,
+                  coach: coachName,
+                });
+                return;
+              }
               await persistCanonicalAssistantAndMemoryJob(
                 userId,
                 dataEpoch,

@@ -6,6 +6,7 @@ import {
   parseIncomingUserMessage,
   parseClientLocalHeader,
   selectDueProgramDay,
+  unwrapToolInputContent,
 } from "@/routes/api/chat";
 
 function userMessage(text: string): UIMessage {
@@ -22,6 +23,17 @@ describe("chat mutation confirmation", () => {
     expect(hasConfirmationQuote(message, "SHIFT   the plan by seven days.")).toBe(true);
     expect(hasConfirmationQuote(message, "shift the plan by fourteen days")).toBe(false);
     expect(hasConfirmationQuote(message, " ")).toBe(false);
+  });
+});
+
+describe("chat tool-call repair", () => {
+  it("unwraps only the known provider content wrapper", () => {
+    expect(unwrapToolInputContent('{"content":{"weeks":16,"name":"Upper/Lower"}}')).toBe(
+      '{"weeks":16,"name":"Upper/Lower"}',
+    );
+    expect(unwrapToolInputContent('{"weeks":16}')).toBeNull();
+    expect(unwrapToolInputContent('{"content":[] }')).toBeNull();
+    expect(unwrapToolInputContent("not json")).toBeNull();
   });
 });
 

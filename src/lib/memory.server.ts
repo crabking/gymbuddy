@@ -11,7 +11,7 @@ const MAX_PROMPT_MEMORY_CHARS = 24_000;
 const MAX_MEMORY_JOB_ATTEMPTS = 5;
 const TERMINAL_JOB_TRANSCRIPT = "[processed]";
 
-const extractedMemoriesSchema = z.object({
+const extractedMemoriesObjectSchema = z.object({
   memories: z
     .array(
       z.object({
@@ -21,6 +21,11 @@ const extractedMemoriesSchema = z.object({
     )
     .max(MAX_NEW_MEMORIES_PER_TURN),
 });
+
+const extractedMemoriesSchema = z.union([
+  extractedMemoriesObjectSchema,
+  z.object({ content: extractedMemoriesObjectSchema }),
+]);
 
 function clean(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -301,7 +306,8 @@ ${job.transcript}`,
         .orderBy(asc(memories.created_at));
       const seen = new Set(existingRows.map((row) => clean(row.content).toLowerCase()));
       const available = Math.max(0, MAX_MEMORIES - existingRows.length);
-      const fresh = result.object.memories
+      const extracted = "memories" in result.object ? result.object : result.object.content;
+      const fresh = extracted.memories
         .map((entry) => ({
           topic: clean(entry.topic).slice(0, 50),
           content: clean(entry.content).slice(0, 500),

@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { convertFileListToFileUIParts, DefaultChatTransport, type UIMessage } from "ai";
-import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,7 +54,11 @@ import {
   isSameChatSubmission,
   type RetriableChatSubmission,
 } from "@/lib/chat-submission";
-import { shouldAutoKickoffCoach, userFacingChatMessages } from "@/lib/chat-bootstrap";
+import {
+  retryableUnansweredUserMessage,
+  shouldAutoKickoffCoach,
+  userFacingChatMessages,
+} from "@/lib/chat-bootstrap";
 import { prepareChatImage } from "@/lib/image-upload";
 import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -337,10 +341,14 @@ function workspaceFile(files: WorkspaceFile[] | undefined, path: string) {
   return files?.find((file) => file.path === path) ?? null;
 }
 
-function buildStatus(profile: Profile, files: WorkspaceFile[] | undefined) {
+function buildStatus(
+  profile: Profile,
+  files: WorkspaceFile[] | undefined,
+  hasStructuredProgram = false,
+) {
   return {
     schedule: !!workspaceFile(files, "schedule/current.md"),
-    plan: !!workspaceFile(files, "plans/current.md"),
+    plan: hasStructuredProgram || !!workspaceFile(files, "plans/current.md"),
     meals: !!workspaceFile(files, "nutrition/targets.md"),
   } as Record<BuildKey, boolean>;
 }
@@ -449,6 +457,7 @@ function ChatScreen() {
   const failedSubmission = useRef<RetriableChatSubmission<File> | null>(null);
   const kickoffMessageId = useRef<string | null>(null);
   const kickoffInFlight = useRef(false);
+  const orphanRetryAttempted = useRef<string | null>(null);
   const startIntentHandled = useRef(false);
   const clearChatErrorRef = useRef<() => void>(() => undefined);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -596,7 +605,11 @@ function ChatScreen() {
   const doneCount = Object.values(status_).filter(Boolean).length;
   const totalSteps = Object.keys(status_).length;
   const inOnboarding = !(profile as Profile).onboarding_completed;
-  const buildStatus_ = buildStatus(profile as Profile, workspaceFiles);
+  const buildStatus_ = buildStatus(
+    profile as Profile,
+    workspaceFiles,
+    !!todayTraining?.has_program,
+  );
   const buildDoneCount = Object.values(buildStatus_).filter(Boolean).length;
   const buildTotalSteps = Object.keys(buildStatus_).length;
 
@@ -963,6 +976,35 @@ function ChatScreen() {
         return typeof rec.url === "string" ? { url: rec.url } : null;
       })
       .filter((x): x is { url: string } => x !== null) ?? [];
+  const unanswered = retryableUnansweredUserMessage(messages, status);
+  const unansweredId = unanswered?.id ?? null;
+  const unansweredText = unanswered?.text ?? null;
+
+  const retryUnanswered = useCallback(async () => {
+    if (!unansweredId || !unansweredText || busy) return;
+    orphanRetryAttempted.current = unansweredId;
+    pendingSubmission.current = {
+      messageId: unansweredId,
+      text: unansweredText,
+      files: [],
+    };
+    try {
+      await sendMessage({ text: unansweredText, messageId: unansweredId });
+    } catch (error) {
+      const failed = pendingSubmission.current;
+      pendingSubmission.current = null;
+      if (failed) failedSubmission.current = failed;
+      toast.error(error instanceof Error ? error.message : t("chat.chat_failed"));
+    }
+  }, [busy, sendMessage, t, unansweredId, unansweredText]);
+
+  useEffect(() => {
+    if (!unansweredId || orphanRetryAttempted.current === unansweredId) return;
+    const timer = window.setTimeout(() => {
+      void retryUnanswered();
+    }, 3_000);
+    return () => window.clearTimeout(timer);
+  }, [retryUnanswered, unansweredId]);
 
   const activity = deriveActivity(latest, status, coach.name, language);
 
@@ -1390,6 +1432,15 @@ function ChatScreen() {
                     </div>
                     <Shimmer>{activity}</Shimmer>
                   </div>
+                )}
+                {unanswered && status === "ready" && (
+                  <button
+                    type="button"
+                    onClick={() => void retryUnanswered()}
+                    className="min-h-11 rounded-xl border border-primary/60 px-4 text-sm font-bold text-primary"
+                  >
+                    {language === "sv" ? "Försök nå coachen igen" : "Retry coach response"}
+                  </button>
                 )}
               </div>
             )}

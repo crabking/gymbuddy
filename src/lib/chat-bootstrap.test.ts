@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
   isInternalChatMessage,
+  retryableUnansweredUserMessage,
   shouldAutoKickoffCoach,
   userFacingChatMessages,
 } from "@/lib/chat-bootstrap";
@@ -58,5 +59,17 @@ describe("chat bootstrap", () => {
     ];
     expect(isInternalChatMessage(messages[0])).toBe(true);
     expect(userFacingChatMessages(messages)).toEqual([visible]);
+  });
+
+  it("recovers a persisted user turn that has no assistant reply", () => {
+    const unanswered = message("user-turn", "user", "Hello?");
+    expect(retryableUnansweredUserMessage([unanswered], "ready")).toEqual({
+      id: "user-turn",
+      text: "Hello?",
+    });
+    expect(retryableUnansweredUserMessage([unanswered], "streaming")).toBeNull();
+    expect(
+      retryableUnansweredUserMessage([unanswered, message("reply", "assistant", "Here.")], "ready"),
+    ).toBeNull();
   });
 });

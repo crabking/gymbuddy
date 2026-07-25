@@ -304,6 +304,7 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
       return {
         label: `${todayDay.title}${todayDay.is_deload ? " (deload)" : ""}`,
         detail: "today",
+        has_program: true,
       };
     }
     const next = await getNextProgramDay(context.userId, today);
@@ -311,10 +312,12 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
       return {
         label: `${next.title}${next.is_deload ? " (deload)" : ""}`,
         detail: next.date === today ? "today" : next.date,
+        has_program: true,
       };
     }
     const { getTodayTraining } = await import("@/lib/schedule.server");
-    return getTodayTraining(context.userId, data);
+    const scheduled = await getTodayTraining(context.userId, data);
+    return { ...scheduled, has_program: false };
   });
 
 export const getProgramFull = createServerFn({ method: "POST" })
