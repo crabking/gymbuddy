@@ -23,7 +23,7 @@ describe("chat bootstrap", () => {
     ).toBe(true);
   });
 
-  it("never blocks onboarding on an automatic model request", () => {
+  it("starts onboarding with a real coach turn", () => {
     expect(
       shouldAutoKickoffCoach({
         messages: [],
@@ -31,7 +31,7 @@ describe("chat bootstrap", () => {
         buildIncomplete: true,
         status: "ready",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("does not start another setup turn when visible conversation exists", () => {

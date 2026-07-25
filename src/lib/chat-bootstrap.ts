@@ -29,8 +29,7 @@ export function shouldAutoKickoffCoach({
   status: string;
 }) {
   return (
-    !inOnboarding &&
-    buildIncomplete &&
+    (inOnboarding || buildIncomplete) &&
     status === "ready" &&
     userFacingChatMessages(messages).length === 0
   );

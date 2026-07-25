@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import {
   hasConfirmationQuote,
   markExerciseSourceOperation,
+  parseIncomingUserMessage,
   parseClientLocalHeader,
   selectDueProgramDay,
 } from "@/routes/api/chat";
@@ -21,6 +22,44 @@ describe("chat mutation confirmation", () => {
     expect(hasConfirmationQuote(message, "SHIFT   the plan by seven days.")).toBe(true);
     expect(hasConfirmationQuote(message, "shift the plan by fourteen days")).toBe(false);
     expect(hasConfirmationQuote(message, " ")).toBe(false);
+  });
+});
+
+describe("chat request parsing", () => {
+  it("accepts the standard DefaultChatTransport envelope", () => {
+    const message = parseIncomingUserMessage({
+      id: "coach",
+      messages: [
+        {
+          id: "message-1",
+          role: "user",
+          parts: [{ type: "text", text: "Terry" }],
+        },
+      ],
+      trigger: "submit-message",
+      messageId: "message-1",
+    });
+
+    expect(message).toMatchObject({
+      id: "message-1",
+      role: "user",
+      parts: [{ type: "text", text: "Terry" }],
+    });
+  });
+
+  it("still rejects unexpected request fields", () => {
+    expect(
+      parseIncomingUserMessage({
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: "Terry" }],
+          },
+        ],
+        unexpected: true,
+      }),
+    ).toBeNull();
   });
 });
 

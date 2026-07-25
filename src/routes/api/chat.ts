@@ -97,10 +97,15 @@ const IncomingUserMessageSchema = z
     }
   });
 const ChatBodySchema = z
-  .object({ messages: z.array(z.unknown()).min(1).max(MAX_CHAT_MESSAGES) })
+  .object({
+    id: z.string().trim().min(1).max(256).optional(),
+    messages: z.array(z.unknown()).min(1).max(MAX_CHAT_MESSAGES),
+    trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
+    messageId: z.string().trim().min(1).max(256).optional(),
+  })
   .strict();
 
-function parseIncomingUserMessage(input: unknown): UIMessage | null {
+export function parseIncomingUserMessage(input: unknown): UIMessage | null {
   const envelope = ChatBodySchema.safeParse(input);
   if (!envelope.success) return null;
   const incoming = IncomingUserMessageSchema.safeParse(envelope.data.messages.at(-1));
