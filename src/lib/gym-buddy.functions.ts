@@ -238,6 +238,7 @@ export const startTodayWorkoutSession = createServerFn({ method: "POST" })
     return startSession(context.userId, {
       date: data.date,
       source_key: `ui-start:${data.request_id}`,
+      start_next_now: true,
       expected_data_epoch: data.expected_data_epoch,
     });
   });
@@ -311,7 +312,12 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
     if (next) {
       return {
         label: `${next.title}${next.is_deload ? " (deload)" : ""}`,
-        detail: next.date === today ? "today" : next.date,
+        detail:
+          next.date === today
+            ? "today"
+            : next.schedule_mode === "rolling"
+              ? `Day ${next.day_index}`
+              : next.date,
         has_program: true,
       };
     }

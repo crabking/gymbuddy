@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
   hasConfirmationQuote,
+  hasQuantifiedTrainingBaseline,
   markExerciseSourceOperation,
   parseIncomingUserMessage,
   parseClientLocalHeader,
+  parseSavedScheduleMetadata,
   selectDueProgramDay,
   unwrapToolInputContent,
 } from "@/routes/api/chat";
@@ -23,6 +25,41 @@ describe("chat mutation confirmation", () => {
     expect(hasConfirmationQuote(message, "SHIFT   the plan by seven days.")).toBe(true);
     expect(hasConfirmationQuote(message, "shift the plan by fourteen days")).toBe(false);
     expect(hasConfirmationQuote(message, " ")).toBe(false);
+  });
+});
+
+describe("saved training schedule metadata", () => {
+  it("defaults legacy Day labels to rolling and reads their frequency", () => {
+    expect(
+      parseSavedScheduleMetadata(
+        "# Training schedule (rolling — 3x/week, no fixed weekdays)\n- **Day 1** — Full body",
+      ),
+    ).toMatchObject({
+      mode: "rolling",
+      sessions_per_week: 3,
+      weekday_indices: [],
+    });
+  });
+
+  it("preserves only explicitly saved fixed weekdays", () => {
+    expect(
+      parseSavedScheduleMetadata(
+        '<!-- coach-schedule: {"mode":"weekday","sessions_per_week":3,"weekday_indices":[1,3,6],"start_today":true} -->',
+      ),
+    ).toEqual({
+      mode: "weekday",
+      sessions_per_week: 3,
+      weekday_indices: [1, 3, 6],
+      start_today: true,
+    });
+  });
+});
+
+describe("beginner baseline detection", () => {
+  it("requires a quantified load and set or rep evidence", () => {
+    expect(hasQuantifiedTrainingBaseline("No recent workouts provided.")).toBe(false);
+    expect(hasQuantifiedTrainingBaseline("I tried squats once at 40 kg.")).toBe(false);
+    expect(hasQuantifiedTrainingBaseline("Back squat 40 kg, 3×8, RPE 8.")).toBe(true);
   });
 });
 

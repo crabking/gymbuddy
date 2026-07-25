@@ -22,6 +22,7 @@ import {
 } from "@/lib/exercises";
 import { isIsoDate, localDateInTimeZone, normalizeTimeZone } from "@/lib/local-date";
 import { pipeGuaranteedCoachResponse } from "@/lib/chat-stream-guard";
+import { beginnerCalibrationPrescription } from "@/lib/training-logic";
 
 // Bundle skill markdown at build time.
 import onboardingSkill from "@/agent/skills/onboarding.md?raw";
@@ -141,6 +142,116 @@ export function hasConfirmationQuote(message: UIMessage, quote: string): boolean
   const normalizedMessage = normalizeConfirmationText(newestText);
   const normalizedQuote = normalizeConfirmationText(quote);
   return normalizedQuote.length > 0 && normalizedMessage.includes(normalizedQuote);
+}
+
+type SavedScheduleMetadata = {
+  mode: "rolling" | "weekday";
+  sessions_per_week: number;
+  weekday_indices: number[];
+  start_today: boolean;
+};
+
+const WEEKDAY_LABELS: Record<string, number> = {
+  sun: 0,
+  sunday: 0,
+  son: 0,
+  sondag: 0,
+  söndag: 0,
+  mon: 1,
+  monday: 1,
+  man: 1,
+  mandag: 1,
+  måndag: 1,
+  tue: 2,
+  tues: 2,
+  tuesday: 2,
+  tis: 2,
+  tisdag: 2,
+  wed: 3,
+  wednesday: 3,
+  ons: 3,
+  onsdag: 3,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  thursday: 4,
+  tor: 4,
+  torsdag: 4,
+  fri: 5,
+  friday: 5,
+  fre: 5,
+  fredag: 5,
+  sat: 6,
+  saturday: 6,
+  lor: 6,
+  lordag: 6,
+  lördag: 6,
+};
+
+function weekdayIndex(label: string): number | null {
+  const normalized = label
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("sv-SE")
+    .replace(/[.,:]/g, "");
+  return WEEKDAY_LABELS[normalized] ?? null;
+}
+
+export function parseSavedScheduleMetadata(content: string): SavedScheduleMetadata {
+  const match = content.match(/<!--\s*coach-schedule:\s*(\{[^\n]*\})\s*-->/i);
+  if (match?.[1]) {
+    try {
+      const value = JSON.parse(match[1]) as Partial<SavedScheduleMetadata>;
+      const weekdays = Array.isArray(value.weekday_indices)
+        ? value.weekday_indices.filter(
+            (day): day is number => Number.isInteger(day) && day >= 0 && day <= 6,
+          )
+        : [];
+      const sessions = Number(value.sessions_per_week);
+      if (
+        (value.mode === "rolling" || value.mode === "weekday") &&
+        Number.isInteger(sessions) &&
+        sessions >= 1 &&
+        sessions <= 7 &&
+        (value.mode === "rolling" || new Set(weekdays).size === sessions)
+      ) {
+        return {
+          mode: value.mode,
+          sessions_per_week: sessions,
+          weekday_indices: value.mode === "weekday" ? [...new Set(weekdays)] : [],
+          start_today: value.start_today === true,
+        };
+      }
+    } catch {
+      // Fall through to legacy markdown parsing.
+    }
+  }
+
+  const rolling = /rolling|rullande|no fixed weekdays|inga fasta veckodagar/i.test(content);
+  const labels = [...content.matchAll(/^\s*-\s+\*\*([^*]+)\*\*/gm)]
+    .map((row) => weekdayIndex(row[1] ?? ""))
+    .filter((day): day is number => day != null);
+  const weekdays = [...new Set(labels)];
+  const savedFrequency = Number(
+    content.match(/\b([1-7])\s*(?:x\/week|ggr\/vecka|sessions?\/week)\b/i)?.[1] ?? 0,
+  );
+  return {
+    mode: rolling || weekdays.length === 0 ? "rolling" : "weekday",
+    sessions_per_week: Math.max(
+      1,
+      savedFrequency || (rolling ? labels.length || 1 : weekdays.length),
+    ),
+    weekday_indices: rolling ? [] : weekdays,
+    start_today: false,
+  };
+}
+
+export function hasQuantifiedTrainingBaseline(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return (
+    /\b\d+(?:[.,]\d+)?\s*kg\b/i.test(value) &&
+    /(?:\b\d+\s*[x×]\s*\d+\b|\b\d+\s*(?:reps?|repetitions?|repetitioner)\b)/i.test(value)
+  );
 }
 
 /**
@@ -611,11 +722,17 @@ or major changes require clear confirmation in that newest message.
 
 ## Plan-proposal protocol (CRITICAL — do NOT skip)
 When the user asks for a workout plan, or you're recommending one, you MUST go step-by-step. Do NOT jump straight to writing the plan.
-1. **Baseline before pitch.** If recent_training_baseline is missing, ask for one or two recent workouts (weights, sets × reps, length, frequency, difficulty). Save it. If none, save the explicit conservative-baseline note. Never guess.
+1. **Baseline before pitch.** If recent_training_baseline is missing, ask for one or two recent workouts (weights, sets × reps, length, frequency, difficulty). Save it. If none, save the explicit first-set-calibration note. Never estimate beginner loads from bodyweight.
 2. **Pitch (TLDR, 2–3 sentences MAX).** Name the plan (e.g. "Upper/Lower 4-day"), one line on why it fits their schedule and recent workload, one line on the vibe (frequency + focus). End with a yes/no: "Want to run this one?" Do NOT list exercises, sets, reps, or weights yet.
 3. **If yes → ask duration.** One question only: "How long do you want to run it — 8, 12, or 16 weeks?" (Adjust options to their goal.) Wait for the answer.
 4. **Ask anything else you still need** (bodyweight for starting loads, equipment gaps, injuries) — one short question at a time. Never a wall of questions.
-5. **THEN build.** Load \`workout-planner\`, call the calculators with any reported recent working sets, then call \`generate_program\` with the full week template — the engine materializes EVERY dated week/day/exercise into the Program tab. Reply with a TLDR summary only ("Program's live — 16 weeks, 4 days, deloads week 5 and 10. Check the Program tab. Ready for Monday?"). Do NOT paste the full plan in chat.
+5. **THEN build.** Load \`workout-planner\`, call the calculators with any reported recent working sets, then call \`generate_program\` with the full week template. Rolling schedules appear as Day 1..N; dates are only user-facing for explicitly fixed weekday schedules. Reply with a TLDR summary only. Do NOT paste the full plan in chat.
+
+For an untrained beginner, first-set calibration is mandatory. Male barbell work starts
+at no more than the empty 20 kg bar; female/other beginners start with bodyweight, a light
+technique bar, or the lightest suitable implement. Ask how the first set felt. If it is too
+hard or the movement does not work, use \`adjust_program\` immediately to revise the active
+session and all unresolved weeks, including a persistent exercise replacement when needed.
 
 Same idea for meals, schedules, memories: pitch briefly → confirm → gather what's missing → then act. Never surprise-dump.
 
@@ -632,7 +749,7 @@ Current build checklist from workspace:
 ## Typed save tools — pre-flight checklist (CRITICAL)
 Each save tool below has REQUIRED fields. You cannot call them until every field is filled from real user data. If ANY field is missing, ASK THE USER (one short question at a time) — never guess, never pass placeholders, never say "I'll figure it out". These are your checklists:
 - **generate_program** → needs: name, goal, experience, recent_training_baseline, start_date, weeks, session_minutes, deload_weeks (from calc_program_timeline), progression_rules, why, and week_template (one full week: per-day title/focus + exercises with sets, rep_range, start_weight_kg grounded by recent workouts and calc_starting_weights, increment_kg, increment_every_weeks).
-- **save_schedule** → needs: mode ('weekday' OR 'rolling'), sessions_per_week, days[] (label + focus + time_of_day), session_minutes, notes. Default to 'rolling' with labels 'Day 1', 'Day 2'... unless the user explicitly wants fixed weekdays. Rolling is label-free — the user slots sessions in as they go and crossover between weeks is fine.
+- **save_schedule** → needs: mode, sessions_per_week, days[], session_minutes, notes, start_today, and weekday_confirmation_quote. Default silently to rolling Day 1..N. Never ask whether they want fixed weekdays. Weekday mode is valid only when the newest user message explicitly requests it and supplies the verbatim quote.
 - **save_nutrition_targets** → first needs age, sex, height, bodyweight, daily_movement (sedentary|moderate|high), and goal_direction. Call \`calc_nutrition_targets\`, then save its grounded calories/macros plus meals_per_day, diet_style, dislikes, and notes.
 
 Rule: before ANY save call, mentally tick every required field. Missing one? Ask for it. Only call the tool when the checklist is 100% complete.
@@ -643,7 +760,7 @@ ${skillCatalog}
 ## Workflow triggers
 - User is not onboarded → load the \`onboarding\` skill FIRST (already flagged below).
 - User wants to build/change their weekly plan of days → load \`schedule-builder\`, then \`save_schedule\`.
-- User wants a workout program, wants to change one, skip weeks, or swap exercises → load \`workout-planner\`. Use \`calc_program_timeline\` / \`calc_starting_weights\` for numbers and \`substitute_exercise\` for swaps. \`shift_schedule_weeks\` is a confirmed state mutation, never a calculator. Never invent progression or starting weights. Build with \`generate_program\`; tune future weeks with \`adjust_program\`.
+- User wants a workout program, wants to change one, skip weeks, or swap exercises → load \`workout-planner\`. Use \`calc_program_timeline\` / \`calc_starting_weights\` for numbers and \`substitute_exercise\` for swap options. Persist chosen swaps and every live load/volume correction with \`adjust_program\` across the active session and all remaining weeks. \`shift_schedule_weeks\` is a confirmed state mutation and supports earlier or later shifts. Never invent progression or starting weights.
 - User asks about food / macros / meal ideas → load \`meal-planner\`, then \`save_nutrition_targets\` once numbers are locked.
 - Durable preferences, personal context, goals, injuries, achievements, and notable
   events are extracted into permanent memory automatically after the reply. Never
@@ -669,7 +786,7 @@ ${
 ${summarizeProgram(program, todayDate, appLanguage)}
 Due program session: ${
         dueProgramDay
-          ? `${dueProgramDay.date} — ${dueProgramDay.title}${dueProgramDay.is_deload ? " [DELOAD]" : ""} (${
+          ? `${program?.schedule_mode === "rolling" ? `Day ${dueProgramDay.day_index}` : dueProgramDay.date} — ${dueProgramDay.title}${dueProgramDay.is_deload ? " [DELOAD]" : ""} (${
               dueProgramDay.date === todayDate ? "today" : "overdue make-up"
             })`
           : "REST DAY — no planned session is due today"
@@ -677,7 +794,7 @@ Due program session: ${
 
 ### Workout session
 ${summarizeSession(activeSession, appLanguage)}
-- "Start today's workout" → call \`start_workout_session\` (no exercise list needed — it auto-loads today's program day). Ad-hoc sessions need an explicit exercise list.
+- "Start today's workout" → call \`start_workout_session\` with \`start_next_now=true\` (no exercise list needed). It atomically moves the next planned session and every remaining date when needed. Ad-hoc sessions need an explicit exercise list.
 - When they finish an exercise, call \`mark_exercise_done\`, then hype them and name the NEXT unchecked exercise.
 - All done → \`complete_workout_session\` and celebrate. Never claim an exercise is done unless it shows [x] above or you just marked it.
 
@@ -717,6 +834,8 @@ ${measurementSummary}
   \`get_measurements\` first if unsure; use a new key for a genuinely different unit/meaning.
 
 ### REALITY RULES (you are a REAL coach — hard limits are enforced in code too)
+- The user chooses when they train; you adapt and steer. Rolling Day 1..N is the default. Never impose weekday names unless they explicitly requested them. If they say "start today", move the remaining schedule and start today.
+- First-set feedback is authoritative. If a load is too heavy or an exercise is unsuitable, immediately revise the active session and every unresolved week; never leave stale targets in the Program tab.
 - ONE workout per day. Recovery is training. If today's session is done, the answer to "another workout?" is a firm, warm NO — rest, food, sleep, come back tomorrow.
 - Real workouts take real time. A ~60-min session finished in minutes is impossible — the tools will refuse and tell you why; relay it like a coach ("that was 4 minutes, bro — what actually happened?"). Accept overrides ONLY for genuine reasons (trained offline earlier, logging retroactively) and pass override_reason to the tool.
 - Rest days exist for a reason. On a rest day, steer to recovery, nutrition, mobility — not another session (unless they have a true reason).
@@ -815,7 +934,7 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
 
           const saveScheduleTool = tool({
             description:
-              "Save the user's training schedule to schedule/current.md. Supports two modes: (1) fixed weekday labels (Mon/Tue/...) OR (2) label-free rolling sessions like 'Day 1', 'Day 2' that the user fits into their week however they want. Pick whichever the user prefers — never force weekday labels.",
+              "Save the user's training schedule. Rolling Day 1..N is mandatory unless the newest user message explicitly requests fixed weekdays. A weekday schedule requires a verbatim confirmation quote from that newest message.",
             inputSchema: z
               .object({
                 mode: z
@@ -838,6 +957,19 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
                   .max(7),
                 session_minutes: z.number().int().min(15).max(360),
                 notes: z.string().trim().max(2_000),
+                start_today: z
+                  .boolean()
+                  .default(false)
+                  .describe("True only when the user explicitly wants the program to start today."),
+                weekday_confirmation_quote: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(500)
+                  .nullable()
+                  .describe(
+                    "Verbatim newest-user quote requesting fixed weekdays; null for rolling mode.",
+                  ),
               })
               .strict()
               .superRefine((input, ctx) => {
@@ -848,8 +980,33 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
                     message: "days must match sessions_per_week",
                   });
                 }
+                if (input.mode === "weekday" && !input.weekday_confirmation_quote) {
+                  ctx.addIssue({
+                    code: "custom",
+                    path: ["weekday_confirmation_quote"],
+                    message: "Fixed weekdays require explicit user wording.",
+                  });
+                }
               }),
             execute: async (input) => {
+              if (
+                input.mode === "weekday" &&
+                (!input.weekday_confirmation_quote ||
+                  !hasConfirmationQuote(incomingMessage, input.weekday_confirmation_quote))
+              ) {
+                return { ok: false, error: "explicit_weekday_request_required" };
+              }
+              const weekdayIndices =
+                input.mode === "weekday"
+                  ? input.days.map((day) => weekdayIndex(day.label))
+                  : input.days.map(() => null);
+              if (
+                input.mode === "weekday" &&
+                (weekdayIndices.some((day) => day == null) ||
+                  new Set(weekdayIndices).size !== input.sessions_per_week)
+              ) {
+                return { ok: false, error: "weekday_labels_must_be_unique_real_weekdays" };
+              }
               const swedish = profile?.preferred_language === "sv";
               const rows = input.days
                 .map((d) => `- **${d.label}** — ${d.focus} (${d.time_of_day})`)
@@ -862,7 +1019,17 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
                   : swedish
                     ? `# Veckoschema (${input.sessions_per_week} ggr/vecka)`
                     : `# Weekly schedule (${input.sessions_per_week}x/week)`;
-              const md = `${header}
+              const metadata: SavedScheduleMetadata = {
+                mode: input.mode,
+                sessions_per_week: input.sessions_per_week,
+                weekday_indices:
+                  input.mode === "weekday"
+                    ? weekdayIndices.filter((day): day is number => day != null)
+                    : [],
+                start_today: input.start_today,
+              };
+              const md = `<!-- coach-schedule: ${JSON.stringify(metadata)} -->
+${header}
 ${swedish ? "Passlängd" : "Session length"}: ~${input.session_minutes} min
 
 ${rows}
@@ -1064,7 +1231,7 @@ ${input.notes}
 
           const startWorkoutSessionTool = tool({
             description:
-              "Start a LIVE workout session with realism guardrails (one session/day, program-aware). If today has a program day, call with NO exercises — it auto-loads them with per-set targets. For ad-hoc sessions pass an explicit list. If refused, relay the coach_note like a real coach; pass override_reason ONLY when the user gives a genuine real-world reason.",
+              "Start a LIVE workout session with realism guardrails (one session/day, program-aware). If a program session is due, call with no exercises. If the user explicitly says start today, set start_next_now=true so the next planned session and every remaining date move atomically. For ad-hoc sessions pass an explicit list.",
             inputSchema: z
               .object({
                 title: z
@@ -1097,9 +1264,15 @@ ${input.notes}
                   .max(500)
                   .nullable()
                   .describe("Real-world justification to bypass a guardrail; null normally"),
+                start_next_now: z
+                  .boolean()
+                  .default(false)
+                  .describe(
+                    "True only when the user explicitly asks to start the next planned workout today.",
+                  ),
               })
               .strict(),
-            execute: async ({ title, exercises, override_reason }) => {
+            execute: async ({ title, exercises, override_reason, start_next_now }) => {
               const r = await guardMutation(() =>
                 startSession(userId, {
                   date: todayDate,
@@ -1107,6 +1280,7 @@ ${input.notes}
                   title,
                   exercises: exercises ?? undefined,
                   override_reason,
+                  start_next_now,
                   expected_data_epoch: dataEpoch,
                 }),
               );
@@ -1310,9 +1484,41 @@ ${input.notes}
                 return { ok: false, error: "explicit_confirmation_required" };
               }
               const { confirmation_quote, ...programInput } = input;
+              let scheduleMetadata: SavedScheduleMetadata = {
+                mode: "rolling",
+                sessions_per_week: programInput.week_template.length,
+                weekday_indices: [],
+                start_today: false,
+              };
+              try {
+                const savedSchedule = await readWorkspaceFile(userId, "schedule/current.md");
+                scheduleMetadata = parseSavedScheduleMetadata(savedSchedule.content);
+              } catch {
+                // A missing legacy schedule safely falls back to rolling Day 1..N.
+              }
+              if (scheduleMetadata.sessions_per_week !== programInput.week_template.length) {
+                return {
+                  ok: false,
+                  error: "program_frequency_must_match_saved_schedule",
+                  saved_sessions_per_week: scheduleMetadata.sessions_per_week,
+                };
+              }
+              const calibrationEnabled =
+                programInput.experience === "beginner" &&
+                !hasQuantifiedTrainingBaseline(profile?.recent_training_baseline);
+              const calibrationSex =
+                profile?.sex === "male" || profile?.sex === "female" ? profile.sex : "other";
               const result = await guardMutation(async () => {
                 const generated = await generateProgram(userId, {
                   ...programInput,
+                  start_date:
+                    scheduleMetadata.start_today && !program ? todayDate : programInput.start_date,
+                  schedule_mode: scheduleMetadata.mode,
+                  weekday_indices: scheduleMetadata.weekday_indices,
+                  beginner_calibration: {
+                    enabled: calibrationEnabled,
+                    sex: calibrationSex,
+                  },
                   replace_active_reason: program
                     ? `User confirmation: ${confirmation_quote}`
                     : null,
@@ -1354,17 +1560,44 @@ ${programInput.why}
 
           const adjustProgramTool = tool({
             description:
-              "Adjust target weights for one exercise across future weeks of the active program (e.g. bench felt too heavy → drop 2.5kg from week 5 onward). Use when real performance diverges from the plan.",
+              "Immediately revise one exercise across every unresolved week from from_week onward and, when relevant, the active workout. Can lower/clear load, change sets/reps/notes, or persistently replace the exercise after using substitute_exercise. Use live first-set feedback; never leave the rest of a beginner program stale.",
             inputSchema: z
               .object({
                 exercise_id: z.enum(EXERCISE_IDS),
                 from_week: z.number().int().min(1).max(52),
                 delta_kg: z.number().min(-500).max(500).nullable(),
                 set_weight_kg: z.number().min(0).max(2_000).nullable(),
+                clear_weight: z.boolean().default(false),
+                replacement_exercise_id: z.enum(EXERCISE_IDS).nullable().default(null),
+                sets: z.number().int().min(1).max(20).nullable().optional(),
+                rep_range: z.string().trim().min(1).max(40).nullable().optional(),
+                notes: z.string().trim().max(1_000).nullable().optional(),
               })
               .strict()
-              .refine((input) => input.delta_kg !== null || input.set_weight_kg !== null, {
-                message: "Provide delta_kg or set_weight_kg",
+              .superRefine((input, ctx) => {
+                const weightChanges = [
+                  input.delta_kg !== null,
+                  input.set_weight_kg !== null,
+                  input.clear_weight,
+                ].filter(Boolean).length;
+                if (weightChanges > 1) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "Choose only one weight operation.",
+                  });
+                }
+                if (
+                  weightChanges === 0 &&
+                  input.replacement_exercise_id === null &&
+                  input.sets == null &&
+                  input.rep_range == null &&
+                  input.notes === undefined
+                ) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "Provide at least one program adjustment.",
+                  });
+                }
               }),
             execute: async (input) =>
               guardMutation(() =>
@@ -1373,6 +1606,11 @@ ${programInput.why}
                   from_week: input.from_week,
                   delta_kg: input.delta_kg,
                   set_weight_kg: input.set_weight_kg,
+                  clear_weight: input.clear_weight,
+                  replacement_exercise: input.replacement_exercise_id,
+                  sets: input.sets,
+                  rep_range: input.rep_range,
+                  notes: input.notes,
                   source_key: sourceKey(
                     messageKey,
                     `adjust_program:${input.exercise_id}:${input.from_week}`,
@@ -1702,7 +1940,7 @@ ${programInput.why}
 
           const calcStartingWeightsTool = tool({
             description:
-              "Calculate realistic starting working weights (~RPE 7-8) for main lifts. Pass any recent working sets the user reported; observed performance takes priority over bodyweight estimates. Use this instead of guessing.",
+              "Ground starting loads. Reported working sets take priority. For a beginner without a reported set, this returns first-set calibration (empty 20 kg bar at most for males; bodyweight/lightest alternative for females/others), never a bodyweight estimate.",
             inputSchema: z
               .object({
                 sex: z.enum(["male", "female", "other"]),
@@ -1787,11 +2025,26 @@ ${programInput.why}
               const out: Record<
                 string,
                 {
-                  working_kg: number;
-                  source: "recent_workout" | "bodyweight_estimate";
+                  working_kg: number | null;
+                  source: "recent_workout" | "bodyweight_estimate" | "first_set_calibration";
                   note: string;
                 }
               > = {};
+              const equipmentByLift: Record<string, "barbell" | "machine" | "bodyweight"> = {
+                back_squat: "barbell",
+                front_squat: "barbell",
+                hack_squat: "machine",
+                leg_press: "machine",
+                deadlift: "barbell",
+                romanian_deadlift: "barbell",
+                hip_thrust: "machine",
+                bench_press: "barbell",
+                incline_bench: "barbell",
+                overhead_press: "barbell",
+                barbell_row: "barbell",
+                pull_up: "bodyweight",
+                lat_pulldown: "machine",
+              };
               for (const lift of lifts) {
                 const observed = recent_working_sets.find((set) => set.lift === lift);
                 if (observed) {
@@ -1814,6 +2067,18 @@ ${programInput.why}
                     ),
                     source: "recent_workout",
                     note: `Grounded in ${observed.weight_kg}kg × ${observed.reps}${observed.rpe ? ` @ RPE ${observed.rpe}` : ""}; start conservatively and adjust from live performance.`,
+                  };
+                  continue;
+                }
+                if (experience === "beginner") {
+                  const safe = beginnerCalibrationPrescription({
+                    sex,
+                    equipment: equipmentByLift[lift] ?? "machine",
+                  });
+                  out[lift] = {
+                    working_kg: safe.startWeightKg,
+                    source: "first_set_calibration",
+                    note: safe.note,
                   };
                   continue;
                 }
@@ -1872,11 +2137,16 @@ ${programInput.why}
 
           const shiftScheduleWeeksTool = tool({
             description:
-              "Persistently shift every unresolved program day on or after from_date forward by a confirmed number of calendar days. Never call this as a calculator or without explicit user confirmation. confirmation_quote must be a verbatim quote from the newest user message.",
+              "Persistently shift every unresolved program day on or after from_date by a confirmed signed number of calendar days (negative = earlier, positive = later). Use this when the user changes timing, including starting today. Never call speculatively; confirmation_quote must be verbatim from the newest user message.",
             inputSchema: z
               .object({
                 from_date: IsoDateSchema,
-                days: z.number().int().min(1).max(365),
+                days: z
+                  .number()
+                  .int()
+                  .min(-365)
+                  .max(365)
+                  .refine((value) => value !== 0, "days cannot be zero"),
                 confirmation_quote: z.string().trim().min(1).max(500),
               })
               .strict(),

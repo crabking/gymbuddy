@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   addIsoDays,
   assessProgramLifecycle,
+  beginnerCalibrationPrescription,
   calculateProgramDates,
+  calculateProgramDatesForSchedule,
   calculateTargetWeight,
   getSessionCompletionIssues,
+  shiftWeekdayIndices,
   trainingDayOffsets,
 } from "./training-logic";
 
@@ -28,6 +31,52 @@ describe("program calendar", () => {
     expect(() => addIsoDays("2026-02-30", 1)).toThrow("Invalid ISO date");
     expect(() => trainingDayOffsets(0)).toThrow();
     expect(() => trainingDayOffsets(8)).toThrow();
+  });
+
+  it("keeps rolling programs as Day 1..N without requiring weekdays", () => {
+    expect(
+      calculateProgramDatesForSchedule({
+        startDate: "2026-07-25",
+        weeks: 2,
+        daysPerWeek: 3,
+        mode: "rolling",
+      }),
+    ).toEqual(["2026-07-25", "2026-07-27", "2026-07-29", "2026-08-01", "2026-08-03", "2026-08-05"]);
+  });
+
+  it("honors explicitly fixed Monday, Wednesday, and Saturday schedules", () => {
+    expect(
+      calculateProgramDatesForSchedule({
+        startDate: "2026-07-20",
+        weeks: 2,
+        daysPerWeek: 3,
+        mode: "weekday",
+        weekdayIndices: [1, 3, 6],
+      }),
+    ).toEqual(["2026-07-20", "2026-07-22", "2026-07-25", "2026-07-27", "2026-07-29", "2026-08-01"]);
+  });
+
+  it("shifts fixed weekday metadata both earlier and later", () => {
+    expect(shiftWeekdayIndices([1, 3, 6], -2)).toEqual([6, 1, 4]);
+    expect(shiftWeekdayIndices([1, 3, 6], 2)).toEqual([3, 5, 1]);
+  });
+});
+
+describe("absolute beginner calibration", () => {
+  it("caps a male barbell start at the empty 20 kg bar", () => {
+    expect(beginnerCalibrationPrescription({ sex: "male", equipment: "barbell" })).toMatchObject({
+      startWeightKg: 20,
+      incrementKg: 0,
+    });
+  });
+
+  it("does not force a standard bar or invented machine load for other beginners", () => {
+    expect(
+      beginnerCalibrationPrescription({ sex: "female", equipment: "barbell" }).startWeightKg,
+    ).toBeNull();
+    expect(
+      beginnerCalibrationPrescription({ sex: "male", equipment: "machine" }).startWeightKg,
+    ).toBeNull();
   });
 });
 

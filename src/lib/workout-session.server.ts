@@ -23,7 +23,12 @@ import {
   requireExpectedDataEpoch,
   type AccountMutationTransaction,
 } from "@/lib/account-epoch.server";
-import { addIsoDays, getSessionCompletionIssues } from "@/lib/training-logic";
+import {
+  addIsoDays,
+  getSessionCompletionIssues,
+  isoDayDifference,
+  shiftWeekdayIndices,
+} from "@/lib/training-logic";
 
 async function lockWorkoutMutation(
   tx: AccountMutationTransaction,
@@ -188,6 +193,7 @@ export async function startSession(
       weight_kg?: number | null;
     }>;
     override_reason?: string | null;
+    start_next_now?: boolean;
     expected_data_epoch?: number;
   },
 ): Promise<StartResult> {
@@ -239,6 +245,7 @@ export async function startSession(
         };
       }) ?? null,
     override_reason: opts.override_reason?.trim() || null,
+    start_next_now: opts.start_next_now === true,
   });
 
   const created = await db.transaction(async (tx) => {
@@ -337,12 +344,13 @@ export async function startSession(
     }
 
     const [activeProgram] = await tx
-      .select({ id: programs.id, name: programs.name })
+      .select()
       .from(programs)
       .where(and(eq(programs.user_id, userId), eq(programs.status, "active")))
       .limit(1);
 
     let programDay: typeof programDays.$inferSelect | null = null;
+    let futureProgramDay: typeof programDays.$inferSelect | null = null;
     if (activeProgram) {
       const dayConditions = [
         eq(programDays.program_id, activeProgram.id),
@@ -368,6 +376,27 @@ export async function startSession(
         };
       }
       programDay = day ?? null;
+      if (programDay && !requestedProgramDayId && opts.start_next_now && programDay.date !== date) {
+        futureProgramDay = programDay;
+        programDay = null;
+      }
+      if (!programDay && !requestedProgramDayId && opts.start_next_now) {
+        if (!futureProgramDay) {
+          const [future] = await tx
+            .select()
+            .from(programDays)
+            .where(
+              and(
+                eq(programDays.program_id, activeProgram.id),
+                eq(programDays.status, "planned"),
+                gte(programDays.date, date),
+              ),
+            )
+            .orderBy(asc(programDays.date))
+            .limit(1);
+          futureProgramDay = future ?? null;
+        }
+      }
     } else if (requestedProgramDayId) {
       return {
         ok: false as const,
@@ -392,6 +421,75 @@ export async function startSession(
         error: "daily_limit",
         coach_note: `The user ALREADY completed "${doneToday[0]?.title}" today (${date}). One session per day unless the program says otherwise — recovery is where growth happens. Do NOT start another session.`,
       };
+    }
+
+    if (activeProgram && futureProgramDay) {
+      const shiftDays = isoDayDifference(futureProgramDay.date, date);
+      if (shiftDays !== 0) {
+        const movingDays = await tx
+          .select({ id: programDays.id, date: programDays.date })
+          .from(programDays)
+          .where(
+            and(
+              eq(programDays.program_id, activeProgram.id),
+              eq(programDays.status, "planned"),
+              gte(programDays.date, futureProgramDay.date),
+            ),
+          )
+          .orderBy(shiftDays > 0 ? desc(programDays.date) : asc(programDays.date));
+        const movingIds = new Set(movingDays.map((day) => day.id));
+        const targetDates = new Set(movingDays.map((day) => addIsoDays(day.date, shiftDays)));
+        const reservedDays = await tx
+          .select({ id: programDays.id, date: programDays.date })
+          .from(programDays)
+          .where(eq(programDays.program_id, activeProgram.id));
+        if (reservedDays.some((day) => !movingIds.has(day.id) && targetDates.has(day.date))) {
+          return {
+            ok: false as const,
+            error: "schedule_shift_collision",
+            coach_note:
+              "I couldn't move that workout to today without colliding with completed history. Ask me to reschedule the remaining days first.",
+          };
+        }
+        for (const day of movingDays) {
+          await tx
+            .update(programDays)
+            .set({
+              date: addIsoDays(day.date, shiftDays),
+              resolution_note: `Remaining schedule moved ${shiftDays} day(s) so training can start today.`,
+            })
+            .where(eq(programDays.id, day.id));
+        }
+        const [earliest] = await tx
+          .select({ date: programDays.date })
+          .from(programDays)
+          .where(eq(programDays.program_id, activeProgram.id))
+          .orderBy(asc(programDays.date))
+          .limit(1);
+        const [latest] = await tx
+          .select({ date: programDays.date })
+          .from(programDays)
+          .where(eq(programDays.program_id, activeProgram.id))
+          .orderBy(desc(programDays.date))
+          .limit(1);
+        await tx
+          .update(programs)
+          .set({
+            start_date: earliest?.date ?? activeProgram.start_date,
+            end_date: latest?.date ?? activeProgram.end_date,
+            weekday_indices:
+              activeProgram.schedule_mode === "weekday"
+                ? shiftWeekdayIndices((activeProgram.weekday_indices as number[]) ?? [], shiftDays)
+                : [],
+          })
+          .where(eq(programs.id, activeProgram.id));
+        futureProgramDay = {
+          ...futureProgramDay,
+          date,
+          resolution_note: `Remaining schedule moved ${shiftDays} day(s) so training can start today.`,
+        };
+      }
+      programDay = futureProgramDay;
     }
 
     let list =

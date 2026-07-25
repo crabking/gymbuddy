@@ -148,6 +148,13 @@
       "when": 1785006000000,
       "tag": "0020_common_exercise_expansion",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785006000001,
+      "tag": "0021_redundant_rick_jones",
+      "breakpoints": true
     }
   ]
 }

@@ -42,11 +42,12 @@ Do not estimate age, physical stats, or sex.
 
 ### 2. SCHEDULE
 
-Load `schedule-builder`. Ask their weekly rhythm (which days, morning vs evening, rest
-days). If they give enough detail, save the structured schedule with `save_schedule`
-(defaults to rolling "Day 1..N" unless they want fixed weekdays). Always save a
-`schedule_note` via `update_profile` too. If they say "flexible/skip", save
-`schedule_note = "flexible, no fixed days"` and move on.
+Load `schedule-builder`. Ask how many sessions they can realistically manage, roughly when
+they tend to train, and the session length. Do not ask for named weekdays. Save rolling
+"Day 1..N" unless the user explicitly volunteers that they want fixed weekdays. If they say
+"start today", save that choice so Day 1 starts today. Always save a `schedule_note` via
+`update_profile` too. If they say "flexible/skip", save `schedule_note = "flexible, no fixed
+days"` and move on.
 
 ### 3. RECENT TRAINING BASELINE — required before the plan
 
@@ -56,9 +57,9 @@ felt. One compact dump from the user is fine. Save the useful summary verbatim a
 `recent_training_baseline`.
 
 If they have not trained recently or cannot remember, save:
-`"No recent workouts provided; use conservative estimated starting loads."`
-Never invent a training history. Use this baseline together with their schedule to
-choose volume, exercise selection, and starting loads.
+`"No recent workouts provided; use first-set calibration with no estimated starting loads."`
+Never invent a training history or infer load from bodyweight. Use this baseline together
+with their schedule to choose conservative volume and exercise selection.
 
 ### 4. WORKOUT PLAN
 

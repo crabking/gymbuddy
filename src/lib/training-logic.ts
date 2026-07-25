@@ -1,4 +1,5 @@
 export type ProgramDayStatus = "planned" | "completed" | "skipped";
+export type ProgramScheduleMode = "rolling" | "weekday";
 
 const WEEK_OFFSETS: Record<number, readonly number[]> = {
   1: [0],
@@ -44,6 +45,92 @@ export function calculateProgramDates(startDate: string, weeks: number, daysPerW
     for (const offset of offsets) dates.push(addIsoDays(startDate, 7 * (week - 1) + offset));
   }
   return dates;
+}
+
+export function isoWeekdayIndex(date: string): number {
+  return parseIsoDate(date).getUTCDay();
+}
+
+export function calculateProgramDatesForSchedule(input: {
+  startDate: string;
+  weeks: number;
+  daysPerWeek: number;
+  mode: ProgramScheduleMode;
+  weekdayIndices?: number[];
+}) {
+  if (input.mode === "rolling") {
+    return calculateProgramDates(input.startDate, input.weeks, input.daysPerWeek);
+  }
+  if (!Number.isInteger(input.weeks) || input.weeks < 1 || input.weeks > 104) {
+    throw new Error("weeks must be an integer from 1 to 104");
+  }
+  if (!Number.isInteger(input.daysPerWeek) || input.daysPerWeek < 1 || input.daysPerWeek > 7) {
+    throw new Error("daysPerWeek must be an integer from 1 to 7");
+  }
+  const weekdays = [...new Set(input.weekdayIndices ?? [])];
+  if (
+    weekdays.length !== input.daysPerWeek ||
+    weekdays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
+  ) {
+    throw new Error("weekday schedule must contain one unique weekday per session");
+  }
+
+  const total = input.weeks * input.daysPerWeek;
+  const dates: string[] = [];
+  let cursor = input.startDate;
+  while (dates.length < total) {
+    if (weekdays.includes(isoWeekdayIndex(cursor))) dates.push(cursor);
+    cursor = addIsoDays(cursor, 1);
+  }
+  return dates;
+}
+
+export function isoDayDifference(fromDate: string, toDate: string): number {
+  const from = parseIsoDate(fromDate).getTime();
+  const to = parseIsoDate(toDate).getTime();
+  return Math.round((to - from) / 86_400_000);
+}
+
+export function shiftWeekdayIndices(weekdayIndices: number[], days: number): number[] {
+  return weekdayIndices.map((weekday) => (((weekday + days) % 7) + 7) % 7);
+}
+
+export type BeginnerCalibrationPrescription = {
+  startWeightKg: number | null;
+  incrementKg: number;
+  note: string;
+};
+
+export function beginnerCalibrationPrescription(input: {
+  sex: "male" | "female" | "other";
+  equipment: "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight" | "mixed";
+}): BeginnerCalibrationPrescription {
+  if (input.equipment === "bodyweight") {
+    return {
+      startWeightKg: null,
+      incrementKg: 0,
+      note: "Calibration first: use bodyweight only. Report the first set's reps and difficulty so the coach can adjust every remaining session immediately.",
+    };
+  }
+  if (input.equipment === "barbell" && input.sex === "male") {
+    return {
+      startWeightKg: 20,
+      incrementKg: 0,
+      note: "Calibration first: start with the empty 20 kg bar. Stop if technique breaks down or it feels too heavy, then report the first set so the coach can lower the load or swap the exercise across the remaining program.",
+    };
+  }
+  if (input.equipment === "barbell") {
+    return {
+      startWeightKg: null,
+      incrementKg: 0,
+      note: "Calibration first: use bodyweight, a light technique bar, or the lightest suitable alternative—not a standard 20 kg bar by default. Report the first set so the coach can set or swap this exercise across the remaining program.",
+    };
+  }
+  return {
+    startWeightKg: null,
+    incrementKg: 0,
+    note: "Calibration first: choose the lightest available setting or implement. Report the first set's reps and difficulty so the coach can set the load or swap the exercise across the remaining program immediately.",
+  };
 }
 
 export function calculateTargetWeight(input: {

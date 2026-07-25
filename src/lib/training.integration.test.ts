@@ -761,3 +761,133 @@ describe.runIf(hasDatabase).sequential("training lifecycle database integration"
     ).rejects.toThrow("active_program_requires_confirmed_replacement");
   });
 });
+
+describe.runIf(hasDatabase).sequential("adaptive beginner program integration", () => {
+  const userId = randomUUID();
+
+  beforeAll(async () => {
+    const db = getDb();
+    await db.insert(users).values({
+      id: userId,
+      email: `beginner-adaptation-${userId}@example.invalid`,
+      password_hash: "not-a-real-login",
+    });
+    await db.insert(profiles).values({
+      id: userId,
+      display_name: "Beginner Adaptation Test",
+      experience: "beginner",
+      sex: "male",
+      onboarding_completed: true,
+    });
+  });
+
+  afterAll(async () => {
+    await getDb().delete(users).where(eq(users.id, userId));
+  });
+
+  it("calibrates safely, starts today, and rewrites all unresolved weeks", async () => {
+    await generateProgram(userId, {
+      name: "Beginner Rolling Cycle",
+      goal: "general strength",
+      experience: "beginner",
+      start_date: "2035-01-10",
+      weeks: 2,
+      session_minutes: 45,
+      schedule_mode: "rolling",
+      weekday_indices: [],
+      deload_weeks: [],
+      progression_rules: "Progress only after successful first-set calibration.",
+      why: "Verify safe live adaptation.",
+      beginner_calibration: { enabled: true, sex: "male" },
+      week_template: [
+        {
+          title: "Day 1",
+          exercises: [
+            {
+              exercise_id: "back-squat",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 80,
+              increment_kg: 5,
+            },
+            {
+              exercise_id: "leg-press",
+              sets: 2,
+              rep_range: "8",
+              start_weight_kg: 120,
+              increment_kg: 10,
+            },
+          ],
+        },
+        {
+          title: "Day 2",
+          exercises: [
+            {
+              exercise_id: "bench-press",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 60,
+              increment_kg: 2.5,
+            },
+          ],
+        },
+      ],
+    });
+
+    const before = await getActiveProgram(userId, "2035-01-05");
+    expect(
+      before?.days
+        .flatMap((day) => day.exercises)
+        .filter((exercise) => exercise.exercise_id === "back-squat")
+        .map((exercise) => exercise.target_weight_kg),
+    ).toEqual([20, 20]);
+    expect(
+      before?.days
+        .flatMap((day) => day.exercises)
+        .filter((exercise) => exercise.exercise_id === "leg-press")
+        .map((exercise) => exercise.target_weight_kg),
+    ).toEqual([null, null]);
+
+    const started = await startSession(userId, {
+      date: "2035-01-05",
+      start_next_now: true,
+      source_key: `beginner-start-now-${userId}`,
+    });
+    expect(started).toMatchObject({ ok: true, resumed: false });
+    if (!started.ok || !started.session) throw new Error("Beginner workout did not start");
+    expect(started.session.session_date).toBe("2035-01-05");
+    expect(started.session.exercises[0]?.sets[0]?.target_weight_kg).toBe(20);
+    expect((await getActiveProgram(userId, "2035-01-05"))?.days.map((day) => day.date)).toEqual([
+      "2035-01-05",
+      "2035-01-08",
+      "2035-01-12",
+      "2035-01-15",
+    ]);
+
+    await expect(
+      adjustProgramExercise(userId, {
+        exercise: "back-squat",
+        from_week: 1,
+        replacement_exercise: "bodyweight-squat",
+        source_key: `beginner-swap-${userId}`,
+      }),
+    ).resolves.toMatchObject({ ok: true, updated: 2, active_session_updated: true });
+
+    const active = await getActiveSession(userId);
+    expect(active?.exercises[0]).toMatchObject({
+      exercise_id: "bodyweight-squat",
+    });
+    expect(active?.exercises[0]?.sets.every((set) => set.target_weight_kg === null)).toBe(true);
+    const after = await getActiveProgram(userId, "2035-01-05");
+    expect(
+      after?.days
+        .flatMap((day) => day.exercises)
+        .filter((exercise) => exercise.exercise_id === "bodyweight-squat"),
+    ).toHaveLength(2);
+    expect(
+      after?.days
+        .flatMap((day) => day.exercises)
+        .some((exercise) => exercise.exercise_id === "back-squat"),
+    ).toBe(false);
+  });
+});

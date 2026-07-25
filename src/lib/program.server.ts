@@ -7,6 +7,8 @@ import {
   programExercises,
   programOperations,
   programs,
+  sessionExercises,
+  sessionSets,
   workoutSessions,
 } from "@/db/schema";
 import { findExercise, getExercise, type AppLanguage, type ExerciseId } from "@/lib/exercises";
@@ -18,9 +20,12 @@ import {
 import {
   addIsoDays,
   assessProgramLifecycle,
-  calculateProgramDates,
+  beginnerCalibrationPrescription,
+  calculateProgramDatesForSchedule,
   calculateTargetWeight,
-  trainingDayOffsets,
+  isoWeekdayIndex,
+  shiftWeekdayIndices,
+  type ProgramScheduleMode,
 } from "@/lib/training-logic";
 
 // Structured, fully-dated training programs. The whole program (every week, day,
@@ -72,6 +77,8 @@ export type GenerateProgramInput = {
   start_date: string;
   weeks: number;
   session_minutes: number;
+  schedule_mode?: ProgramScheduleMode;
+  weekday_indices?: number[];
   deload_weeks: number[];
   progression_rules: string;
   why: string;
@@ -79,6 +86,10 @@ export type GenerateProgramInput = {
   replace_active_reason?: string | null;
   source_key?: string | null;
   expected_data_epoch?: number;
+  beginner_calibration?: {
+    enabled: boolean;
+    sex: "male" | "female" | "other";
+  };
 };
 
 export type GenerateProgramResult = {
@@ -97,8 +108,21 @@ export async function generateProgram(
   const db = getDb();
   const sourceKey = input.source_key?.trim() || null;
   const daysPerWeek = input.week_template.length;
-  const offsets = trainingDayOffsets(daysPerWeek);
-  const dates = calculateProgramDates(input.start_date, input.weeks, daysPerWeek);
+  const scheduleMode = input.schedule_mode ?? "rolling";
+  const weekdayIndices = scheduleMode === "weekday" ? (input.weekday_indices ?? []) : [];
+  const normalizedWeekTemplate = input.week_template.map((day) => ({
+    ...day,
+    exercises: day.exercises.map((exercise) =>
+      normalizeProgramExercise(exercise, input.beginner_calibration),
+    ),
+  }));
+  const dates = calculateProgramDatesForSchedule({
+    startDate: input.start_date,
+    weeks: input.weeks,
+    daysPerWeek,
+    mode: scheduleMode,
+    weekdayIndices,
+  });
   const endDate = dates.at(-1);
   if (!endDate) throw new Error("A program must contain at least one training day");
   const payloadHash = operationPayloadHash("generate_program", {
@@ -108,11 +132,14 @@ export async function generateProgram(
     start_date: input.start_date,
     weeks: input.weeks,
     session_minutes: input.session_minutes,
+    schedule_mode: scheduleMode,
+    weekday_indices: weekdayIndices,
+    beginner_calibration: input.beginner_calibration ?? null,
     deload_weeks: input.deload_weeks,
     progression_rules: input.progression_rules.trim(),
     why: input.why.trim(),
     replace_active_reason: input.replace_active_reason?.trim() || null,
-    week_template: input.week_template.map((day) => ({
+    week_template: normalizedWeekTemplate.map((day) => ({
       title: day.title.trim(),
       focus: day.focus?.trim() || null,
       exercises: day.exercises.map((exercise) => {
@@ -209,6 +236,8 @@ export async function generateProgram(
         end_date: endDate,
         weeks: input.weeks,
         days_per_week: daysPerWeek,
+        schedule_mode: scheduleMode,
+        weekday_indices: weekdayIndices,
         session_minutes: input.session_minutes,
         deload_weeks: input.deload_weeks,
         progression_rules: input.progression_rules.trim(),
@@ -222,14 +251,18 @@ export async function generateProgram(
     for (let week = 1; week <= input.weeks; week++) {
       const isDeload = input.deload_weeks.includes(week);
       for (let dayIndex = 0; dayIndex < daysPerWeek; dayIndex++) {
-        const template = input.week_template[dayIndex];
-        const date = addIsoDays(input.start_date, 7 * (week - 1) + offsets[dayIndex]);
+        const date = dates[(week - 1) * daysPerWeek + dayIndex];
+        if (!date) throw new Error("Failed to calculate program day");
+        const templateIndex =
+          scheduleMode === "weekday" ? weekdayIndices.indexOf(isoWeekdayIndex(date)) : dayIndex;
+        const template = normalizedWeekTemplate[templateIndex];
+        if (!template) throw new Error("Failed to match program template to scheduled weekday");
         const [day] = await tx
           .insert(programDays)
           .values({
             program_id: program.id,
             week,
-            day_index: dayIndex + 1,
+            day_index: templateIndex + 1,
             date,
             title: template.title.trim(),
             focus: template.focus?.trim() || null,
@@ -295,6 +328,31 @@ function resolveProgramExercise(exercise: WeekTemplateDay["exercises"][number]) 
   return canonical;
 }
 
+function normalizeProgramExercise(
+  exercise: WeekTemplateDay["exercises"][number],
+  calibration: GenerateProgramInput["beginner_calibration"],
+): WeekTemplateDay["exercises"][number] {
+  if (!calibration?.enabled) return exercise;
+  const canonical = resolveProgramExercise(exercise);
+  const bodyweightSquat =
+    calibration.sex !== "male" &&
+    ["back-squat", "high-bar-back-squat", "front-squat"].includes(canonical.id)
+      ? getExercise("bodyweight-squat")
+      : null;
+  const safe = beginnerCalibrationPrescription({
+    sex: calibration.sex,
+    equipment: bodyweightSquat?.equipment ?? canonical.equipment,
+  });
+  return {
+    ...exercise,
+    ...(bodyweightSquat ? { exercise_id: bodyweightSquat.id, name: bodyweightSquat.name_en } : {}),
+    start_weight_kg: safe.startWeightKg,
+    increment_kg: safe.incrementKg,
+    increment_every_weeks: 1,
+    notes: [safe.note, exercise.notes?.trim()].filter(Boolean).join(" "),
+  };
+}
+
 function validateProgramInput(input: GenerateProgramInput) {
   if (!input.name.trim() || input.name.length > 160) throw new Error("invalid_program_name");
   if (!input.goal.trim() || input.goal.length > 2_000) throw new Error("invalid_program_goal");
@@ -330,6 +388,19 @@ function validateProgramInput(input: GenerateProgramInput) {
   }
   if (input.week_template.length < 1 || input.week_template.length > 7) {
     throw new Error("invalid_week_template");
+  }
+  const scheduleMode = input.schedule_mode ?? "rolling";
+  if (scheduleMode !== "rolling" && scheduleMode !== "weekday") {
+    throw new Error("invalid_schedule_mode");
+  }
+  const weekdayIndices = input.weekday_indices ?? [];
+  if (
+    scheduleMode === "rolling"
+      ? weekdayIndices.length > 0
+      : new Set(weekdayIndices).size !== input.week_template.length ||
+        weekdayIndices.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
+  ) {
+    throw new Error("invalid_weekday_schedule");
   }
   for (const day of input.week_template) {
     if (!day.title.trim() || day.title.length > 160) throw new Error("invalid_day_title");
@@ -484,6 +555,7 @@ async function hydrateProgram(program: typeof programs.$inferSelect | null) {
   return {
     ...program,
     deload_weeks: (program.deload_weeks as number[]) ?? [],
+    weekday_indices: (program.weekday_indices as number[]) ?? [],
     days: days.map((d) => ({ ...d, exercises: byDay.get(d.id) ?? [] })),
   };
 }
@@ -534,6 +606,7 @@ export async function getTodayProgramDay(userId: string, today: string) {
   return {
     ...day,
     program_name: program.name,
+    schedule_mode: program.schedule_mode,
     exercises: exercises.map((row) => ({
       ...row.exercise,
       name_en: row.catalog_name_en ?? row.exercise.name,
@@ -571,6 +644,7 @@ export async function getNextProgramDay(userId: string, today: string) {
   return {
     ...day,
     program_name: program.name,
+    schedule_mode: program.schedule_mode,
     exercises: exerciseRows.map((row) => ({
       ...row.exercise,
       name_en: row.catalog_name_en ?? row.exercise.name,
@@ -839,7 +913,160 @@ export async function resolveProgramDay(
   });
 }
 
-/** Adjust target weights for an exercise from a given week onward (coach tool). */
+async function reviseActiveSessionExercise(
+  tx: AccountMutationTransaction,
+  opts: {
+    userId: string;
+    programId: string;
+    canonicalExerciseId: string | null;
+    exerciseNeedle: string;
+    fromWeek: number;
+    replacement: NonNullable<ReturnType<typeof getExercise>> | null;
+    weightOperation: boolean;
+    deltaKg: number | null;
+    setWeightKg: number | null;
+    clearWeight: boolean;
+    sets: number | null;
+    repRange: string | null;
+    notes: string | null | undefined;
+  },
+): Promise<boolean> {
+  const [active] = await tx
+    .select({ id: workoutSessions.id, program_day_id: workoutSessions.program_day_id })
+    .from(workoutSessions)
+    .where(and(eq(workoutSessions.user_id, opts.userId), eq(workoutSessions.status, "active")))
+    .limit(1);
+  if (!active?.program_day_id) return false;
+  const [ownedDay] = await tx
+    .select({ id: programDays.id, week: programDays.week })
+    .from(programDays)
+    .where(
+      and(eq(programDays.id, active.program_day_id), eq(programDays.program_id, opts.programId)),
+    )
+    .limit(1);
+  if (!ownedDay) return false;
+  if (ownedDay.week < opts.fromWeek) return false;
+
+  const activeExercises = await tx
+    .select()
+    .from(sessionExercises)
+    .where(eq(sessionExercises.session_id, active.id))
+    .orderBy(asc(sessionExercises.position));
+  const activeExercise = activeExercises.find((exercise) => {
+    if (opts.canonicalExerciseId && exercise.exercise_id === opts.canonicalExerciseId) return true;
+    const resolved = getExercise(exercise.exercise_id) ?? findExercise(exercise.name);
+    if (opts.canonicalExerciseId && resolved?.id === opts.canonicalExerciseId) return true;
+    return exercise.name.trim().toLowerCase() === opts.exerciseNeedle;
+  });
+  if (!activeExercise || activeExercise.completed) return false;
+
+  const existingSets = await tx
+    .select()
+    .from(sessionSets)
+    .where(eq(sessionSets.session_exercise_id, activeExercise.id))
+    .orderBy(asc(sessionSets.set_index));
+  const completedSets = existingSets.filter((set) => set.completed);
+  const currentTargetWeight =
+    existingSets.find((set) => !set.completed)?.target_weight_kg ??
+    existingSets[0]?.target_weight_kg ??
+    null;
+  const nextWeight = opts.weightOperation
+    ? opts.clearWeight
+      ? null
+      : opts.setWeightKg != null
+        ? opts.setWeightKg
+        : currentTargetWeight == null
+          ? null
+          : calculateTargetWeight({
+              startWeightKg: currentTargetWeight + (opts.deltaKg ?? 0),
+              incrementKg: 0,
+              incrementEveryWeeks: 1,
+              completedTrainingWeeks: 0,
+              isDeload: false,
+            })
+    : currentTargetWeight;
+  const requestedSetCount = opts.sets ?? activeExercise.planned_set_count;
+  const nextSetCount =
+    opts.replacement && completedSets.length > 0
+      ? requestedSetCount
+      : Math.max(completedSets.length, requestedSetCount);
+  const nextRepRange =
+    opts.repRange ?? existingSets.find((set) => !set.completed)?.target_reps ?? null;
+  const targetText = `${nextSetCount}×${nextRepRange ?? "reps"}${nextWeight != null ? ` @ ${nextWeight}kg` : ""}`;
+
+  if (opts.replacement && completedSets.length > 0) {
+    await tx
+      .delete(sessionSets)
+      .where(
+        and(
+          eq(sessionSets.session_exercise_id, activeExercise.id),
+          eq(sessionSets.completed, false),
+        ),
+      );
+    await tx
+      .update(sessionExercises)
+      .set({
+        planned_set_count: completedSets.length,
+        completed: true,
+        completed_at: new Date().toISOString(),
+      })
+      .where(eq(sessionExercises.id, activeExercise.id));
+    const maxPosition =
+      activeExercises.reduce((highest, exercise) => Math.max(highest, exercise.position), -1) + 1;
+    const [replacementRow] = await tx
+      .insert(sessionExercises)
+      .values({
+        session_id: active.id,
+        position: maxPosition,
+        exercise_id: opts.replacement.id,
+        name: opts.replacement.name_en,
+        target: targetText,
+        planned_set_count: nextSetCount,
+        notes: opts.notes?.trim() || null,
+      })
+      .returning({ id: sessionExercises.id });
+    if (!replacementRow) throw new Error("Failed to add replacement exercise");
+    await tx.insert(sessionSets).values(
+      Array.from({ length: nextSetCount }, (_, index) => ({
+        session_exercise_id: replacementRow.id,
+        set_index: index + 1,
+        target_reps: nextRepRange,
+        target_weight_kg: nextWeight,
+      })),
+    );
+    return true;
+  }
+
+  await tx
+    .update(sessionExercises)
+    .set({
+      ...(opts.replacement
+        ? { exercise_id: opts.replacement.id, name: opts.replacement.name_en }
+        : {}),
+      target: targetText,
+      planned_set_count: nextSetCount,
+      ...(opts.notes !== undefined ? { notes: opts.notes?.trim() || null } : {}),
+    })
+    .where(eq(sessionExercises.id, activeExercise.id));
+  await tx
+    .delete(sessionSets)
+    .where(
+      and(eq(sessionSets.session_exercise_id, activeExercise.id), eq(sessionSets.completed, false)),
+    );
+  const completedIndices = new Set(completedSets.map((set) => set.set_index));
+  const pendingRows = Array.from({ length: nextSetCount }, (_, index) => index + 1)
+    .filter((setIndex) => !completedIndices.has(setIndex))
+    .map((setIndex) => ({
+      session_exercise_id: activeExercise.id,
+      set_index: setIndex,
+      target_reps: nextRepRange,
+      target_weight_kg: nextWeight,
+    }));
+  if (pendingRows.length) await tx.insert(sessionSets).values(pendingRows);
+  return true;
+}
+
+/** Adjust or replace an exercise from a given week onward, including an active session. */
 export async function adjustProgramExercise(
   userId: string,
   opts: {
@@ -847,6 +1074,11 @@ export async function adjustProgramExercise(
     from_week: number;
     delta_kg?: number | null;
     set_weight_kg?: number | null;
+    clear_weight?: boolean;
+    replacement_exercise?: string | null;
+    sets?: number | null;
+    rep_range?: string | null;
+    notes?: string | null;
     source_key: string;
     expected_data_epoch?: number;
   },
@@ -858,8 +1090,22 @@ export async function adjustProgramExercise(
   if (!Number.isInteger(opts.from_week) || opts.from_week < 1 || opts.from_week > 104) {
     return { ok: false as const, error: "invalid_from_week" };
   }
-  if ((opts.delta_kg == null) === (opts.set_weight_kg == null)) {
+  const weightOperations = [
+    opts.delta_kg != null,
+    opts.set_weight_kg != null,
+    opts.clear_weight === true,
+  ].filter(Boolean).length;
+  if (weightOperations > 1) {
     return { ok: false as const, error: "choose_one_weight_adjustment" };
+  }
+  if (
+    weightOperations === 0 &&
+    opts.replacement_exercise == null &&
+    opts.sets == null &&
+    opts.rep_range == null &&
+    opts.notes === undefined
+  ) {
+    return { ok: false as const, error: "no_adjustment_requested" };
   }
   for (const value of [opts.delta_kg, opts.set_weight_kg]) {
     if (value != null && (!Number.isFinite(value) || value < -1_000 || value > 1_000)) {
@@ -869,13 +1115,34 @@ export async function adjustProgramExercise(
   if (!validOperationSourceKey(opts.source_key)) {
     return { ok: false as const, error: "invalid_source_key" };
   }
+  if (opts.sets != null && (!Number.isInteger(opts.sets) || opts.sets < 1 || opts.sets > 30)) {
+    return { ok: false as const, error: "invalid_exercise_sets" };
+  }
+  if (opts.rep_range != null && (!opts.rep_range.trim() || opts.rep_range.trim().length > 80)) {
+    return { ok: false as const, error: "invalid_rep_range" };
+  }
+  if (opts.notes != null && opts.notes.trim().length > 2_000) {
+    return { ok: false as const, error: "invalid_exercise_notes" };
+  }
   const canonical = getExercise(opts.exercise) ?? findExercise(opts.exercise);
+  const replacement =
+    opts.replacement_exercise == null
+      ? null
+      : (getExercise(opts.replacement_exercise) ?? findExercise(opts.replacement_exercise));
+  if (opts.replacement_exercise != null && !replacement) {
+    return { ok: false as const, error: "replacement_exercise_not_found" };
+  }
   const sourceKey = opts.source_key.trim();
   const payloadHash = operationPayloadHash("adjust_program", {
     exercise: canonical?.id ?? needle,
     from_week: opts.from_week,
     delta_kg: opts.delta_kg ?? null,
     set_weight_kg: opts.set_weight_kg ?? null,
+    clear_weight: opts.clear_weight === true,
+    replacement_exercise: replacement?.id ?? null,
+    sets: opts.sets ?? null,
+    rep_range: opts.rep_range?.trim() ?? null,
+    notes: opts.notes === undefined ? "__unchanged__" : (opts.notes?.trim() ?? null),
   });
   const db = getDb();
   return db.transaction(async (tx) => {
@@ -966,27 +1233,58 @@ export async function adjustProgramExercise(
     }
     for (const match of matches) {
       const raw =
-        opts.set_weight_kg != null
-          ? opts.set_weight_kg
-          : match.target_weight_kg != null
-            ? match.target_weight_kg + (opts.delta_kg ?? 0)
-            : null;
-      const next =
-        raw == null
+        opts.clear_weight === true
           ? null
-          : calculateTargetWeight({
-              startWeightKg: raw,
-              incrementKg: 0,
-              incrementEveryWeeks: 1,
-              completedTrainingWeeks: 0,
-              isDeload: false,
-            });
+          : opts.set_weight_kg != null
+            ? opts.set_weight_kg
+            : match.target_weight_kg != null
+              ? match.target_weight_kg + (opts.delta_kg ?? 0)
+              : null;
+      const next =
+        weightOperations === 0
+          ? replacement
+            ? null
+            : match.target_weight_kg
+          : raw == null
+            ? null
+            : calculateTargetWeight({
+                startWeightKg: raw,
+                incrementKg: 0,
+                incrementEveryWeeks: 1,
+                completedTrainingWeeks: 0,
+                isDeload: false,
+              });
       await tx
         .update(programExercises)
-        .set({ target_weight_kg: next })
+        .set({
+          ...(weightOperations > 0 || replacement ? { target_weight_kg: next } : {}),
+          ...(replacement ? { exercise_id: replacement.id, name: replacement.name_en } : {}),
+          ...(opts.sets != null ? { sets: opts.sets } : {}),
+          ...(opts.rep_range != null ? { rep_range: opts.rep_range.trim() } : {}),
+          ...(opts.notes !== undefined ? { notes: opts.notes?.trim() || null } : {}),
+        })
         .where(eq(programExercises.id, match.id));
     }
-    return finish({ ok: true as const, updated: matches.length });
+    const activeSessionUpdated = await reviseActiveSessionExercise(tx, {
+      userId,
+      programId: program.id,
+      canonicalExerciseId: canonical?.id ?? null,
+      exerciseNeedle: needle,
+      fromWeek: opts.from_week,
+      replacement,
+      weightOperation: weightOperations > 0 || replacement != null,
+      deltaKg: opts.delta_kg ?? null,
+      setWeightKg: opts.set_weight_kg ?? null,
+      clearWeight: opts.clear_weight === true || (replacement != null && weightOperations === 0),
+      sets: opts.sets ?? null,
+      repRange: opts.rep_range?.trim() ?? null,
+      notes: opts.notes,
+    });
+    return finish({
+      ok: true as const,
+      updated: matches.length,
+      active_session_updated: activeSessionUpdated,
+    });
   });
 }
 
@@ -1012,7 +1310,7 @@ export async function shiftProgramSchedule(
   } catch {
     return { ok: false as const, error: "invalid_shift_date" };
   }
-  if (!Number.isInteger(opts.days) || opts.days < 1 || opts.days > 365) {
+  if (!Number.isInteger(opts.days) || opts.days === 0 || opts.days < -365 || opts.days > 365) {
     return { ok: false as const, error: "invalid_shift_days" };
   }
   const reason = opts.reason.trim();
@@ -1091,7 +1389,7 @@ export async function shiftProgramSchedule(
           sql`${programDays.date} >= ${opts.from_date}`,
         ),
       )
-      .orderBy(desc(programDays.date));
+      .orderBy(opts.days > 0 ? desc(programDays.date) : asc(programDays.date));
     if (!days.length) return finish({ ok: false as const, error: "no_days_to_shift" });
     const movingIds = new Set(days.map((day) => day.id));
     const targetDates = new Set(days.map((day) => addIsoDays(day.date, opts.days)));
@@ -1108,7 +1406,7 @@ export async function shiftProgramSchedule(
         .update(programDays)
         .set({
           date: addIsoDays(day.date, opts.days),
-          resolution_note: `Schedule shifted +${opts.days} day(s): ${reason}`,
+          resolution_note: `Schedule shifted ${opts.days > 0 ? "+" : ""}${opts.days} day(s): ${reason}`,
         })
         .where(eq(programDays.id, day.id));
     }
@@ -1127,13 +1425,21 @@ export async function shiftProgramSchedule(
     if (latest && earliest) {
       await tx
         .update(programs)
-        .set({ start_date: earliest.date, end_date: latest.date })
+        .set({
+          start_date: earliest.date,
+          end_date: latest.date,
+          weekday_indices:
+            program.schedule_mode === "weekday"
+              ? shiftWeekdayIndices((program.weekday_indices as number[]) ?? [], opts.days)
+              : [],
+        })
         .where(eq(programs.id, program.id));
     }
     return finish({
       ok: true as const,
       shifted: days.length,
       days: opts.days,
+      new_start_date: earliest?.date ?? program.start_date,
       new_end_date: latest?.date ?? program.end_date,
     });
   });
@@ -1164,30 +1470,41 @@ export function summarizeProgram(
   const skipped = p.days.filter((d) => d.status === "skipped").length;
   const overdue = p.days.filter((d) => d.status === "planned" && d.date < today);
   const upcoming = p.days.filter((d) => d.status === "planned" && d.date >= today).slice(0, 3);
+  const rolling = p.schedule_mode === "rolling";
   const up = upcoming
     .map(
       (d) =>
-        `  - ${d.date} (${language === "sv" ? "v" : "wk"} ${d.week}) ${d.title}${
+        `  - ${
+          rolling ? `${language === "sv" ? "Dag" : "Day"} ${d.day_index}` : d.date
+        } (${language === "sv" ? "v" : "wk"} ${d.week}) ${d.title}${
           d.is_deload ? (language === "sv" ? " [återhämtning]" : " [deload]") : ""
         }`,
     )
     .join("\n");
   if (p.status === "completed") {
     if (language === "sv") {
-      return `"${p.name}" — SLUTFÖRT (${done} pass, ${skipped} överhoppade), ${p.start_date} → ${p.end_date}.
+      return `"${p.name}" — SLUTFÖRT (${done} pass, ${skipped} överhoppade)${
+        rolling ? "" : `, ${p.start_date} → ${p.end_date}`
+      }.
 Programperioden är stängd och sparad. Granska resultaten och erbjud sedan nästa programperiod.`;
     }
-    return `"${p.name}" — COMPLETED (${done} workouts, ${skipped} skipped), ${p.start_date} → ${p.end_date}.
+    return `"${p.name}" — COMPLETED (${done} workouts, ${skipped} skipped)${
+      rolling ? "" : `, ${p.start_date} → ${p.end_date}`
+    }.
 The cycle is closed and preserved. Review the results, then offer to build the next program cycle.`;
   }
   if (language === "sv") {
-    return `"${p.name}" — AKTIVT, ${p.weeks} veckor, ${p.days_per_week} ggr/vecka, ${p.start_date} → ${p.end_date}
+    return `"${p.name}" — AKTIVT, ${p.weeks} veckor, ${p.days_per_week} ggr/vecka${
+      rolling ? ", rullande Dag 1..N" : `, ${p.start_date} → ${p.end_date}`
+    }
 Förlopp: ${done} klara, ${skipped} överhoppade, ${p.days.length - done - skipped} återstår (i dag: ${today})
 Försenade pass som kräver ett uttryckligt beslut om slutfört/överhoppat: ${overdue.length}
 Närmast:
 ${up || "  (inget schemalagt — granska försenade pass eller avsluta programperioden)"}`;
   }
-  return `"${p.name}" — ACTIVE, ${p.weeks} wks, ${p.days_per_week}x/wk, ${p.start_date} → ${p.end_date}
+  return `"${p.name}" — ACTIVE, ${p.weeks} wks, ${p.days_per_week}x/wk${
+    rolling ? ", rolling Day 1..N" : `, ${p.start_date} → ${p.end_date}`
+  }
 Progress: ${done} done, ${skipped} skipped, ${p.days.length - done - skipped} remaining (today: ${today})
 Overdue workouts needing an explicit completed/skipped decision: ${overdue.length}
 Next up:

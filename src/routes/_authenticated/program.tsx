@@ -114,6 +114,8 @@ function ProgramPage() {
   }, [openDay?.id, firstOpenExerciseId]);
 
   const doneCount = program?.days.filter((d) => d.status === "completed").length ?? 0;
+  const isRolling = program?.schedule_mode === "rolling";
+  const firstPlannedDayId = program?.days.find((day) => day.status === "planned")?.id ?? null;
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -127,8 +129,8 @@ function ProgramPage() {
               <p className="text-[11px] text-muted-foreground">
                 {program.status === "completed" ? `${t("common.completed")} · ` : ""}
                 {program.weeks} {t("common.weeks")} ·{" "}
-                {t("program.times_week", { count: program.days_per_week })} · {program.start_date} →{" "}
-                {program.end_date}
+                {t("program.times_week", { count: program.days_per_week })}
+                {!isRolling && ` · ${program.start_date} → ${program.end_date}`}
               </p>
             )}
           </div>
@@ -287,7 +289,9 @@ function ProgramPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            {fmtDate(day.date, language)}
+                            {isRolling
+                              ? `${language === "sv" ? "Dag" : "Day"} ${day.day_index}`
+                              : fmtDate(day.date, language)}
                           </div>
                           <div className="mt-0.5 flex items-center gap-1.5 font-display text-[15px] font-bold text-foreground">
                             <Dumbbell className="h-3.5 w-3.5 text-primary" />
@@ -327,7 +331,10 @@ function ProgramPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                        {t("common.week")} {openDay.week} · {fmtDate(openDay.date, language)}
+                        {t("common.week")} {openDay.week} ·{" "}
+                        {isRolling
+                          ? `${language === "sv" ? "Dag" : "Day"} ${openDay.day_index}`
+                          : fmtDate(openDay.date, language)}
                         {openDay.is_deload ? ` · ${t("common.deload")}` : ""}
                       </div>
                       <h3 className="mt-1 font-display text-xl font-bold text-foreground">
@@ -418,15 +425,17 @@ function ProgramPage() {
                         </button>
                       ))}
                     </div>
-                    {openDay.date <= today && openDay.status === "planned" && (
-                      <Link
-                        to="/chat"
-                        search={{ start: true }}
-                        className="mt-2 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-primary-foreground"
-                      >
-                        <Dumbbell className="h-4 w-4" /> {t("program.start_due")}
-                      </Link>
-                    )}
+                    {openDay.status === "planned" &&
+                      (openDay.date <= today ||
+                        (isRolling && openDay.id === firstPlannedDayId)) && (
+                        <Link
+                          to="/chat"
+                          search={{ start: true }}
+                          className="mt-2 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-primary-foreground"
+                        >
+                          <Dumbbell className="h-4 w-4" /> {t("program.start_due")}
+                        </Link>
+                      )}
                   </div>
                 </div>
               </div>

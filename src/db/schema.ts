@@ -320,6 +320,8 @@ export const programs = pgTable(
     end_date: text("end_date").notNull(),
     weeks: integer("weeks").notNull(),
     days_per_week: integer("days_per_week").notNull(),
+    schedule_mode: text("schedule_mode").notNull().default("rolling"),
+    weekday_indices: jsonb("weekday_indices").notNull().default([]),
     session_minutes: integer("session_minutes"),
     status: text("status").notNull().default("active"), // active | completed | archived
     deload_weeks: jsonb("deload_weeks").notNull().default([]),
@@ -342,6 +344,11 @@ export const programs = pgTable(
     check("programs_status_check", sql`${t.status} IN ('active', 'completed', 'archived')`),
     check("programs_weeks_check", sql`${t.weeks} BETWEEN 1 AND 104`),
     check("programs_days_per_week_check", sql`${t.days_per_week} BETWEEN 1 AND 7`),
+    check("programs_schedule_mode_check", sql`${t.schedule_mode} IN ('rolling', 'weekday')`),
+    check(
+      "programs_weekday_indices_check",
+      sql`jsonb_typeof(${t.weekday_indices}) = 'array' AND jsonb_array_length(${t.weekday_indices}) BETWEEN 0 AND 7`,
+    ),
     check(
       "programs_dates_check",
       sql`${t.start_date} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND (${t.start_date}::date)::text = ${t.start_date} AND ${t.end_date} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND (${t.end_date}::date)::text = ${t.end_date} AND ${t.end_date} >= ${t.start_date}`,
