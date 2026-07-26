@@ -639,20 +639,77 @@ export function exerciseSubstitutions(id: ExerciseId | string, limit = 3) {
     .slice(0, Math.max(0, limit));
 }
 
+const KNEE_DOMINANT_EXERCISES = new Set<ExerciseId>([
+  "back-squat",
+  "high-bar-back-squat",
+  "front-squat",
+  "goblet-squat",
+  "bodyweight-squat",
+  "hack-squat",
+  "smith-machine-squat",
+  "leg-press",
+  "single-leg-leg-press",
+  "single-leg-squat",
+  "step-up",
+  "bulgarian-split-squat",
+  "walking-lunge",
+  "reverse-lunge",
+  "leg-extension",
+]);
+
+/**
+ * These are not medical prescriptions. They are catalog-grounded candidates
+ * that avoid the deep knee-flexion/loaded knee-extension pattern shared by
+ * squats, lunges, presses, and step-ups. The coach must still trial them
+ * conservatively, stop on pain, and recommend clinical assessment when pain
+ * is sharp, severe, or repeated.
+ */
+const KNEE_SPARING_CANDIDATES: readonly ExerciseId[] = [
+  "cable-glute-kickback",
+  "glute-bridge",
+  "dumbbell-romanian-deadlift",
+  "single-leg-romanian-deadlift",
+  "hip-thrust",
+  "back-extension-machine",
+  "seated-hip-abduction",
+];
+
 /**
  * Equipment failures need a varied shortlist, not eight near-identical
  * machines. Round-robin across equipment types while keeping the closest
  * same-equipment alternative first, so the coach can offer real choices that
  * are guaranteed to exist in the canonical catalog.
  */
-export function exerciseSubstitutionsForReason(id: ExerciseId | string, reason: string, limit = 8) {
+export function exerciseSubstitutionsForReason(
+  id: ExerciseId | string,
+  reason: string,
+  limit = 8,
+  excludedExerciseIds: readonly string[] = [],
+) {
+  const source = getExercise(id);
+  if (!source) return [];
+  const excluded = new Set(excludedExerciseIds);
+  const normalizedReason = normalizedName(reason);
+  const describesKneePain =
+    /\b(knee|knees|patella|kneecap|knasmarta|kna)\b/.test(normalizedReason) &&
+    /\b(pain|painful|hurt|hurts|sharp|ache|injury|discomfort|smarta|ont|skarp)\b/.test(
+      normalizedReason,
+    );
+  if (describesKneePain && KNEE_DOMINANT_EXERCISES.has(source.id as ExerciseId)) {
+    return KNEE_SPARING_CANDIDATES.filter(
+      (candidateId) => candidateId !== source.id && !excluded.has(candidateId),
+    )
+      .map((candidateId) => getExercise(candidateId))
+      .filter((candidate): candidate is ExerciseDefinition => candidate != null)
+      .slice(0, Math.max(0, limit));
+  }
+
   const all = exerciseSubstitutions(id, EXERCISE_CATALOG.length);
   if (!reason.trim().toLowerCase().startsWith("no_equipment:")) {
-    return all.slice(0, Math.max(0, limit));
+    return all.filter((candidate) => !excluded.has(candidate.id)).slice(0, Math.max(0, limit));
   }
-  const source = getExercise(id);
   const buckets = new Map<string, ExerciseDefinition[]>();
-  for (const candidate of all) {
+  for (const candidate of all.filter((item) => !excluded.has(item.id))) {
     const bucket = buckets.get(candidate.equipment) ?? [];
     bucket.push(candidate);
     buckets.set(candidate.equipment, bucket);

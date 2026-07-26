@@ -1,26 +1,10 @@
-export type WorkoutSkipRecovery =
-  | {
-      kind: "hold_progression";
-      affected_exercises: number;
-      affected_days: number;
-    }
-  | {
-      kind: "none";
-    };
-
 /**
- * UI events carry state facts, never coaching copy. The server prompt already
- * has the program, attendance, coach personality, and behavior rules. Keeping
- * this marker neutral prevents repeated UI actions from becoming a response
- * template that the model imitates.
+ * UI events only identify what happened. Recovery bookkeeping already lives
+ * in durable program state and must not become repeated coaching copy.
  */
-export function workoutSkipUiEvent(
-  source: "chat" | "program",
-  recovery: WorkoutSkipRecovery,
-): string {
+export function workoutSkipUiEvent(source: "chat" | "program"): string {
   return `__ui_event__ ${JSON.stringify({
     type: "workout_skipped",
     source,
-    recovery,
   })}`;
 }

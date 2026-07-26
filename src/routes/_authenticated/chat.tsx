@@ -930,15 +930,7 @@ function ChatScreen() {
         qc.invalidateQueries({ queryKey: ["today-training"] }),
         qc.invalidateQueries({ queryKey: ["dashboard"] }),
       ]);
-      setQueuedUiEvent(
-        result.recovery?.kind === "hold_progression"
-          ? workoutSkipUiEvent("chat", {
-              kind: "hold_progression",
-              affected_exercises: result.recovery.affected_exercises,
-              affected_days: result.recovery.affected_days,
-            })
-          : workoutSkipUiEvent("chat", { kind: "none" }),
-      );
+      setQueuedUiEvent(workoutSkipUiEvent("chat"));
     } catch (error) {
       if (isDataEpochConflict(error)) {
         await refreshAfterDataEpochConflict(qc);
@@ -970,15 +962,7 @@ function ChatScreen() {
     if (!search.skipped || skipIntentHandled.current) return;
     skipIntentHandled.current = true;
     void navigate({ to: "/chat", search: {}, replace: true });
-    setQueuedUiEvent(
-      search.recovery === "hold_progression"
-        ? workoutSkipUiEvent("program", {
-            kind: "hold_progression",
-            affected_exercises: search.recoveryChanges ?? 0,
-            affected_days: search.recoveryDays ?? 0,
-          })
-        : workoutSkipUiEvent("program", { kind: "none" }),
-    );
+    setQueuedUiEvent(workoutSkipUiEvent("program"));
   }, [navigate, search.recovery, search.recoveryChanges, search.recoveryDays, search.skipped]);
 
   async function toggleSet(

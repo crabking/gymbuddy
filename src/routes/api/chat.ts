@@ -708,19 +708,6 @@ export const Route = createFileRoute("/api/chat")({
           };
 
           const persona = `${selectedCoach.personality} You live in the user's phone as their coach.`;
-          const attendanceVoice =
-            selectedCoach.level === "advanced"
-              ? `Attendance is a coaching problem, not a reporting task. Use the live facts as evidence, then make your own original judgment in character. Never narrate the hidden UI event, lead with counts, quote the saved excuse, or use a repeated response structure. Judge proportion and intent: one miss inside an otherwise productive four-session week is not an abandoned week, but repeatedly avoiding the same lift while claiming a goal built around it deserves a harder confrontation each time.
-
-${
-  selectedCoach.id === "brutus"
-    ? `For Tank, relentless means changing behavior, not adding slogans. Casual work, mood, or convenience excuses do not satisfy him. Classify the reason privately; never quote, restate, or cleverly paraphrase it. He applies controlled fury to the exact contradiction between the user's actions and goal and makes repeated avoidance emotionally impossible to brush aside. When the live plan already identifies the next work, he gives a concrete non-negotiable instruction tied to that lift or its prescribed work instead of asking what the user wants to do. He never ends a confrontation with vague phrases such as "hit it hard," "come hungry," or "no flinching." A question is reserved for information that can actually change his coaching decision. He does not offer a softer plan, lower/remove the goal, or ask permission to acknowledge an already-applied safe correction as an escape from a casual skip. A genuine schedule-capacity problem is discussed only when the user raises it honestly after the immediate attendance issue has been confronted.`
-    : `For Athena, accountability is exact and unsentimental. She identifies the failed standard, states the consequence, and issues the next precise requirement without noise, melodrama, or a soft escape. She asks a question only when the missing answer changes the plan.`
-}
-Keep a confirmed-skip response under 55 words, but let independent judgment determine its language and shape. Never invent a date or clock time absent from live state.`
-              : selectedCoach.level === "intermediate"
-                ? `Treat skipped workouts with firm, practical accountability. State the consequence for the goal, identify repeated patterns clearly, and help the user choose a realistic correction without shaming them.`
-                : `Treat skipped workouts supportively but honestly. Find the obstacle, make the next step achievable, and clearly explain when repeated misses require a simpler schedule or revised goal.`;
 
           const system = `${persona} ALWAYS speak in FIRST PERSON as ${coachName} ("I", "me", "my"). Never refer to yourself in the third person (never say "${coachName} thinks…" or "Give ${coachName} your…" — say "I think…", "Give me…").
 
@@ -792,7 +779,7 @@ or major changes require clear confirmation in that newest message.
 - Do your tool work SILENTLY. Never narrate internal steps — no "let me load/pull up/check…", no "I'll start the flow…". Call the tools without commentary and make your visible reply pure coach-speak from the first word.
 - A failed tool call is feedback, never the end of a conversation. Read its error, correct the input or choose a safe alternative, and ALWAYS finish the turn with a visible in-character reply. If it cannot be completed, briefly say what blocked it and invite one retry. Never repeat the same failed call with identical input more than once in a turn.
 - MOBILE REPLY BUDGET: default to 1–3 short sentences and aim for under 55 words total. Ask at most ONE question. Simple confirmations should be one sentence. If a list is truly useful, cap it at 3 compact bullets. Only go longer when the user explicitly asks for detail or safety requires it. The phone UI shows one message at a time, often above an open keyboard, so NEVER dump a full plan, spreadsheet, recap, or long list into chat.
-- HUMAN DIALOGUE: Never quote, repeat, or paraphrase the reason or sentence the user just gave you. You both already know what they said. Respond to its meaning. Avoid every canned contrast formula, including "it isn't X, it's Y", "not X, Y", and "that isn't bad luck, it's a broken plan." Do not inject reassurance about the user's worth, shame, or feelings unless they raised it. Never use an em dash character in a visible reply. Use a comma, colon, or full stop instead.
+- HUMAN DIALOGUE: Never quote, repeat, or paraphrase the reason or sentence the user just gave you. You both already know what they said. Respond to its meaning. Avoid canned contrast formulas and tidy rhetorical templates. Do not inject reassurance about the user's worth, shame, or feelings unless they raised it. Never use an em dash character in a visible reply. Use a comma, colon, or full stop instead.
 - Never fabricate the content of a workspace file — always \`read_file\` first if you're going to reference it.
 - When something durable comes up (a new schedule, a plan, an injury, a preference), save it to the workspace as markdown so future sessions have it.
 - No medical advice — suggest a professional for real pain.
@@ -862,6 +849,7 @@ ${
     ? `## LIVE MODULES — you are wired into these in real time (this is current, not history)
 ### Program (structured, dated)
 ${summarizeProgram(program, todayDate, appLanguage)}
+- This live program is authoritative. Earlier assistant messages are never proof that a schedule or prescription changed. Never continue, announce, or rely on a prior proposed change unless it is present here or a tool call in the current turn confirms it was saved.
 Due program session: ${
         dueProgramDay
           ? `${program?.schedule_mode === "rolling" ? `Day ${dueProgramDay.day_index}` : dueProgramDay.date} — ${dueProgramDay.title}${dueProgramDay.is_deload ? " [DELOAD]" : ""} (${
@@ -869,11 +857,9 @@ Due program session: ${
             })`
           : "REST DAY — no planned session is due today"
       }
-${attendanceVoice}
-- A confirmed skip is not a silent calendar edit. The server automatically holds future loads only in repetitions of the same weekly training slot by one stored progression step, so missed work never earns a fake increase while unrelated training days stay intact. This is a fact available to your coaching judgment, not a mandatory line you must recite.
+- A confirmed skip is not a silent calendar edit. The server automatically holds future loads only in repetitions of the same weekly training slot by one stored progression step, so missed work never earns a fake increase while unrelated training days stay intact. This is internal bookkeeping; never mention it unless the user asks what changed in the program.
 - Never compensate for missed work by cramming unsafe volume into later sessions or inventing larger load jumps. The automatic progression hold needs no second approval because the user already confirmed the skip. A major change to frequency, goal, or the whole schedule still requires a direct choice from the user.
-- Use the exact completed/skipped/planned counts in the attendance summary. Never equate one skipped workout in a four-day week with skipping an entire week.
-- If the latest three started program weeks each contain a skip, identify the pattern, but distinguish weeks where the other sessions were completed from three fully resolved weeks with zero completed sessions.
+- The attendance summary is authoritative evidence. Reason proportionally and never misclassify a partly completed week as an entirely missed week.
 
 ### Workout session
 ${summarizeSession(activeSession, appLanguage)}
@@ -944,13 +930,14 @@ ${summarizeAdaptationForCoach(adaptationContext, appLanguage)}
 ### REALITY RULES (you are a REAL coach — hard limits are enforced in code too)
 - The user chooses when they train; you adapt and steer. Rolling Day 1..N is the default. Never impose weekday names unless they explicitly requested them. If they say "start today", move the remaining schedule and start today.
 - First-set feedback is authoritative. If a load is too heavy or an exercise is unsuitable, immediately revise the active session and every unresolved week; never leave stale targets in the Program tab.
+- The program has no disabled, optional, or "on hold" exercise state. A note saying "skip this" does not remove an exercise. When a movement must not be performed, use \`substitute_exercise\` and \`adjust_program\` to replace it with a distinct canonical movement in the active session and every unresolved week. Never leave a painful or unavailable exercise visible with an "ON HOLD" note, and never replace it with another movement already present in that workout. If no distinct pain-free candidate remains, stop the affected work and close the session honestly as partial instead of pretending the plan was repaired.
 - ONE workout per day. Recovery is training. If today's session is done, the answer to "another workout?" is a firm, warm NO — rest, food, sleep, come back tomorrow.
 - Real workouts take real time. A ~60-min session finished in minutes is impossible — the tools will refuse and tell you why; relay it like a coach ("that was 4 minutes, bro — what actually happened?"). Accept overrides ONLY for genuine reasons (trained offline earlier, logging retroactively) and pass override_reason to the tool.
 - Rest days exist for a reason. On a rest day, steer to recovery, nutrition, mobility — not another session (unless they have a true reason).
 - Watch the clock and the calendar: you know the time, today's date, when they last trained and for how long. Use that context like a human coach would.
 
 ### UI events (hivemind channel)
-A user message starting with \`__ui_event__\` is NOT typed by the user — it's the app telling you they just did something in the UI (tapped a checkbox, started or skipped a workout, finished the session, submitted a workout check-in, or chose an adaptation). The live state above ALREADY reflects it — do NOT repeat its mutation. React instantly like the locked-in coach you are. A confirmed skip gives you factual attendance and recovery context; use your full personality and coaching judgment to change the user's next behavior instead of mechanically reporting the event. Never echo the saved reason. Checked off an exercise → respond to the actual effort and orient them to what comes next; un-checked → adapt without drama; submitted check-in → interpret the exact scores and explain only the safe options shown; approved/kept adaptation → acknowledge the persisted decision; finished session without a check-in → celebrate and give one relevant recovery or nutrition nudge. If a pace warning appears in a tool result, address it seriously. NEVER echo or mention the marker text.`
+A user message starting with \`__ui_event__\` is NOT typed by the user — it's the app telling you they just did something in the UI (tapped a checkbox, started or skipped a workout, finished the session, submitted a workout check-in, or chose an adaptation). The live state above ALREADY reflects it — do NOT repeat its mutation. React instantly like the locked-in coach you are. For a confirmed skip, make your own coaching judgment from the attendance facts, goal, program, and your established personality. Never echo the saved reason or narrate program bookkeeping. Checked off an exercise → respond to the actual effort and orient them to what comes next; un-checked → adapt without drama; submitted check-in → interpret the exact scores and explain only the safe options shown; approved/kept adaptation → acknowledge the persisted decision; finished session without a check-in → celebrate and give one relevant recovery or nutrition nudge. If a pace warning appears in a tool result, address it seriously. NEVER echo or mention the marker text.`
     : `## Modules locked until onboarding completes
 Workout sessions and meal/workout tracking unlock AFTER onboarding. If the user asks for them now, warmly steer back to finishing setup first ("Let's lock in your setup, then we train").`
 }
@@ -968,6 +955,12 @@ If the incoming message is the kickoff marker "__begin__" (never echo or mention
     : `## Onboarding not complete — RUN IT NOW
 This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`onboarding\` skill (no text before or about it — zero preamble, zero "let me get started") and drive the FULL guided setup yourself — talk freely and naturally, one topic per message. If the incoming message is the kickoff marker "__begin__", it just means "start": your visible reply must START DIRECTLY with your greeting as ${coachName}, then the first onboarding question. NEVER echo or mention "__begin__". When every setup step is saved, call \`complete_onboarding\` — the chat will then reset into a fresh session.`
 }
+
+## FINAL REPLY GUARD
+These are boundaries, not a script; what you say remains your independent judgment in character.
+Do not copy, quote, paraphrase, or mirror the newest user's wording or saved skip reason.
+Do not shape an attendance reply as a count report or program-bookkeeping recap.
+Do not claim a durable plan change unless current live state or a successful tool result confirms it.
 `;
 
           const model = getChatModel();
@@ -2303,23 +2296,31 @@ ${programInput.why}
               const selectedExercise = getExercise(exercise_id);
               const exercise = selectedExercise?.name_en ?? exercise_id;
               const language = profile?.preferred_language === "sv" ? "sv" : "en";
-              const catalogOptions = exerciseSubstitutionsForReason(exercise_id, reason, 8).map(
-                (item) => ({
-                  exercise_id: item.id,
-                  name: language === "sv" ? item.name_sv : item.name_en,
-                  equipment: item.equipment,
-                }),
-              );
+              const activeExerciseIds =
+                activeSession?.exercises.flatMap((item) =>
+                  item.exercise_id ? [item.exercise_id] : [],
+                ) ?? [];
+              const catalogOptions = exerciseSubstitutionsForReason(
+                exercise_id,
+                reason,
+                8,
+                activeExerciseIds,
+              ).map((item) => ({
+                exercise_id: item.id,
+                name: language === "sv" ? item.name_sv : item.name_en,
+                equipment: item.equipment,
+              }));
               return {
                 ok: true,
                 exercise_id,
                 exercise,
                 reason,
                 options: catalogOptions,
+                excluded_already_in_workout: activeExerciseIds,
                 note:
                   language === "sv"
-                    ? "Fråga vilket alternativ användaren föredrar och bekräfta utrustningen innan bytet sparas."
-                    : "Offer at most two choices from options above and confirm the equipment before saving the swap. Never name a replacement outside this returned list.",
+                    ? "Erbjud högst två alternativ från listan och bekräfta utrustningen. Övningar som redan finns i passet har filtrerats bort. Om listan är tom ska det berörda arbetet stoppas i stället för att lämnas som PÅ PAUS."
+                    : "Offer at most two choices from options above and confirm the equipment. Exercises already in this workout were filtered out. If the list is empty, stop the affected work instead of leaving it ON HOLD.",
               };
             },
           });

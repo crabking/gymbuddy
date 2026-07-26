@@ -194,9 +194,6 @@ function ProgramPage() {
         to: "/chat",
         search: {
           skipped: true,
-          recovery: result.recovery?.kind ?? "none",
-          recoveryChanges: result.recovery?.affected_exercises ?? 0,
-          recoveryDays: result.recovery?.affected_days ?? 0,
         },
       });
     } catch (error) {

@@ -104,6 +104,24 @@ describe("exercise catalog", () => {
     expect(options.every((option) => getExercise(option.id) === option)).toBe(true);
   });
 
+  it("offers distinct hip-dominant candidates instead of another painful knee pattern", () => {
+    const options = exerciseSubstitutionsForReason(
+      "step-up",
+      "sharp pain in the front of the right knee when bending and pushing up",
+      8,
+      ["glute-bridge", "dumbbell-romanian-deadlift"],
+    );
+    const ids = options.map((option) => option.id);
+
+    expect(ids[0]).toBe("cable-glute-kickback");
+    expect(ids).not.toContain("goblet-squat");
+    expect(ids).not.toContain("reverse-lunge");
+    expect(ids).not.toContain("bodyweight-squat");
+    expect(ids).not.toContain("glute-bridge");
+    expect(ids).not.toContain("dumbbell-romanian-deadlift");
+    expect(options.every((option) => getExercise(option.id) === option)).toBe(true);
+  });
+
   it("ships one unique, correctly sized production guide per catalog row", () => {
     const hashes = new Set<string>();
 
