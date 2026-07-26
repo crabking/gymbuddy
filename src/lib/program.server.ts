@@ -87,6 +87,8 @@ export type GenerateProgramInput = {
   replace_active_reason?: string | null;
   source_key?: string | null;
   expected_data_epoch?: number;
+  /** Used only to reject total-system load for weighted bodyweight movements. */
+  athlete_bodyweight_kg?: number | null;
   beginner_calibration?: {
     enabled: boolean;
     sex: "male" | "female" | "other";
@@ -114,7 +116,11 @@ export async function generateProgram(
   const normalizedWeekTemplate = input.week_template.map((day) => ({
     ...day,
     exercises: day.exercises.map((exercise) =>
-      normalizeProgramExercise(exercise, input.beginner_calibration),
+      normalizeProgramExercise(
+        exercise,
+        input.beginner_calibration,
+        input.athlete_bodyweight_kg ?? null,
+      ),
     ),
   }));
   const dates = calculateProgramDatesForSchedule({
@@ -136,6 +142,7 @@ export async function generateProgram(
     schedule_mode: scheduleMode,
     weekday_indices: weekdayIndices,
     beginner_calibration: input.beginner_calibration ?? null,
+    athlete_bodyweight_kg: input.athlete_bodyweight_kg ?? null,
     deload_weeks: input.deload_weeks,
     progression_rules: input.progression_rules.trim(),
     why: input.why.trim(),
@@ -334,6 +341,7 @@ function resolveProgramExercise(exercise: WeekTemplateDay["exercises"][number]) 
 function normalizeProgramExercise(
   exercise: WeekTemplateDay["exercises"][number],
   calibration: GenerateProgramInput["beginner_calibration"],
+  athleteBodyweightKg: number | null,
 ): WeekTemplateDay["exercises"][number] {
   const canonical = resolveProgramExercise(exercise);
   // Bodyweight movements progress through cleaner reps, tempo, range of
@@ -347,6 +355,14 @@ function normalizeProgramExercise(
       increment_kg: null,
       increment_every_weeks: null,
     };
+  }
+  if (
+    athleteBodyweightKg != null &&
+    ["weighted-pull-up", "weighted-chest-dip"].includes(canonical.id) &&
+    exercise.start_weight_kg != null &&
+    exercise.start_weight_kg >= athleteBodyweightKg
+  ) {
+    throw new Error("weighted_bodyweight_load_must_be_external");
   }
   if (!calibration?.enabled) return exercise;
   const bodyweightSquat =

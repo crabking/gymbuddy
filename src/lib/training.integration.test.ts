@@ -104,6 +104,38 @@ describe.runIf(hasDatabase).sequential("production-sized program generation", ()
     await getDb().delete(users).where(eq(users.id, userId));
   });
 
+  it("rejects total-system weight for externally loaded bodyweight movements", async () => {
+    await expect(
+      generateProgram(userId, {
+        name: "Invalid Weighted Pull-Up Convention",
+        goal: "Verify external-load validation",
+        experience: "advanced",
+        start_date: "2031-01-06",
+        weeks: 2,
+        session_minutes: 60,
+        deload_weeks: [],
+        progression_rules: "Progress only the added load.",
+        why: "A weighted pull-up target stores plates on the belt, not bodyweight plus plates.",
+        athlete_bodyweight_kg: 80,
+        source_key: `weighted-pull-up-convention-${userId}`,
+        week_template: [
+          {
+            title: "Pull",
+            exercises: [
+              {
+                exercise_id: "weighted-pull-up",
+                sets: 3,
+                rep_range: "5",
+                start_weight_kg: 90,
+                increment_kg: 2.5,
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow("weighted_bodyweight_load_must_be_external");
+  });
+
   for (const weeks of [8, 12, 16]) {
     it(`materializes and activates a realistic ${weeks}-week program`, async () => {
       await generateProgram(userId, {

@@ -17,14 +17,27 @@ describe("coach personality prompts", () => {
     expect(tank?.personality).toContain("instead of copying a canned sentence template");
     expect(tank?.personality).toContain("never like a pre-written motivational speech");
     expect(tank?.personality).toContain("You are the decision-making coach");
-    expect(tank?.personality).toContain("never a speech, response structure, or escalation ladder");
+    expect(tank?.personality).toContain(
+      "never an opinion, speech, response structure, or escalation ladder",
+    );
     expect(tank?.personality).toContain("Your purpose is to change behavior");
+    expect(tank?.personality).toContain("not acknowledge a notification");
     expect(tank?.personality).toContain("Never use a fixed attendance formula");
     expect(tank?.personality).toContain("Relentlessness means sustained personal pressure");
-    expect(tank?.personality).toContain("stay locked onto the unresolved commitment");
-    expect(tank?.personality).toContain("Do not validate convenience");
+    expect(tank?.personality).toContain("Those are sounds, not coaching");
+    expect(tank?.personality).toContain("decide the strongest useful action");
+    expect(tank?.personality).toContain("Stay locked onto the unresolved commitment");
     expect(tank?.personality).toContain("Ask only for information that can genuinely change");
+    expect(tank?.personality).toContain("Do not turn a direct order into a polite menu");
     expect(tank?.personality).toContain("Casual reluctance never earns a shorter");
+    expect(tank?.personality).toContain("evidence of avoidance");
+    expect(tank?.personality).toContain("Do not reward avoidance with calendar optimization");
+    expect(tank?.personality).toContain("The intervention is behavioral");
+    expect(tank?.personality).toContain("command the next prescribed action");
+    expect(tank?.personality).toContain("Never invent catch-up work");
+    expect(tank?.personality).toContain("save any change before coaching as if it exists");
+    expect(tank?.personality).toContain("choose your intervention yourself");
+    expect(tank?.personality).toContain("repeat the same demand with different beast words");
     expect(tank?.personality).toContain("until the live program confirms the change was saved");
     expect(tank?.personality).toContain("Battle cries are earned emotional weapons");
     expect(tank?.personality).not.toContain("pre-set speech");
