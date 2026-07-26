@@ -33,10 +33,11 @@ const accounts = [
 ];
 
 if (
-  accounts.some(
-    (account) =>
-      account.email.length > 254 || account.password.length < 8 || account.password.length > 1024,
-  )
+  email.length > 254 ||
+  password.length < 8 ||
+  password.length > 1024 ||
+  (extraEmail &&
+    (extraEmail.length > 254 || extraPassword.length < 1 || extraPassword.length > 1024))
 ) {
   console.error("ADMIN_EMAIL or ADMIN_PASSWORD does not meet the login policy");
   process.exit(1);

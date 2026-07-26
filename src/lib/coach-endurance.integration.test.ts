@@ -294,24 +294,28 @@ const scenarios: Scenario[] = [
 async function createScenarioUser(scenario: Scenario) {
   const userId = randomUUID();
   createdUsers.push(userId);
-  await getDb().insert(users).values({
-    id: userId,
-    email: `endurance-${scenario.id}-${userId}@example.invalid`,
-    password_hash: "not-a-real-login",
-  });
-  await getDb().insert(profiles).values({
-    id: userId,
-    display_name: `Endurance ${scenario.id}`,
-    coach_id: scenario.coachId,
-    coach_gender: scenario.coachId === "eli" ? "male" : "female",
-    experience: scenario.experience,
-    days_per_week: scenario.daysPerWeek,
-    session_minutes: 60,
-    preferred_language: "en",
-    timezone: "Europe/Stockholm",
-    onboarding_completed: true,
-    data_epoch: 0,
-  });
+  await getDb()
+    .insert(users)
+    .values({
+      id: userId,
+      email: `endurance-${scenario.id}-${userId}@example.invalid`,
+      password_hash: "not-a-real-login",
+    });
+  await getDb()
+    .insert(profiles)
+    .values({
+      id: userId,
+      display_name: `Endurance ${scenario.id}`,
+      coach_id: scenario.coachId,
+      coach_gender: scenario.coachId === "eli" ? "male" : "female",
+      experience: scenario.experience,
+      days_per_week: scenario.daysPerWeek,
+      session_minutes: 60,
+      preferred_language: "en",
+      timezone: "Europe/Stockholm",
+      onboarding_completed: true,
+      data_epoch: 0,
+    });
   await generateProgram(userId, {
     name: `${scenario.id} Eight Week Cycle`,
     goal: scenario.experience === "beginner" ? "general fitness" : "strength and muscle",
@@ -388,11 +392,7 @@ async function completeWithSets(
   return { sessionId: active.id, defaultSets, adjustedSets, progressionSets };
 }
 
-async function reviewAndResolveProposal(
-  userId: string,
-  sessionId: string,
-  ordinal: number,
-) {
+async function reviewAndResolveProposal(userId: string, sessionId: string, ordinal: number) {
   const poorRecovery = ordinal === 7 || ordinal === 8;
   const result = await submitWorkoutReview(userId, {
     session_id: sessionId,
@@ -460,8 +460,9 @@ async function runEightWeekScenario(scenario: Scenario) {
         expected_data_epoch: 0,
       });
       expect(abandoned).toMatchObject({ ok: true, program_day_outcome: "planned" });
-      expect((await getCurrentProgram(userId, next.date))?.days.find((day) => day.id === next.id))
-        .toMatchObject({ status: "planned" });
+      expect(
+        (await getCurrentProgram(userId, next.date))?.days.find((day) => day.id === next.id),
+      ).toMatchObject({ status: "planned" });
     }
 
     if (ordinal === scenario.abandonAndSkipOrdinal) {
