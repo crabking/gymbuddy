@@ -1062,6 +1062,7 @@ async function reviseActiveSessionExercise(
     weightOperation: boolean;
     deltaKg: number | null;
     setWeightKg: number | null;
+    rebaseWeightKg: number | null;
     clearWeight: boolean;
     sets: number | null;
     repRange: string | null;
@@ -1110,17 +1111,19 @@ async function reviseActiveSessionExercise(
   const nextWeight = opts.weightOperation
     ? opts.clearWeight
       ? null
-      : opts.setWeightKg != null
-        ? opts.setWeightKg
-        : currentTargetWeight == null
-          ? null
-          : calculateTargetWeight({
-              startWeightKg: currentTargetWeight + (opts.deltaKg ?? 0),
-              incrementKg: 0,
-              incrementEveryWeeks: 1,
-              completedTrainingWeeks: 0,
-              isDeload: false,
-            })
+      : opts.rebaseWeightKg != null
+        ? opts.rebaseWeightKg
+        : opts.setWeightKg != null
+          ? opts.setWeightKg
+          : currentTargetWeight == null
+            ? null
+            : calculateTargetWeight({
+                startWeightKg: currentTargetWeight + (opts.deltaKg ?? 0),
+                incrementKg: 0,
+                incrementEveryWeeks: 1,
+                completedTrainingWeeks: 0,
+                isDeload: false,
+              })
     : currentTargetWeight;
   const requestedSetCount = opts.sets ?? activeExercise.planned_set_count;
   const nextSetCount =
@@ -1211,6 +1214,8 @@ export async function adjustProgramExercise(
     from_week: number;
     delta_kg?: number | null;
     set_weight_kg?: number | null;
+    rebase_weight_kg?: number | null;
+    increment_every_weeks?: number | null;
     clear_weight?: boolean;
     replacement_exercise?: string | null;
     sets?: number | null;
@@ -1230,6 +1235,7 @@ export async function adjustProgramExercise(
   const weightOperations = [
     opts.delta_kg != null,
     opts.set_weight_kg != null,
+    opts.rebase_weight_kg != null,
     opts.clear_weight === true,
   ].filter(Boolean).length;
   if (weightOperations > 1) {
@@ -1244,7 +1250,17 @@ export async function adjustProgramExercise(
   ) {
     return { ok: false as const, error: "no_adjustment_requested" };
   }
-  for (const value of [opts.delta_kg, opts.set_weight_kg]) {
+  if (
+    (opts.rebase_weight_kg != null && opts.increment_every_weeks == null) ||
+    (opts.rebase_weight_kg == null && opts.increment_every_weeks != null) ||
+    (opts.increment_every_weeks != null &&
+      (!Number.isInteger(opts.increment_every_weeks) ||
+        opts.increment_every_weeks < 1 ||
+        opts.increment_every_weeks > 52))
+  ) {
+    return { ok: false as const, error: "invalid_rebase_progression_cadence" };
+  }
+  for (const value of [opts.delta_kg, opts.set_weight_kg, opts.rebase_weight_kg]) {
     if (value != null && (!Number.isFinite(value) || value < -1_000 || value > 1_000)) {
       return { ok: false as const, error: "invalid_weight_adjustment" };
     }
@@ -1275,6 +1291,8 @@ export async function adjustProgramExercise(
     from_week: opts.from_week,
     delta_kg: opts.delta_kg ?? null,
     set_weight_kg: opts.set_weight_kg ?? null,
+    rebase_weight_kg: opts.rebase_weight_kg ?? null,
+    increment_every_weeks: opts.increment_every_weeks ?? null,
     clear_weight: opts.clear_weight === true,
     replacement_exercise: replacement?.id ?? null,
     sets: opts.sets ?? null,
@@ -1324,7 +1342,11 @@ export async function adjustProgramExercise(
       .limit(1);
     if (!program) return finish({ ok: false as const, error: "no_active_program" });
     const days = await tx
-      .select({ id: programDays.id })
+      .select({
+        id: programDays.id,
+        week: programDays.week,
+        is_deload: programDays.is_deload,
+      })
       .from(programDays)
       .where(
         and(
@@ -1368,15 +1390,50 @@ export async function adjustProgramExercise(
     if (!matches.length) {
       return finish({ ok: false as const, error: "exercise_not_found" });
     }
+    const dayById = new Map(days.map((day) => [day.id, day]));
+    const rebasedWeights = new Map<string, number | null>();
+    if (opts.rebase_weight_kg != null) {
+      const matchesByWeek = new Map<number, typeof matches>();
+      for (const match of matches) {
+        const day = dayById.get(match.program_day_id);
+        if (!day) continue;
+        const weekMatches = matchesByWeek.get(day.week) ?? [];
+        weekMatches.push(match);
+        matchesByWeek.set(day.week, weekMatches);
+      }
+      let completedTrainingWeeks = 0;
+      for (const [, weekMatches] of [...matchesByWeek.entries()].sort(
+        ([left], [right]) => left - right,
+      )) {
+        const isDeload = weekMatches.some(
+          (match) => dayById.get(match.program_day_id)?.is_deload === true,
+        );
+        for (const match of weekMatches) {
+          rebasedWeights.set(
+            match.id,
+            calculateTargetWeight({
+              startWeightKg: opts.rebase_weight_kg,
+              incrementKg: match.progression_step_kg ?? 0,
+              incrementEveryWeeks: opts.increment_every_weeks ?? 1,
+              completedTrainingWeeks,
+              isDeload,
+            }),
+          );
+        }
+        if (!isDeload) completedTrainingWeeks += 1;
+      }
+    }
     for (const match of matches) {
       const raw =
         opts.clear_weight === true
           ? null
-          : opts.set_weight_kg != null
-            ? opts.set_weight_kg
-            : match.target_weight_kg != null
-              ? match.target_weight_kg + (opts.delta_kg ?? 0)
-              : null;
+          : opts.rebase_weight_kg != null
+            ? rebasedWeights.get(match.id)
+            : opts.set_weight_kg != null
+              ? opts.set_weight_kg
+              : match.target_weight_kg != null
+                ? match.target_weight_kg + (opts.delta_kg ?? 0)
+                : null;
       const next =
         weightOperations === 0
           ? replacement
@@ -1415,6 +1472,7 @@ export async function adjustProgramExercise(
       weightOperation: weightOperations > 0 || replacement != null,
       deltaKg: opts.delta_kg ?? null,
       setWeightKg: opts.set_weight_kg ?? null,
+      rebaseWeightKg: opts.rebase_weight_kg ?? null,
       clearWeight: opts.clear_weight === true || (replacement != null && weightOperations === 0),
       sets: opts.sets ?? null,
       repRange: opts.rep_range?.trim() ?? null,

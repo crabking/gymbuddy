@@ -1741,13 +1741,15 @@ ${programInput.why}
 
           const adjustProgramTool = tool({
             description:
-              "Immediately revise one exercise across every unresolved week from from_week onward and, when relevant, the active workout. Can lower/clear load, change sets/reps/notes, or persistently replace the exercise after using substitute_exercise. Use live first-set feedback; never leave the rest of a beginner program stale. Do not use this to bypass a pending post-workout adaptation card.",
+              "Immediately revise one exercise across every unresolved week from from_week onward and, when relevant, the active workout. delta_kg shifts the existing curve; set_weight_kg intentionally makes every future week the same fixed load; rebase_weight_kg rebuilds the future curve from a new first unresolved load using the stored progression step and increment_every_weeks. Use rebase for 'start at X and climb', never set_weight. Can also clear load, change sets/reps/notes, or persistently replace the exercise after using substitute_exercise. Use live first-set feedback; never leave the rest of a beginner program stale. Do not use this to bypass a pending post-workout adaptation card.",
             inputSchema: z
               .object({
                 exercise_id: z.enum(EXERCISE_IDS),
                 from_week: z.number().int().min(1).max(52),
                 delta_kg: z.number().min(-500).max(500).nullable(),
                 set_weight_kg: z.number().min(0).max(2_000).nullable(),
+                rebase_weight_kg: z.number().min(0).max(2_000).nullable(),
+                increment_every_weeks: z.number().int().min(1).max(52).nullable(),
                 clear_weight: z.boolean().default(false),
                 replacement_exercise_id: z.enum(EXERCISE_IDS).nullable().default(null),
                 sets: z.number().int().min(1).max(20).nullable().optional(),
@@ -1759,12 +1761,23 @@ ${programInput.why}
                 const weightChanges = [
                   input.delta_kg !== null,
                   input.set_weight_kg !== null,
+                  input.rebase_weight_kg !== null,
                   input.clear_weight,
                 ].filter(Boolean).length;
                 if (weightChanges > 1) {
                   ctx.addIssue({
                     code: "custom",
                     message: "Choose only one weight operation.",
+                  });
+                }
+                if (
+                  (input.rebase_weight_kg !== null && input.increment_every_weeks === null) ||
+                  (input.rebase_weight_kg === null && input.increment_every_weeks !== null)
+                ) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message:
+                      "rebase_weight_kg and increment_every_weeks must be provided together.",
                   });
                 }
                 if (
@@ -1787,6 +1800,8 @@ ${programInput.why}
                   from_week: input.from_week,
                   delta_kg: input.delta_kg,
                   set_weight_kg: input.set_weight_kg,
+                  rebase_weight_kg: input.rebase_weight_kg,
+                  increment_every_weeks: input.increment_every_weeks,
                   clear_weight: input.clear_weight,
                   replacement_exercise: input.replacement_exercise_id,
                   sets: input.sets,

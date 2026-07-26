@@ -19,6 +19,7 @@ import {
   markSetDone,
   startSession,
 } from "@/lib/workout-session.server";
+import { calculateTargetWeight } from "@/lib/training-logic";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
@@ -173,6 +174,54 @@ describe.runIf(hasDatabase).sequential("production-sized program generation", ()
       ).toBe(true);
     });
   }
+
+  it("rebases a future load while preserving its progression and deload curve", async () => {
+    const sourceKey = `program-rebase-${userId}`;
+    await expect(
+      adjustProgramExercise(userId, {
+        exercise: "bench-press",
+        from_week: 1,
+        rebase_weight_kg: 80,
+        increment_every_weeks: 2,
+        source_key: sourceKey,
+      }),
+    ).resolves.toMatchObject({ ok: true, updated: 16 });
+    await expect(
+      adjustProgramExercise(userId, {
+        exercise: "bench-press",
+        from_week: 1,
+        rebase_weight_kg: 80,
+        increment_every_weeks: 2,
+        source_key: sourceKey,
+      }),
+    ).resolves.toMatchObject({ ok: true, updated: 16, idempotent_replay: true });
+
+    const program = await getActiveProgram(userId, "2032-01-05");
+    const benchDays =
+      program?.days.filter((day) =>
+        day.exercises.some((exercise) => exercise.exercise_id === "bench-press"),
+      ) ?? [];
+    let completedTrainingWeeks = 0;
+    const expected = benchDays.map((day) => {
+      const target = calculateTargetWeight({
+        startWeightKg: 80,
+        incrementKg: 2.5,
+        incrementEveryWeeks: 2,
+        completedTrainingWeeks,
+        isDeload: day.is_deload,
+      });
+      if (!day.is_deload) completedTrainingWeeks += 1;
+      return target;
+    });
+    const actual = benchDays.map(
+      (day) =>
+        day.exercises.find((exercise) => exercise.exercise_id === "bench-press")?.target_weight_kg,
+    );
+    expect(actual).toEqual(expected);
+    expect(new Set(actual).size).toBeGreaterThan(2);
+    expect(actual[0]).toBe(80);
+    expect(actual.at(-1)).toBeGreaterThan(80);
+  });
 });
 
 describe.runIf(hasDatabase).sequential("honest partial workout completion", () => {
