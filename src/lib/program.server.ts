@@ -335,8 +335,20 @@ function normalizeProgramExercise(
   exercise: WeekTemplateDay["exercises"][number],
   calibration: GenerateProgramInput["beginner_calibration"],
 ): WeekTemplateDay["exercises"][number] {
-  if (!calibration?.enabled) return exercise;
   const canonical = resolveProgramExercise(exercise);
+  // Bodyweight movements progress through cleaner reps, tempo, range of
+  // motion, or reduced assistance. Added load is represented by a distinct
+  // weighted catalog exercise, never by silently turning a pull-up, push-up,
+  // or plank prescription into a kilogram target.
+  if (canonical.equipment === "bodyweight") {
+    return {
+      ...exercise,
+      start_weight_kg: null,
+      increment_kg: null,
+      increment_every_weeks: null,
+    };
+  }
+  if (!calibration?.enabled) return exercise;
   const bodyweightSquat =
     calibration.sex !== "male" &&
     ["back-squat", "high-bar-back-squat", "front-squat"].includes(canonical.id)
@@ -1367,6 +1379,9 @@ export async function adjustProgramExercise(
         .update(programExercises)
         .set({
           ...(weightOperations > 0 || replacement ? { target_weight_kg: next } : {}),
+          ...(opts.clear_weight === true || replacement?.equipment === "bodyweight"
+            ? { progression_step_kg: null }
+            : {}),
           ...(replacement ? { exercise_id: replacement.id, name: replacement.name_en } : {}),
           ...(opts.sets != null ? { sets: opts.sets } : {}),
           ...(opts.rep_range != null ? { rep_range: opts.rep_range.trim() } : {}),

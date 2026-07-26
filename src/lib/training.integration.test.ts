@@ -51,7 +51,9 @@ describe.runIf(hasDatabase).sequential("production-sized program generation", ()
       title: "Upper B",
       exercises: [
         ["overhead-press", 4, "6-8", 45],
-        ["pull-up", 4, "6-10", null],
+        // Deliberately send bogus kilogram progression for a bodyweight
+        // movement. The server boundary must discard it.
+        ["pull-up", 4, "6-10", 0],
         ["chest-supported-row", 3, "8-12", 50],
         ["cable-fly", 3, "10-15", 20],
         ["barbell-curl", 3, "8-12", 30],
@@ -128,6 +130,15 @@ describe.runIf(hasDatabase).sequential("production-sized program generation", ()
       });
       expect(program?.days).toHaveLength(weeks * 4);
       expect(program?.days.every((day) => day.exercises.length === 6)).toBe(true);
+      const pullUps = program?.days
+        .flatMap((day) => day.exercises)
+        .filter((exercise) => exercise.exercise_id === "pull-up");
+      expect(pullUps).toHaveLength(weeks);
+      expect(
+        pullUps?.every(
+          (exercise) => exercise.target_weight_kg === null && exercise.progression_step_kg === null,
+        ),
+      ).toBe(true);
     });
   }
 });
@@ -998,6 +1009,14 @@ describe.runIf(hasDatabase).sequential("adaptive beginner program integration", 
         .flatMap((day) => day.exercises)
         .filter((exercise) => exercise.exercise_id === "bodyweight-squat"),
     ).toHaveLength(2);
+    expect(
+      after?.days
+        .flatMap((day) => day.exercises)
+        .filter((exercise) => exercise.exercise_id === "bodyweight-squat")
+        .every(
+          (exercise) => exercise.target_weight_kg === null && exercise.progression_step_kg === null,
+        ),
+    ).toBe(true);
     expect(
       after?.days
         .flatMap((day) => day.exercises)
