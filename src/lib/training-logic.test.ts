@@ -111,7 +111,27 @@ describe("program progression", () => {
         completedTrainingWeeks: 2,
         isDeload: true,
       }),
-    ).toBe(100);
+    ).toBe(95);
+  });
+
+  it("never lets a slow progression erase the deload reduction", () => {
+    const priorTrainingWeek = calculateTargetWeight({
+      startWeightKg: 22.5,
+      incrementKg: 2.5,
+      incrementEveryWeeks: 2,
+      completedTrainingWeeks: 5,
+      isDeload: false,
+    });
+    const deloadWeek = calculateTargetWeight({
+      startWeightKg: 22.5,
+      incrementKg: 2.5,
+      incrementEveryWeeks: 2,
+      completedTrainingWeeks: 6,
+      isDeload: true,
+    });
+    expect(priorTrainingWeek).toBe(27.5);
+    expect(deloadWeek).toBe(25);
+    expect(deloadWeek).toBeLessThan(priorTrainingWeek!);
   });
 
   it("keeps bodyweight movements without a fabricated load", () => {

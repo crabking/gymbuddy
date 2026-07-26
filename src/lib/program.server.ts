@@ -1216,6 +1216,7 @@ export async function adjustProgramExercise(
     set_weight_kg?: number | null;
     rebase_weight_kg?: number | null;
     increment_every_weeks?: number | null;
+    progression_step_kg?: number;
     clear_weight?: boolean;
     replacement_exercise?: string | null;
     sets?: number | null;
@@ -1260,6 +1261,15 @@ export async function adjustProgramExercise(
   ) {
     return { ok: false as const, error: "invalid_rebase_progression_cadence" };
   }
+  if (
+    opts.progression_step_kg != null &&
+    (opts.rebase_weight_kg == null ||
+      !Number.isFinite(opts.progression_step_kg) ||
+      opts.progression_step_kg <= 0 ||
+      opts.progression_step_kg > 500)
+  ) {
+    return { ok: false as const, error: "invalid_rebase_progression_step" };
+  }
   for (const value of [opts.delta_kg, opts.set_weight_kg, opts.rebase_weight_kg]) {
     if (value != null && (!Number.isFinite(value) || value < -1_000 || value > 1_000)) {
       return { ok: false as const, error: "invalid_weight_adjustment" };
@@ -1293,6 +1303,7 @@ export async function adjustProgramExercise(
     set_weight_kg: opts.set_weight_kg ?? null,
     rebase_weight_kg: opts.rebase_weight_kg ?? null,
     increment_every_weeks: opts.increment_every_weeks ?? null,
+    progression_step_kg: opts.progression_step_kg ?? null,
     clear_weight: opts.clear_weight === true,
     replacement_exercise: replacement?.id ?? null,
     sets: opts.sets ?? null,
@@ -1390,6 +1401,18 @@ export async function adjustProgramExercise(
     if (!matches.length) {
       return finish({ ok: false as const, error: "exercise_not_found" });
     }
+    if (
+      opts.rebase_weight_kg != null &&
+      opts.progression_step_kg == null &&
+      matches.some((match) => match.progression_step_kg == null || match.progression_step_kg <= 0)
+    ) {
+      return finish({
+        ok: false as const,
+        error: "rebase_progression_step_required",
+        coach_note:
+          "This exercise has no stored progression step. Retry with an explicit positive progression_step_kg and only describe the cadence after the saved result confirms it.",
+      });
+    }
     const dayById = new Map(days.map((day) => [day.id, day]));
     const rebasedWeights = new Map<string, number | null>();
     if (opts.rebase_weight_kg != null) {
@@ -1413,7 +1436,7 @@ export async function adjustProgramExercise(
             match.id,
             calculateTargetWeight({
               startWeightKg: opts.rebase_weight_kg,
-              incrementKg: match.progression_step_kg ?? 0,
+              incrementKg: opts.progression_step_kg ?? match.progression_step_kg ?? 0,
               incrementEveryWeeks: opts.increment_every_weeks ?? 1,
               completedTrainingWeeks,
               isDeload,
@@ -1423,6 +1446,7 @@ export async function adjustProgramExercise(
         if (!isDeload) completedTrainingWeeks += 1;
       }
     }
+    const persistedTargets: Array<{ week: number; target_weight_kg: number | null }> = [];
     for (const match of matches) {
       const raw =
         opts.clear_weight === true
@@ -1452,15 +1476,21 @@ export async function adjustProgramExercise(
         .update(programExercises)
         .set({
           ...(weightOperations > 0 || replacement ? { target_weight_kg: next } : {}),
-          ...(opts.clear_weight === true || replacement?.equipment === "bodyweight"
-            ? { progression_step_kg: null }
-            : {}),
+          ...(opts.progression_step_kg != null
+            ? { progression_step_kg: opts.progression_step_kg }
+            : opts.clear_weight === true || replacement?.equipment === "bodyweight"
+              ? { progression_step_kg: null }
+              : {}),
           ...(replacement ? { exercise_id: replacement.id, name: replacement.name_en } : {}),
           ...(opts.sets != null ? { sets: opts.sets } : {}),
           ...(opts.rep_range != null ? { rep_range: opts.rep_range.trim() } : {}),
           ...(opts.notes !== undefined ? { notes: opts.notes?.trim() || null } : {}),
         })
         .where(eq(programExercises.id, match.id));
+      persistedTargets.push({
+        week: dayById.get(match.program_day_id)?.week ?? opts.from_week,
+        target_weight_kg: next,
+      });
     }
     const activeSessionUpdated = await reviseActiveSessionExercise(tx, {
       userId,
@@ -1483,11 +1513,26 @@ export async function adjustProgramExercise(
       .set({ revision: sql`${programs.revision} + 1` })
       .where(eq(programs.id, program.id))
       .returning({ revision: programs.revision });
+    persistedTargets.sort((left, right) => left.week - right.week);
     return finish({
       ok: true as const,
       updated: matches.length,
       active_session_updated: activeSessionUpdated,
       program_revision: updatedProgram?.revision ?? program.revision + 1,
+      persisted_change: {
+        replacement_exercise_id: replacement?.id ?? null,
+        first_week: persistedTargets.at(0)?.week ?? null,
+        last_week: persistedTargets.at(-1)?.week ?? null,
+        first_target_weight_kg: persistedTargets.at(0)?.target_weight_kg ?? null,
+        last_target_weight_kg: persistedTargets.at(-1)?.target_weight_kg ?? null,
+        progression_step_kg:
+          opts.progression_step_kg ??
+          (new Set(matches.map((match) => match.progression_step_kg)).size === 1
+            ? (matches[0]?.progression_step_kg ?? null)
+            : null),
+        increment_every_weeks:
+          opts.rebase_weight_kg != null ? (opts.increment_every_weeks ?? null) : null,
+      },
     });
   });
 }

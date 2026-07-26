@@ -860,6 +860,7 @@ ${
 ### Program (structured, dated)
 ${summarizeProgram(program, todayDate, appLanguage)}
 - This live program is authoritative. Earlier assistant messages are never proof that a schedule or prescription changed. Never continue, announce, or rely on a prior proposed change unless it is present here or a tool call in the current turn confirms it was saved.
+- Deloads are structured program state. Their actual target weights and set counts must be persisted in the program; never use exercise notes with manual subtraction instructions as a substitute for correcting a structured deload target.
 Due program session: ${
         dueProgramDay
           ? `${program?.schedule_mode === "rolling" ? `Day ${dueProgramDay.day_index}` : dueProgramDay.date} — ${dueProgramDay.title}${dueProgramDay.is_deload ? " [DELOAD]" : ""} (${
@@ -970,6 +971,7 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
 
 ## FINAL REPLY GUARD
 Do not claim a durable plan change unless current live state or a successful tool result confirms it.
+For an exercise adjustment, only claim exact weights, progression steps, or cadence when the successful \`adjust_program.persisted_change\` confirms those exact values.
 `;
 
           const model = getChatModel();
@@ -1726,7 +1728,7 @@ ${programInput.why}
 
           const adjustProgramTool = tool({
             description:
-              "Immediately revise one exercise across every unresolved week from from_week onward and, when relevant, the active workout. delta_kg shifts the existing curve; set_weight_kg intentionally makes every future week the same fixed load; rebase_weight_kg rebuilds the future curve from a new first unresolved load using the stored progression step and increment_every_weeks. Use rebase for 'start at X and climb', never set_weight. Can also clear load, change sets/reps/notes, or persistently replace the exercise after using substitute_exercise. Use live first-set feedback; never leave the rest of a beginner program stale. Do not use this to bypass a pending post-workout adaptation card.",
+              "Immediately revise one exercise across every unresolved week from from_week onward and, when relevant, the active workout. delta_kg shifts the existing curve; set_weight_kg intentionally makes every future week the same fixed load; rebase_weight_kg rebuilds the future curve from a new first unresolved load using the stored progression step and increment_every_weeks. Rebase automatically recalculates lower structured targets on stored deload weeks; never replace a real target correction with a note telling the user to subtract weight. For a newly loaded replacement with no stored step, provide progression_step_kg with rebase_weight_kg and increment_every_weeks. Use rebase for 'start at X and climb', never set_weight. Can also clear load, change sets/reps/notes, or persistently replace the exercise after using substitute_exercise. The returned persisted_change is authoritative: never claim a load or cadence it does not confirm. Use live first-set feedback; never leave the rest of a beginner program stale. Do not use this to bypass a pending post-workout adaptation card.",
             inputSchema: z
               .object({
                 exercise_id: z.enum(EXERCISE_IDS),
@@ -1735,6 +1737,7 @@ ${programInput.why}
                 set_weight_kg: z.number().min(0).max(2_000).nullable(),
                 rebase_weight_kg: z.number().min(0).max(2_000).nullable(),
                 increment_every_weeks: z.number().int().min(1).max(52).nullable(),
+                progression_step_kg: z.number().positive().max(500).nullable(),
                 clear_weight: z.boolean().default(false),
                 replacement_exercise_id: z.enum(EXERCISE_IDS).nullable().default(null),
                 sets: z.number().int().min(1).max(20).nullable().optional(),
@@ -1765,6 +1768,12 @@ ${programInput.why}
                       "rebase_weight_kg and increment_every_weeks must be provided together.",
                   });
                 }
+                if (input.progression_step_kg !== null && input.rebase_weight_kg === null) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "progression_step_kg is valid only with rebase_weight_kg.",
+                  });
+                }
                 if (
                   weightChanges === 0 &&
                   input.replacement_exercise_id === null &&
@@ -1787,6 +1796,7 @@ ${programInput.why}
                   set_weight_kg: input.set_weight_kg,
                   rebase_weight_kg: input.rebase_weight_kg,
                   increment_every_weeks: input.increment_every_weeks,
+                  progression_step_kg: input.progression_step_kg ?? undefined,
                   clear_weight: input.clear_weight,
                   replacement_exercise: input.replacement_exercise_id,
                   sets: input.sets,

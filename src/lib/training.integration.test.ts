@@ -222,6 +222,56 @@ describe.runIf(hasDatabase).sequential("production-sized program generation", ()
     expect(actual[0]).toBe(80);
     expect(actual.at(-1)).toBeGreaterThan(80);
   });
+
+  it("gives a loaded replacement an explicit persisted progression curve", async () => {
+    const result = await adjustProgramExercise(userId, {
+      exercise: "hanging-leg-raise",
+      from_week: 1,
+      replacement_exercise: "cable-crunch",
+      rebase_weight_kg: 10,
+      progression_step_kg: 2.5,
+      increment_every_weeks: 2,
+      source_key: `program-loaded-replacement-${userId}`,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      updated: 16,
+      persisted_change: {
+        replacement_exercise_id: "cable-crunch",
+        first_week: 1,
+        last_week: 16,
+        first_target_weight_kg: 10,
+        progression_step_kg: 2.5,
+        increment_every_weeks: 2,
+      },
+    });
+
+    const program = await getActiveProgram(userId, "2032-01-05");
+    const replacements =
+      program?.days
+        .filter((day) => day.title === "Lower B")
+        .map((day) => ({
+          day,
+          exercise: day.exercises.find((exercise) => exercise.exercise_id === "cable-crunch"),
+        })) ?? [];
+    let completedTrainingWeeks = 0;
+    const expected = replacements.map(({ day }) => {
+      const target = calculateTargetWeight({
+        startWeightKg: 10,
+        incrementKg: 2.5,
+        incrementEveryWeeks: 2,
+        completedTrainingWeeks,
+        isDeload: day.is_deload,
+      });
+      if (!day.is_deload) completedTrainingWeeks += 1;
+      return target;
+    });
+    expect(replacements.map(({ exercise }) => exercise?.target_weight_kg)).toEqual(expected);
+    expect(replacements.every(({ exercise }) => exercise?.progression_step_kg === 2.5)).toBe(true);
+    expect(new Set(expected).size).toBeGreaterThan(2);
+    if (!("persisted_change" in result)) throw new Error("Missing persisted change summary");
+    expect(result.persisted_change.last_target_weight_kg).toBe(expected.at(-1));
+  });
 });
 
 describe.runIf(hasDatabase).sequential("honest partial workout completion", () => {

@@ -142,7 +142,14 @@ export function calculateTargetWeight(input: {
 }): number | null {
   if (input.startWeightKg == null) return null;
   const every = Math.max(1, Math.trunc(input.incrementEveryWeeks));
-  const steps = Math.floor(Math.max(0, input.completedTrainingWeeks) / every);
+  // A deload must reduce the load that was actually earned before it. If a
+  // progression step becomes due on the deload week itself, applying that
+  // increase before the reduction can round back to the prior week's load.
+  // Base the deload on the last completed training exposure instead.
+  const progressionWeeks = input.isDeload
+    ? Math.max(0, input.completedTrainingWeeks - 1)
+    : Math.max(0, input.completedTrainingWeeks);
+  const steps = Math.floor(progressionWeeks / every);
   const progressed = input.startWeightKg + steps * input.incrementKg;
   const adjusted = input.isDeload ? progressed * 0.9 : progressed;
   return Math.max(0, Math.round(adjusted / 2.5) * 2.5);
