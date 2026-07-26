@@ -1444,7 +1444,12 @@ export async function completeSession(
 /** Explicitly close an active workout without pretending it was completed. */
 export async function abandonSession(
   userId: string,
-  opts: { reason: string; session_id?: string | null; expected_data_epoch?: number },
+  opts: {
+    reason: string;
+    session_id?: string | null;
+    program_day_outcome?: "planned" | "skipped";
+    expected_data_epoch?: number;
+  },
 ) {
   const reason = opts.reason.trim();
   if (!reason || reason.length > 1_000) {
@@ -1472,6 +1477,52 @@ export async function abandonSession(
       Math.max(0, Math.round((Date.now() - new Date(session.created_at).getTime()) / 60_000)),
     );
     const now = new Date().toISOString();
+    let cycleCompleted = false;
+    let programName: string | null = null;
+    if (session.program_day_id && opts.program_day_outcome === "skipped") {
+      const [linked] = await tx
+        .select({
+          day_id: programDays.id,
+          day_status: programDays.status,
+          program_id: programs.id,
+          program_name: programs.name,
+        })
+        .from(programDays)
+        .innerJoin(programs, eq(programs.id, programDays.program_id))
+        .where(
+          and(
+            eq(programDays.id, session.program_day_id),
+            eq(programs.user_id, userId),
+            eq(programs.status, "active"),
+          ),
+        )
+        .limit(1);
+      if (!linked || linked.day_status !== "planned") {
+        return { ok: false as const, error: "program_day_not_available" };
+      }
+      const [resolved] = await tx
+        .update(programDays)
+        .set({ status: "skipped", session_id: null, resolution_note: reason })
+        .where(and(eq(programDays.id, linked.day_id), eq(programDays.status, "planned")))
+        .returning({ id: programDays.id });
+      if (!resolved) return { ok: false as const, error: "program_day_not_available" };
+      await tx
+        .update(programs)
+        .set({ revision: sql`${programs.revision} + 1` })
+        .where(eq(programs.id, linked.program_id));
+      const statuses = await tx
+        .select({ status: programDays.status })
+        .from(programDays)
+        .where(eq(programDays.program_id, linked.program_id));
+      cycleCompleted = statuses.length > 0 && statuses.every((day) => day.status !== "planned");
+      if (cycleCompleted) {
+        await tx
+          .update(programs)
+          .set({ status: "completed", completed_at: now })
+          .where(and(eq(programs.id, linked.program_id), eq(programs.status, "active")));
+      }
+      programName = linked.program_name;
+    }
     await tx
       .update(workoutSessions)
       .set({
@@ -1492,6 +1543,9 @@ export async function abandonSession(
       session_id: session.id,
       program_day_id: session.program_day_id,
       duration_min: elapsedMinutes,
+      program_day_outcome: opts.program_day_outcome ?? "planned",
+      cycle_completed: cycleCompleted,
+      program_name: programName,
     };
   });
 }
@@ -1659,10 +1713,30 @@ export function summarizeWorkoutHistory(
   language: AppLanguage = "en",
 ) {
   const completed = rows.filter((session) => session.status === "completed");
+  const interrupted = rows.filter((session) => session.status === "abandoned");
+  const interruptionSummary = interrupted
+    .slice(0, 8)
+    .map(
+      (session) =>
+        `  - ${session.session_date} ${session.title}: ${
+          session.end_reason ||
+          (language === "sv" ? "ingen orsak angiven av användaren" : "no reason provided by user")
+        }`,
+    )
+    .join("\n");
   if (!completed.length) {
+    if (!interruptionSummary) {
+      return language === "sv"
+        ? "(inga slutförda träningspass sparade för den här programperioden)"
+        : "(no completed workouts recorded for this cycle)";
+    }
     return language === "sv"
-      ? "(inga slutförda träningspass sparade för den här programperioden)"
-      : "(no completed workouts recorded for this cycle)";
+      ? `Inga slutförda pass ännu.
+Avbrutna pass och sparade orsaker:
+${interruptionSummary}`
+      : `No completed workouts yet.
+Interrupted workouts and recorded reasons:
+${interruptionSummary}`;
   }
 
   const aggregate = new Map<
@@ -1737,13 +1811,17 @@ export function summarizeWorkoutHistory(
 Senaste exakta prestationer:
 ${recent}
 Totalt per övning i programperioden:
-${totals}`;
+${totals}
+Avbrutna pass och sparade orsaker:
+${interruptionSummary || "  (inga)"}`;
   }
   return `Cycle workouts completed: ${completed.length}
 Recent exact performance:
 ${recent}
 Full-cycle lift totals:
-${totals}`;
+${totals}
+Interrupted workouts and recorded reasons:
+${interruptionSummary || "  (none)"}`;
 }
 
 /** Recent session history (for coach context + dashboard). */
@@ -1773,6 +1851,7 @@ export async function getRecentSessions(userId: string, days: number, localToday
     date: r.session_date,
     title: r.title,
     status: r.status,
+    end_reason: r.end_reason,
     duration_min:
       r.duration_minutes ??
       (r.completed_at && r.created_at
@@ -1818,6 +1897,7 @@ export function summarizeRecentSessions(
     if (value === "completed") return "slutfört";
     if (value === "skipped") return "överhoppat";
     if (value === "active") return "aktivt";
+    if (value === "abandoned") return "avbrutet";
     return value;
   };
   return rows
@@ -1825,6 +1905,15 @@ export function summarizeRecentSessions(
       (r) =>
         `  - ${r.date}: ${r.title} — ${status(r.status)}${
           r.duration_min != null ? ` (${r.duration_min} min)` : ""
+        }${
+          r.status === "abandoned"
+            ? ` — ${
+                r.end_reason ||
+                (language === "sv"
+                  ? "ingen orsak angiven av användaren"
+                  : "no reason provided by user")
+              }`
+            : ""
         }`,
     )
     .join("\n");

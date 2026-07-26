@@ -1487,6 +1487,28 @@ export function summarizeProgram(
   const skipped = p.days.filter((d) => d.status === "skipped").length;
   const overdue = p.days.filter((d) => d.status === "planned" && d.date < today);
   const upcoming = p.days.filter((d) => d.status === "planned" && d.date >= today).slice(0, 3);
+  const skippedDetails = p.days
+    .filter((d) => d.status === "skipped")
+    .slice(-5)
+    .map(
+      (d) =>
+        `  - ${d.date}, ${language === "sv" ? "v" : "wk"} ${d.week} ${
+          language === "sv" ? "Dag" : "Day"
+        } ${d.day_index} ${d.title} — ${
+          d.resolution_note ||
+          (language === "sv" ? "ingen orsak angiven av användaren" : "no reason provided by user")
+        }`,
+    )
+    .join("\n");
+  const overdueDetails = overdue
+    .slice(0, 5)
+    .map(
+      (d) =>
+        `  - ${d.date}, ${language === "sv" ? "v" : "wk"} ${d.week} ${
+          language === "sv" ? "Dag" : "Day"
+        } ${d.day_index} ${d.title}`,
+    )
+    .join("\n");
   const rolling = p.schedule_mode === "rolling";
   const up = upcoming
     .map(
@@ -1503,11 +1525,15 @@ export function summarizeProgram(
       return `"${p.name}" — SLUTFÖRT (${done} pass, ${skipped} överhoppade)${
         rolling ? "" : `, ${p.start_date} → ${p.end_date}`
       }.
+Sparade orsaker till överhoppade pass:
+${skippedDetails || "  (inga)"}
 Programperioden är stängd och sparad. Granska resultaten och erbjud sedan nästa programperiod.`;
     }
     return `"${p.name}" — COMPLETED (${done} workouts, ${skipped} skipped)${
       rolling ? "" : `, ${p.start_date} → ${p.end_date}`
     }.
+Recorded skip reasons:
+${skippedDetails || "  (none)"}
 The cycle is closed and preserved. Review the results, then offer to build the next program cycle.`;
   }
   if (language === "sv") {
@@ -1516,6 +1542,9 @@ The cycle is closed and preserved. Review the results, then offer to build the n
     }
 Förlopp: ${done} klara, ${skipped} överhoppade, ${p.days.length - done - skipped} återstår (i dag: ${today})
 Försenade pass som kräver ett uttryckligt beslut om slutfört/överhoppat: ${overdue.length}
+${overdueDetails || "  (inga)"}
+Sparade orsaker till överhoppade pass:
+${skippedDetails || "  (inga)"}
 Närmast:
 ${up || "  (inget schemalagt — granska försenade pass eller avsluta programperioden)"}`;
   }
@@ -1524,6 +1553,9 @@ ${up || "  (inget schemalagt — granska försenade pass eller avsluta programpe
   }
 Progress: ${done} done, ${skipped} skipped, ${p.days.length - done - skipped} remaining (today: ${today})
 Overdue workouts needing an explicit completed/skipped decision: ${overdue.length}
+${overdueDetails || "  (none)"}
+Recorded skip reasons:
+${skippedDetails || "  (none)"}
 Next up:
 ${up || "  (none scheduled — review overdue workouts or close the cycle)"}`;
 }

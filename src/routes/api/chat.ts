@@ -421,6 +421,7 @@ export const Route = createFileRoute("/api/chat")({
             startSession,
             markExerciseDone,
             completeSession,
+            abandonSession,
             summarizeSession,
             getRecentSessions,
             summarizeRecentSessions,
@@ -823,6 +824,13 @@ ${summarizeWorkoutHistory(cycleWorkoutHistory, appLanguage)}
 - Use \`get_workout_history\` when the user asks for an exact older session or when reviewing a cycle. Never guess from chat memory.
 - When the user reports actual weights/reps for an exercise, pass them through \`mark_exercise_done.performed_sets\` so the exact work is recorded.
 - A cycle closes only when every planned day is explicitly completed or skipped. If the calendar ended with unresolved days, review them with the user and use \`resolve_program_day\` only after they confirm a skip; never silently erase them.
+- An overdue session is a coaching check-in, not an automatic skip. Ask what happened and
+  offer the oldest make-up workout, a confirmed schedule shift, or a confirmed skip before
+  moving on. Never invent a reason. If the user explicitly declines to give one, record
+  "No reason provided by user." so the missing explanation is durable too.
+- If the user wants to stop an active workout, ask whether they want to keep that program
+  day available to retry or mark it skipped. Use \`abandon_workout_session\` only after
+  their newest message confirms the choice and records their stated reason.
 - When the Program summary says COMPLETED, congratulate them, review outcomes, and offer the next cycle. Do not keep coaching from an expired plan as if it were active.
 
 ### Bodyweight trend
@@ -1643,24 +1651,66 @@ ${programInput.why}
 
           const resolveProgramDayTool = tool({
             description:
-              "Explicitly mark an uncompleted program day skipped, or reopen a skipped day as planned. confirmation_quote must be a verbatim quote from the newest user message confirming what happened.",
+              'Explicitly mark an uncompleted program day skipped, or reopen a skipped day as planned. Ask why before skipping. confirmation_quote must be a verbatim quote from the newest user message confirming the outcome; reason_quote is the verbatim reason from that same message, or null only when the user explicitly gives no reason (stored as "No reason provided by user.").',
             inputSchema: z
               .object({
                 date: IsoDateSchema,
                 status: z.enum(["skipped", "planned"]),
                 confirmation_quote: z.string().trim().min(1).max(500),
+                reason_quote: z.string().trim().min(1).max(500).nullable(),
               })
               .strict(),
-            execute: async ({ date, status, confirmation_quote }) => {
-              if (!hasConfirmationQuote(incomingMessage, confirmation_quote)) {
+            execute: async ({ date, status, confirmation_quote, reason_quote }) => {
+              if (
+                !hasConfirmationQuote(incomingMessage, confirmation_quote) ||
+                (reason_quote != null && !hasConfirmationQuote(incomingMessage, reason_quote))
+              ) {
                 return { ok: false, error: "explicit_confirmation_required" };
               }
               return guardMutation(() =>
                 resolveProgramDay(userId, {
                   date,
                   status,
-                  reason: confirmation_quote,
+                  reason:
+                    reason_quote ??
+                    (status === "skipped"
+                      ? "No reason provided by user."
+                      : "User explicitly reopened this workout."),
                   source_key: sourceKey(messageKey, `resolve_day:${date}`),
+                  expected_data_epoch: dataEpoch,
+                }),
+              );
+            },
+          });
+
+          const abandonWorkoutSessionTool = tool({
+            description:
+              'Close the active workout without pretending it was completed. First ask whether the linked program day should stay planned for a retry or be marked skipped, and ask why. confirmation_quote and reason_quote must be verbatim from the newest user message. Use null reason_quote only when the user explicitly gives no reason; the server records "No reason provided by user.".',
+            inputSchema: z
+              .object({
+                session_id: z.string().uuid().nullable(),
+                program_day_outcome: z.enum(["planned", "skipped"]),
+                confirmation_quote: z.string().trim().min(1).max(500),
+                reason_quote: z.string().trim().min(1).max(500).nullable(),
+              })
+              .strict(),
+            execute: async ({
+              session_id,
+              program_day_outcome,
+              confirmation_quote,
+              reason_quote,
+            }) => {
+              if (
+                !hasConfirmationQuote(incomingMessage, confirmation_quote) ||
+                (reason_quote != null && !hasConfirmationQuote(incomingMessage, reason_quote))
+              ) {
+                return { ok: false, error: "explicit_confirmation_required" };
+              }
+              return guardMutation(() =>
+                abandonSession(userId, {
+                  session_id,
+                  program_day_outcome,
+                  reason: reason_quote ?? "No reason provided by user.",
                   expected_data_epoch: dataEpoch,
                 }),
               );
@@ -2237,6 +2287,7 @@ ${programInput.why}
                     start_workout_session: startWorkoutSessionTool,
                     mark_exercise_done: markExerciseDoneTool,
                     complete_workout_session: completeWorkoutSessionTool,
+                    abandon_workout_session: abandonWorkoutSessionTool,
                     get_workout_history: getWorkoutHistoryTool,
                     resolve_program_day: resolveProgramDayTool,
                   }
