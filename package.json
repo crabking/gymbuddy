@@ -14,6 +14,7 @@
     "build:dev": "vite build --mode development",
     "test": "vitest run",
     "test:endurance": "vitest run src/lib/coach-endurance.integration.test.ts",
+    "dev:seed-endurance-users": "node --env-file=.env scripts/dev-seed-six-coach-endurance-users.mjs",
     "dev:advance-workout-day": "node --env-file=.env scripts/dev-advance-workout-day.mjs",
     "test:watch": "vitest",
     "preview": "vite preview",
