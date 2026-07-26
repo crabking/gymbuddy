@@ -55,6 +55,7 @@ export async function getDashboardHistoryPage(
     date: session.session_date,
     title: session.title,
     status: session.status,
+    end_reason: session.end_reason,
     program_day_id: session.program_day_id,
     duration_min:
       session.duration_minutes ??
@@ -73,6 +74,8 @@ export async function getDashboardHistoryPage(
         : null),
     exercises: session.exercises.map((exercise) => ({
       name: exercise.name,
+      completed_sets: exercise.sets.filter((set) => set.completed).length,
+      total_sets: exercise.sets.length,
       completed:
         exercise.completed &&
         exercise.sets.length > 0 &&

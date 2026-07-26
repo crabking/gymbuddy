@@ -25,6 +25,7 @@ import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
 import { hardNavigateToAuth, isUnauthorizedError } from "@/lib/client-session";
 import { useLanguage } from "@/components/LanguageProvider";
 import { findExercise } from "@/lib/exercises";
+import { describeWorkoutHistoryProgress } from "@/lib/workout-history-display";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — COACH" }] }),
@@ -804,7 +805,9 @@ function DashboardPage() {
               ) : (
                 <div className="flex flex-col gap-2">
                   {displayedHistory.slice(0, visibleHistory).map((s) => {
-                    const completed = s.status === "completed";
+                    const progress = describeWorkoutHistoryProgress(s);
+                    const partial = progress.outcome === "partial";
+                    const completed = s.status === "completed" && !partial;
                     const closedWithoutCompletion =
                       s.status === "abandoned" || s.status === "skipped";
                     return (
@@ -815,6 +818,8 @@ function DashboardPage() {
                         <div className="flex min-w-0 items-center gap-2.5">
                           {completed ? (
                             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                          ) : partial ? (
+                            <Dumbbell className="h-4 w-4 shrink-0 text-amber-400" />
                           ) : closedWithoutCompletion ? (
                             <XCircle className="h-4 w-4 shrink-0 text-red-400/70" />
                           ) : (
@@ -829,8 +834,8 @@ function DashboardPage() {
                               {s.duration_min != null
                                 ? ` · ${t("common.minutes_short", { count: s.duration_min })}`
                                 : ""}{" "}
-                              · {s.exercises.filter((e) => e.completed).length}/{s.exercises.length}{" "}
-                              {t("common.exercises")}
+                              · {progress.completed}/{progress.total}{" "}
+                              {t(progress.unit === "sets" ? "common.sets" : "common.exercises")}
                             </div>
                           </div>
                         </div>
@@ -838,20 +843,24 @@ function DashboardPage() {
                           className={`shrink-0 text-[10px] font-bold uppercase tracking-widest ${
                             completed
                               ? "text-emerald-400"
-                              : closedWithoutCompletion
-                                ? "text-red-400/70"
-                                : "text-primary"
+                              : partial
+                                ? "text-amber-400"
+                                : closedWithoutCompletion
+                                  ? "text-red-400/70"
+                                  : "text-primary"
                           }`}
                         >
-                          {s.status === "completed"
-                            ? t("common.completed")
-                            : s.status === "skipped"
-                              ? t("common.skipped")
-                              : s.status === "abandoned"
-                                ? language === "sv"
-                                  ? "Avbrutet"
-                                  : "Abandoned"
-                                : s.status}
+                          {partial
+                            ? t("common.partial")
+                            : s.status === "completed"
+                              ? t("common.completed")
+                              : s.status === "skipped"
+                                ? t("common.skipped")
+                                : s.status === "abandoned"
+                                  ? language === "sv"
+                                    ? "Avbrutet"
+                                    : "Abandoned"
+                                  : s.status}
                         </span>
                       </div>
                     );
