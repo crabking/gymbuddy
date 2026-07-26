@@ -1546,7 +1546,7 @@ function ChatScreen() {
                 ? "Kunde inte läsa in passet · Försök igen"
                 : "Couldn’t load the workout · Retry"}
             </button>
-          ) : !keyboardOpen && !pendingAdaptation ? (
+          ) : !keyboardOpen && !pendingAdaptation && todayTraining?.has_program ? (
             <button
               type="button"
               onClick={() => void startWorkout()}

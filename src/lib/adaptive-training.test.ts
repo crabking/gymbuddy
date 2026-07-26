@@ -84,6 +84,16 @@ describe("adaptive training analysis", () => {
     });
   });
 
+  it("does not propose changing an exercise with no future exposure", () => {
+    expect(
+      analyzeWorkoutAdaptation(
+        input({
+          future_exercise_ids: ["deadlift"],
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("never progresses through high pain and requires a follow-up", () => {
     const result = analyzeWorkoutAdaptation(
       input({ review: { difficulty: 2, energy: 5, discomfort: 5 } }),

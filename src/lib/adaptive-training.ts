@@ -73,6 +73,7 @@ export type AdaptationAnalysisInput = {
   previous_reviews: WorkoutReviewAnswers[];
   next_planned_date: string | null;
   next_planned_week: number | null;
+  future_exercise_ids?: string[];
 };
 
 type RepRange = { low: number; high: number };
@@ -144,6 +145,9 @@ function progressionOption(input: AdaptationAnalysisInput): AdaptationOption | n
   const labels: string[] = [];
 
   for (const exposure of input.current) {
+    if (input.future_exercise_ids && !input.future_exercise_ids.includes(exposure.exercise_id)) {
+      continue;
+    }
     const currentResult = exposureResult(exposure);
     const previous = input.previous_by_exercise[exposure.exercise_id]?.[0];
     if (!currentResult.success || !previous || !exposureResult(previous).success) continue;
@@ -189,6 +193,9 @@ function reductionOption(input: AdaptationAnalysisInput): AdaptationOption | nul
   const actions: ExerciseAdjustmentAction[] = [];
   const labels: string[] = [];
   for (const exposure of input.current) {
+    if (input.future_exercise_ids && !input.future_exercise_ids.includes(exposure.exercise_id)) {
+      continue;
+    }
     const currentResult = exposureResult(exposure);
     const previous = input.previous_by_exercise[exposure.exercise_id]?.[0];
     if (!currentResult.failure || !previous || !exposureResult(previous).failure) continue;

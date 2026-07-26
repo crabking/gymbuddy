@@ -234,6 +234,20 @@ async function buildAnalysisInput(
     )
     .orderBy(asc(programDays.date), asc(programDays.day_index))
     .limit(1);
+  const futureExercises = nextDay
+    ? await tx
+        .selectDistinct({ exercise_id: programExercises.exercise_id })
+        .from(programExercises)
+        .innerJoin(programDays, eq(programDays.id, programExercises.program_day_id))
+        .where(
+          and(
+            eq(programDays.program_id, input.programId),
+            eq(programDays.status, "planned"),
+            gt(programDays.date, input.sessionDate),
+            sql`${programExercises.exercise_id} is not null`,
+          ),
+        )
+    : [];
 
   return {
     coach_id: isCoachId(input.coachId) ? input.coachId : getCoach(null).id,
@@ -243,6 +257,9 @@ async function buildAnalysisInput(
     previous_reviews: previousReviews,
     next_planned_date: nextDay?.date ?? null,
     next_planned_week: nextDay?.week ?? null,
+    future_exercise_ids: futureExercises.flatMap((row) =>
+      row.exercise_id ? [row.exercise_id] : [],
+    ),
   };
 }
 
