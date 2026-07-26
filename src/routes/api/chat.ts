@@ -957,9 +957,6 @@ This is a fresh session and the user is NOT onboarded yet. SILENTLY load the \`o
 }
 
 ## FINAL REPLY GUARD
-These are boundaries, not a script; what you say remains your independent judgment in character.
-Do not copy, quote, paraphrase, or mirror the newest user's wording or saved skip reason.
-Do not shape an attendance reply as a count report or program-bookkeeping recap.
 Do not claim a durable plan change unless current live state or a successful tool result confirms it.
 `;
 
