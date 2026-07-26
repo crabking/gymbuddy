@@ -324,6 +324,10 @@ export const programs = pgTable(
     weekday_indices: jsonb("weekday_indices").notNull().default([]),
     session_minutes: integer("session_minutes"),
     status: text("status").notNull().default("active"), // active | completed | archived
+    // Incremented by every prescription/schedule mutation. Adaptation
+    // proposals bind to this value so a stale card can never overwrite a
+    // newer coach or cross-device change.
+    revision: integer("revision").notNull().default(0),
     deload_weeks: jsonb("deload_weeks").notNull().default([]),
     progression_rules: text("progression_rules"),
     why: text("why"),
@@ -344,6 +348,7 @@ export const programs = pgTable(
     check("programs_status_check", sql`${t.status} IN ('active', 'completed', 'archived')`),
     check("programs_weeks_check", sql`${t.weeks} BETWEEN 1 AND 104`),
     check("programs_days_per_week_check", sql`${t.days_per_week} BETWEEN 1 AND 7`),
+    check("programs_revision_check", sql`${t.revision} >= 0`),
     check("programs_schedule_mode_check", sql`${t.schedule_mode} IN ('rolling', 'weekday')`),
     check(
       "programs_weekday_indices_check",
@@ -467,6 +472,9 @@ export const programExercises = pgTable(
     sets: integer("sets").notNull(),
     rep_range: text("rep_range").notNull(), // e.g. "6–8"
     target_weight_kg: doublePrecision("target_weight_kg"),
+    // Retained from the generator so the adaptive engine advances or rolls
+    // back the plan's own progression step instead of inventing a load.
+    progression_step_kg: doublePrecision("progression_step_kg"),
     notes: text("notes"),
   },
   (t) => [
@@ -476,6 +484,10 @@ export const programExercises = pgTable(
     check(
       "program_exercises_target_weight_check",
       sql`${t.target_weight_kg} IS NULL OR ${t.target_weight_kg} BETWEEN 0 AND 1000`,
+    ),
+    check(
+      "program_exercises_progression_step_check",
+      sql`${t.progression_step_kg} IS NULL OR ${t.progression_step_kg} BETWEEN 0 AND 100`,
     ),
   ],
 );
@@ -636,6 +648,92 @@ export const sessionExercises = pgTable(
     check(
       "session_exercises_completion_time_check",
       sql`NOT ${t.completed} OR ${t.completed_at} IS NOT NULL`,
+    ),
+  ],
+);
+
+/** Optional three-tap recovery check-in for one completed workout. */
+export const workoutReviews = pgTable(
+  "workout_reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    session_id: uuid("session_id")
+      .notNull()
+      .references(() => workoutSessions.id, { onDelete: "cascade" }),
+    data_epoch: integer("data_epoch").notNull(),
+    difficulty: integer("difficulty").notNull(),
+    energy: integer("energy").notNull(),
+    discomfort: integer("discomfort").notNull(),
+    note: text("note"),
+    created_at: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("workout_reviews_session_idx").on(t.session_id),
+    index("workout_reviews_user_created_idx").on(t.user_id, t.created_at),
+    check("workout_reviews_epoch_check", sql`${t.data_epoch} >= 0`),
+    check("workout_reviews_difficulty_check", sql`${t.difficulty} BETWEEN 1 AND 5`),
+    check("workout_reviews_energy_check", sql`${t.energy} BETWEEN 1 AND 5`),
+    check("workout_reviews_discomfort_check", sql`${t.discomfort} BETWEEN 1 AND 5`),
+    check(
+      "workout_reviews_note_length_check",
+      sql`${t.note} IS NULL OR length(${t.note}) BETWEEN 1 AND 1000`,
+    ),
+  ],
+);
+
+/**
+ * Durable, non-mutating recommendation. The options are server-generated
+ * action bundles; accepting one applies the whole bundle transactionally.
+ */
+export const adaptationProposals = pgTable(
+  "adaptation_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    review_id: uuid("review_id")
+      .notNull()
+      .references(() => workoutReviews.id, { onDelete: "cascade" }),
+    program_id: uuid("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    program_revision: integer("program_revision").notNull(),
+    data_epoch: integer("data_epoch").notNull(),
+    coach_id: text("coach_id").notNull(),
+    status: text("status").notNull().default("pending"),
+    rationale_en: text("rationale_en").notNull(),
+    rationale_sv: text("rationale_sv").notNull(),
+    options: jsonb("options").notNull(),
+    selected_option_id: text("selected_option_id"),
+    applied_changes: jsonb("applied_changes"),
+    created_at: createdAt(),
+    decided_at: timestamp("decided_at", { withTimezone: true, mode: "string" }),
+  },
+  (t) => [
+    uniqueIndex("adaptation_proposals_review_idx").on(t.review_id),
+    index("adaptation_proposals_user_status_idx").on(t.user_id, t.status, t.created_at),
+    index("adaptation_proposals_program_idx").on(t.program_id, t.created_at),
+    check("adaptation_proposals_revision_check", sql`${t.program_revision} >= 0`),
+    check("adaptation_proposals_epoch_check", sql`${t.data_epoch} >= 0`),
+    check(
+      "adaptation_proposals_coach_check",
+      sql`${t.coach_id} IN ('eli', 'rex', 'brutus', 'maya', 'reya', 'nova')`,
+    ),
+    check(
+      "adaptation_proposals_status_check",
+      sql`${t.status} IN ('pending', 'applied', 'kept', 'stale')`,
+    ),
+    check(
+      "adaptation_proposals_options_check",
+      sql`jsonb_typeof(${t.options}) = 'array' AND jsonb_array_length(${t.options}) BETWEEN 1 AND 2`,
+    ),
+    check(
+      "adaptation_proposals_decision_check",
+      sql`(${t.status} = 'pending' AND ${t.decided_at} IS NULL AND ${t.selected_option_id} IS NULL) OR (${t.status} = 'kept' AND ${t.decided_at} IS NOT NULL AND ${t.selected_option_id} IS NULL) OR (${t.status} IN ('applied', 'stale') AND ${t.decided_at} IS NOT NULL)`,
     ),
   ],
 );

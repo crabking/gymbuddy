@@ -262,6 +262,69 @@ export const completeActiveSession = createServerFn({ method: "POST" })
     });
   });
 
+const WorkoutReviewSchema = z
+  .object({
+    session_id: z.string().uuid(),
+    difficulty: z.number().int().min(1).max(5),
+    energy: z.number().int().min(1).max(5),
+    discomfort: z.number().int().min(1).max(5),
+    note: z.string().trim().max(1000).nullable().optional(),
+    expected_data_epoch: z.number().int().min(0),
+  })
+  .strict();
+
+export const submitPostWorkoutReview = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .validator((input: unknown) => WorkoutReviewSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { submitWorkoutReview } = await import("@/lib/adaptive-training.server");
+    return submitWorkoutReview(context.userId, data);
+  });
+
+export const getPendingAdaptation = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { getPendingAdaptation: readPendingAdaptation } =
+      await import("@/lib/adaptive-training.server");
+    return readPendingAdaptation(context.userId);
+  });
+
+const AdaptationDecisionSchema = z
+  .object({
+    proposal_id: z.string().uuid(),
+    option_id: z.string().trim().min(1).max(100),
+    expected_program_revision: z.number().int().min(0),
+    expected_data_epoch: z.number().int().min(0),
+  })
+  .strict();
+
+export const decidePostWorkoutAdaptation = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .validator((input: unknown) => AdaptationDecisionSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { decideAdaptation } = await import("@/lib/adaptive-training.server");
+    return decideAdaptation(context.userId, data);
+  });
+
+export const getProgramAdaptationHistory = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .validator((input: unknown) =>
+    z
+      .object({
+        program_id: z.string().uuid().nullable().optional(),
+        limit: z.number().int().min(1).max(50).optional().default(20),
+      })
+      .strict()
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { getAdaptationHistory } = await import("@/lib/adaptive-training.server");
+    return getAdaptationHistory(context.userId, {
+      programId: data.program_id ?? null,
+      limit: data.limit,
+    });
+  });
+
 const LocalContextSchema = z
   .object({
     date: IsoDateSchema,

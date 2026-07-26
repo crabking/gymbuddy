@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { convertFileListToFileUIParts, DefaultChatTransport, type UIMessage } from "ai";
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Drawer } from "vaul";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -19,6 +20,9 @@ import {
   startTodayWorkoutSession,
   toggleSessionSet,
   completeActiveSession,
+  submitPostWorkoutReview,
+  getPendingAdaptation,
+  decidePostWorkoutAdaptation,
   getNutritionToday,
   getTodayTrainingInfo,
 } from "@/lib/gym-buddy.functions";
@@ -29,7 +33,6 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { usePwaInstall } from "@/lib/pwa-install";
 import { toast } from "sonner";
 import {
-  LogOut,
   RefreshCw,
   Camera,
   ArrowUp,
@@ -44,6 +47,12 @@ import {
   Flame,
   Play,
   ChevronRight,
+  BatteryCharging,
+  Gauge,
+  ShieldAlert,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { COACH_IMAGES } from "@/lib/coach-assets";
 import { getCoach } from "@/lib/coaches";
@@ -62,6 +71,7 @@ import {
 import { prepareChatImage } from "@/lib/image-upload";
 import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
 import { useLanguage } from "@/components/LanguageProvider";
+import { workoutSetDefaults } from "@/lib/workout-set-defaults";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -262,40 +272,6 @@ function CenterSpinner() {
   );
 }
 
-function InfoStatusRow({
-  Icon,
-  label,
-  message,
-  onRetry,
-}: {
-  Icon: typeof Flame;
-  label: string;
-  message: string;
-  onRetry?: () => void;
-}) {
-  const { t } = useLanguage();
-  return (
-    <div className="flex min-h-12 items-center gap-3 px-3 py-2">
-      <Icon className="h-5 w-5 shrink-0 text-primary" />
-      <div className="min-w-0 flex-1">
-        <div className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-          {label}
-        </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{message}</div>
-      </div>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="min-h-11 shrink-0 px-2 text-xs font-bold text-primary"
-        >
-          {t("common.retry")}
-        </button>
-      )}
-    </div>
-  );
-}
-
 function ChatGate() {
   const { data: profile } = useSuspenseQuery({
     queryKey: ["profile"],
@@ -379,6 +355,11 @@ function ChatScreen() {
     queryFn: () => getActiveWorkoutSession({ data: undefined }),
     refetchInterval: 15_000,
   });
+  const adaptationQuery = useQuery({
+    queryKey: ["pending-adaptation"],
+    queryFn: () => getPendingAdaptation({ data: undefined }),
+    refetchInterval: 30_000,
+  });
   const nutritionQuery = useQuery({
     queryKey: ["nutrition"],
     queryFn: () => getNutritionToday({ data: clientLocalContext() }),
@@ -398,6 +379,7 @@ function ChatScreen() {
     refetchInterval: 60_000,
   });
   const session = sessionQuery.data;
+  const pendingAdaptation = adaptationQuery.data;
   const nutrition = nutritionQuery.data;
   const todayTraining = todayTrainingQuery.data;
   const trackedNutrition = nutrition as
@@ -452,6 +434,15 @@ function ChatScreen() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [processingImage, setProcessingImage] = useState(false);
   const [workoutMutations, setWorkoutMutations] = useState(0);
+  const [calorieTrackerOpen, setCalorieTrackerOpen] = useState(false);
+  const [adaptationSaving, setAdaptationSaving] = useState(false);
+  const [reviewSession, setReviewSession] = useState<{
+    id: string;
+    title: string;
+    cycleCompleted: boolean;
+    programName: string | null;
+  } | null>(null);
+  const [queuedUiEvent, setQueuedUiEvent] = useState<string | null>(null);
   const [kickoffFailed, setKickoffFailed] = useState(false);
   const pendingSubmission = useRef<RetriableChatSubmission<File> | null>(null);
   const failedSubmission = useRef<RetriableChatSubmission<File> | null>(null);
@@ -569,9 +560,19 @@ function ChatScreen() {
       qc.invalidateQueries({ queryKey: ["nutrition"] });
       qc.invalidateQueries({ queryKey: ["today-training"] });
       qc.invalidateQueries({ queryKey: ["chat-messages"] });
+      qc.invalidateQueries({ queryKey: ["pending-adaptation"] });
+      qc.invalidateQueries({ queryKey: ["adaptation-history"] });
+      qc.invalidateQueries({ queryKey: ["program"] });
     },
   });
   clearChatErrorRef.current = clearError;
+
+  useEffect(() => {
+    if (!queuedUiEvent || status !== "ready") return;
+    const event = queuedUiEvent;
+    setQueuedUiEvent(null);
+    void sendMessage({ text: event });
+  }, [queuedUiEvent, sendMessage, status]);
 
   const lastSyncedMessages = useRef(initialMessages);
   useEffect(() => {
@@ -718,18 +719,6 @@ function ChatScreen() {
       if (prepared.length) setPendingFiles((current) => [...current, ...prepared].slice(0, 3));
     } finally {
       setProcessingImage(false);
-    }
-  }
-
-  async function signOut() {
-    try {
-      await logout({ data: undefined });
-      await clearAccountCache(qc);
-      window.location.replace("/auth");
-    } catch (error) {
-      toast.error(
-        language === "en" && error instanceof Error ? error.message : t("chat.signout_failed"),
-      );
     }
   }
 
@@ -909,6 +898,7 @@ function ChatScreen() {
 
   async function finishWorkout() {
     if (!session || workoutMutations > 0) return;
+    const completedSession = session;
     setWorkoutMutations((count) => count + 1);
     try {
       const result = await whilePwaUpdateBlocked("workout-finish", () =>
@@ -926,13 +916,12 @@ function ChatScreen() {
       toast.success(
         language === "sv" ? "Passet är klart — snyggt jobbat 🎉" : "Workout done — nice work 🎉",
       );
-      if (!busy) {
-        void sendMessage({
-          text: result.cycle_completed
-            ? `__ui_event__ tapped 'Finish workout' — session complete and "${result.program_name ?? "the program"}" cycle complete`
-            : "__ui_event__ tapped 'Finish workout' — session complete",
-        });
-      }
+      setReviewSession({
+        id: completedSession.id,
+        title: completedSession.title,
+        cycleCompleted: result.cycle_completed,
+        programName: result.program_name,
+      });
     } catch (error) {
       if (isDataEpochConflict(error)) {
         await refreshAfterDataEpochConflict(qc);
@@ -956,8 +945,143 @@ function ChatScreen() {
         qc.invalidateQueries({ queryKey: ["program"] }),
         qc.invalidateQueries({ queryKey: ["dashboard"] }),
         qc.invalidateQueries({ queryKey: ["today-training"] }),
+        qc.invalidateQueries({ queryKey: ["pending-adaptation"] }),
       ]);
       setWorkoutMutations((count) => Math.max(0, count - 1));
+    }
+  }
+
+  function completedWorkoutEvent(review: NonNullable<typeof reviewSession>) {
+    return review.cycleCompleted
+      ? `__ui_event__ finished the workout and completed "${review.programName ?? "the program"}" cycle`
+      : "__ui_event__ finished the workout and skipped the optional recovery check-in";
+  }
+
+  function skipWorkoutReview() {
+    if (!reviewSession || adaptationSaving) return;
+    const event = completedWorkoutEvent(reviewSession);
+    setReviewSession(null);
+    setQueuedUiEvent(event);
+  }
+
+  async function submitWorkoutCheckIn(values: {
+    difficulty: number;
+    energy: number;
+    discomfort: number;
+    note: string;
+  }) {
+    if (!reviewSession || adaptationSaving) return;
+    const completed = reviewSession;
+    setAdaptationSaving(true);
+    try {
+      const result = await whilePwaUpdateBlocked("workout-review", () =>
+        submitPostWorkoutReview({
+          data: {
+            session_id: completed.id,
+            difficulty: values.difficulty,
+            energy: values.energy,
+            discomfort: values.discomfort,
+            note: values.note.trim() || null,
+            expected_data_epoch: (profile as Profile).data_epoch,
+          },
+        }),
+      );
+      if (!result.ok) {
+        toast.error(
+          language === "sv"
+            ? "Kontrollen kunde inte sparas. Passet är fortfarande säkert sparat."
+            : "The check-in could not be saved. Your workout is still safely recorded.",
+        );
+        return;
+      }
+      setReviewSession(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["pending-adaptation"] }),
+        qc.invalidateQueries({ queryKey: ["adaptation-history"] }),
+      ]);
+      setQueuedUiEvent(
+        `__ui_event__ submitted post-workout check-in: difficulty ${values.difficulty}/5, energy ${values.energy}/5, pain/discomfort ${values.discomfort}/5${
+          values.note.trim() ? "; optional note was saved" : ""
+        }. Review the safe server-generated adaptation options in live state, respond fully in character, and never claim anything changed until the user taps an option.`,
+      );
+    } catch (error) {
+      if (isDataEpochConflict(error)) {
+        await refreshAfterDataEpochConflict(qc);
+        toast.error(t("chat.account_changed"));
+      } else if (isUnauthorizedError(error)) {
+        await hardNavigateToAuth(qc);
+      } else {
+        toast.error(
+          language === "sv"
+            ? "Kontrollen kunde inte sparas. Passet är fortfarande säkert sparat."
+            : "The check-in could not be saved. Your workout is still safely recorded.",
+        );
+      }
+    } finally {
+      setAdaptationSaving(false);
+    }
+  }
+
+  async function decideAdaptation(optionId: string) {
+    if (!pendingAdaptation || adaptationSaving) return;
+    setAdaptationSaving(true);
+    try {
+      const result = await whilePwaUpdateBlocked("adaptation-decision", () =>
+        decidePostWorkoutAdaptation({
+          data: {
+            proposal_id: pendingAdaptation.id,
+            option_id: optionId,
+            expected_program_revision: pendingAdaptation.program_revision,
+            expected_data_epoch: (profile as Profile).data_epoch,
+          },
+        }),
+      );
+      if (!result.ok) {
+        toast.error(
+          result.error === "adaptation_stale"
+            ? language === "sv"
+              ? "Programmet har redan ändrats. Hämta en ny rekommendation."
+              : "The program already changed. Get a fresh recommendation."
+            : language === "sv"
+              ? "Rekommendationen kunde inte användas just nu."
+              : "That recommendation could not be applied right now.",
+        );
+        await qc.invalidateQueries({ queryKey: ["pending-adaptation"] });
+        return;
+      }
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["pending-adaptation"] }),
+        qc.invalidateQueries({ queryKey: ["adaptation-history"] }),
+        qc.invalidateQueries({ queryKey: ["program"] }),
+        qc.invalidateQueries({ queryKey: ["today-training"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      if (optionId === "keep") {
+        toast.success(language === "sv" ? "Programmet behålls" : "Plan kept as-is");
+        setQueuedUiEvent(
+          "__ui_event__ kept the current program after reviewing the post-workout recommendation. Acknowledge briefly in character.",
+        );
+      } else {
+        toast.success(language === "sv" ? "Programmet har anpassats" : "Program adapted");
+        setQueuedUiEvent(
+          `__ui_event__ approved adaptation option "${optionId}". The server applied it atomically. Acknowledge the exact change briefly in character.`,
+        );
+      }
+    } catch (error) {
+      if (isDataEpochConflict(error)) {
+        await refreshAfterDataEpochConflict(qc);
+        toast.error(t("chat.account_changed"));
+      } else if (isUnauthorizedError(error)) {
+        await hardNavigateToAuth(qc);
+      } else {
+        toast.error(
+          language === "sv"
+            ? "Rekommendationen kunde inte användas just nu."
+            : "That recommendation could not be applied right now.",
+        );
+      }
+    } finally {
+      setAdaptationSaving(false);
     }
   }
 
@@ -1054,15 +1178,23 @@ function ChatScreen() {
               ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={signOut}
-              type="button"
-              className="grid h-11 w-11 place-items-center rounded-lg text-red-400 transition hover:bg-red-500/10 hover:text-red-300"
-              aria-label={t("chat.sign_out")}
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
+          <div className="flex min-w-0 items-center justify-end gap-1.5">
+            {!inOnboarding && session && (
+              <SessionTimerBar
+                session={session}
+                minutes={(profile as Profile).session_minutes ?? 60}
+              />
+            )}
+            {!inOnboarding && (
+              <button
+                onClick={() => setCalorieTrackerOpen(true)}
+                type="button"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-border bg-background/60 text-primary transition hover:border-primary"
+                aria-label={language === "sv" ? "Öppna kalorispåraren" : "Open calorie tracker"}
+              >
+                <Flame className="h-5 w-5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1193,135 +1325,6 @@ function ChatScreen() {
             </div>
           </>
         )}
-
-        {/* Two fixed information rows — calories, then workout. */}
-        {!inOnboarding && !keyboardOpen && (
-          <div className="-mx-3 mt-3 divide-y divide-border border-t border-border bg-background/50">
-            {nutritionQuery.isPending && !nutrition ? (
-              <InfoStatusRow
-                Icon={Flame}
-                label={t("chat.calories")}
-                message={t("chat.loading_totals")}
-              />
-            ) : nutritionQuery.isError && !nutrition ? (
-              <InfoStatusRow
-                Icon={Flame}
-                label={t("chat.calories_unavailable")}
-                message={
-                  language === "sv"
-                    ? "Inget ändrades. Kontrollera anslutningen."
-                    : "Nothing was changed. Check your connection."
-                }
-                onRetry={() => void nutritionQuery.refetch()}
-              />
-            ) : (
-              <div className="flex min-h-12 items-center gap-3 px-3 py-2">
-                <Flame className="h-5 w-5 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                      {t("chat.calories")}
-                    </span>
-                    {nutritionQuery.isError ? (
-                      <button
-                        type="button"
-                        onClick={() => void nutritionQuery.refetch()}
-                        className="min-h-11 shrink-0 text-[11px] font-bold text-amber-300"
-                      >
-                        {language === "sv" ? "Senast synkat · försök igen" : "Last synced · retry"}
-                      </button>
-                    ) : (
-                      <span className="truncate text-[11px] text-muted-foreground">
-                        P {proteinLabel}g · C {carbsLabel}g · F {fatLabel}g
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-3">
-                    <span className="shrink-0 text-sm font-bold text-foreground">
-                      {caloriesLabel}
-                      {nutrition?.target_calories ? ` / ${nutrition.target_calories}` : ""} kcal
-                    </span>
-                    {nutrition?.target_calories ? (
-                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
-                        <div
-                          className="h-full bg-primary transition-all"
-                          style={{
-                            width: `${Math.min(100, (knownCalories / nutrition.target_calories) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            )}
-            {sessionQuery.isPending && !session ? (
-              <InfoStatusRow
-                Icon={Dumbbell}
-                label={t("chat.workout")}
-                message={
-                  language === "sv"
-                    ? "Kontrollerar dagens träningspass…"
-                    : "Checking today’s workout…"
-                }
-              />
-            ) : session ? (
-              <SessionTimerBar
-                session={session}
-                minutes={(profile as Profile).session_minutes ?? 60}
-              />
-            ) : sessionQuery.isError ? (
-              <InfoStatusRow
-                Icon={Dumbbell}
-                label={t("chat.workout_unavailable")}
-                message={
-                  language === "sv"
-                    ? "Ditt sparade pass finns kvar på servern."
-                    : "Your saved workout is safe on the server."
-                }
-                onRetry={() => void sessionQuery.refetch()}
-              />
-            ) : todayTrainingQuery.isPending && !todayTraining ? (
-              <InfoStatusRow
-                Icon={Dumbbell}
-                label={t("chat.workout")}
-                message={t("chat.loading_workout")}
-              />
-            ) : todayTrainingQuery.isError && !todayTraining ? (
-              <InfoStatusRow
-                Icon={Dumbbell}
-                label={language === "sv" ? "Programmet är inte tillgängligt" : "Plan unavailable"}
-                message={
-                  language === "sv"
-                    ? "Kunde inte bekräfta om i dag är en träningsdag."
-                    : "Could not confirm whether today is a training day."
-                }
-                onRetry={() => void todayTrainingQuery.refetch()}
-              />
-            ) : (
-              <div className="flex min-h-12 items-center gap-3 px-3 py-2">
-                <Dumbbell className="h-5 w-5 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t("chat.workout")}
-                  </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-3 text-xs">
-                    <span className="min-w-0 truncate font-semibold text-foreground">
-                      {todayTraining?.label ?? (language === "sv" ? "Vilodag" : "Rest day")}
-                    </span>
-                    {todayTraining?.detail && (
-                      <span className="shrink-0 text-muted-foreground">
-                        {todayTraining.detail === "today"
-                          ? t("common.today")
-                          : todayTraining.detail}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </header>
 
       {/* Single-message stage */}
@@ -1441,6 +1444,14 @@ function ChatScreen() {
         )}
       </main>
 
+      {!keyboardOpen && pendingAdaptation && (
+        <AdaptationProposalCard
+          proposal={pendingAdaptation}
+          disabled={adaptationSaving}
+          onChoose={(optionId) => void decideAdaptation(optionId)}
+        />
+      )}
+
       {/* Pending attachments preview */}
       {pendingFiles.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pb-2">
@@ -1457,8 +1468,12 @@ function ChatScreen() {
       )}
 
       {/* Live workout module — coach is connected in real time */}
-      {!inOnboarding && !keyboardOpen && (
-        <div className="border-t border-border bg-card/40 px-3 py-2">
+      {!inOnboarding && (
+        <div
+          className={`shrink-0 border-t border-border bg-card/40 px-3 ${
+            keyboardOpen ? "py-1" : "py-2"
+          }`}
+        >
           {sessionQuery.isPending && !session ? (
             <div className="flex min-h-11 items-center justify-center">
               <Shimmer>
@@ -1483,6 +1498,7 @@ function ChatScreen() {
                 onToggleSet={toggleSet}
                 onFinish={finishWorkout}
                 disabled={workoutMutations > 0}
+                forceCollapsed={keyboardOpen}
               />
             </>
           ) : sessionQuery.isError ? (
@@ -1495,7 +1511,7 @@ function ChatScreen() {
                 ? "Kunde inte läsa in passet · Försök igen"
                 : "Couldn’t load the workout · Retry"}
             </button>
-          ) : (
+          ) : !keyboardOpen && !pendingAdaptation ? (
             <button
               type="button"
               onClick={() => void startWorkout()}
@@ -1513,7 +1529,7 @@ function ChatScreen() {
                   : "Starting…"
                 : t("chat.start_workout")}
             </button>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -1590,7 +1606,29 @@ function ChatScreen() {
         </div>
       </div>
 
-      {!keyboardOpen && <TabBar />}
+      {!keyboardOpen && <TabBar activeWorkout={Boolean(session)} />}
+
+      <CalorieTrackerSheet
+        open={calorieTrackerOpen}
+        nutrition={nutrition}
+        loading={nutritionQuery.isPending}
+        error={nutritionQuery.isError}
+        caloriesLabel={caloriesLabel}
+        proteinLabel={proteinLabel}
+        carbsLabel={carbsLabel}
+        fatLabel={fatLabel}
+        knownCalories={knownCalories}
+        onClose={() => setCalorieTrackerOpen(false)}
+        onRetry={() => void nutritionQuery.refetch()}
+      />
+
+      <WorkoutReviewSheet
+        open={!!reviewSession}
+        workoutTitle={reviewSession?.title ?? ""}
+        saving={adaptationSaving}
+        onSkip={skipWorkoutReview}
+        onSubmit={(values) => void submitWorkoutCheckIn(values)}
+      />
 
       {/* Settings drawer */}
       {openSection && (
@@ -1607,6 +1645,402 @@ function ChatScreen() {
         />
       )}
     </div>
+  );
+}
+
+type PendingAdaptation = NonNullable<Awaited<ReturnType<typeof getPendingAdaptation>>>;
+
+function AdaptationProposalCard({
+  proposal,
+  disabled,
+  onChoose,
+}: {
+  proposal: PendingAdaptation;
+  disabled: boolean;
+  onChoose: (optionId: string) => void;
+}) {
+  const { language } = useLanguage();
+  return (
+    <section className="shrink-0 border-t border-primary/30 bg-primary/[0.06] px-3 py-2">
+      <div className="mx-auto max-w-md">
+        <div className="mb-1.5 flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
+            {language === "sv" ? "Coachens rekommendation" : "Coach recommendation"}
+          </span>
+        </div>
+        <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+          {language === "sv" ? proposal.rationale_sv : proposal.rationale_en}
+        </p>
+        <div className="grid gap-1.5">
+          {proposal.options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChoose(option.id)}
+              className="flex min-h-12 items-center justify-between gap-3 rounded-xl bg-primary px-3 text-left text-primary-foreground disabled:opacity-50"
+            >
+              <span className="min-w-0">
+                <span className="block font-display text-xs font-bold">
+                  {language === "sv" ? option.title_sv : option.title_en}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-tight opacity-85">
+                  {language === "sv" ? option.summary_sv : option.summary_en}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onChoose("keep")}
+            className="min-h-11 rounded-xl border border-border bg-card px-3 text-xs font-bold text-foreground disabled:opacity-50"
+          >
+            {language === "sv" ? "Behåll programmet som det är" : "Keep the current plan"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReviewScale({
+  icon: Icon,
+  label,
+  left,
+  right,
+  value,
+  onChange,
+}: {
+  icon: typeof Gauge;
+  label: string;
+  left: string;
+  right: string;
+  value: number | null;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-primary" />
+        <span className="text-sm font-bold text-foreground">{label}</span>
+      </div>
+      <div className="grid grid-cols-5 gap-1.5">
+        {[1, 2, 3, 4, 5].map((score) => (
+          <button
+            key={score}
+            type="button"
+            aria-pressed={value === score}
+            onClick={() => onChange(score)}
+            className={`h-11 rounded-xl border font-display text-sm font-bold transition ${
+              value === score
+                ? "border-primary bg-primary text-primary-foreground shadow-[0_0_16px_rgba(232,36,63,0.22)]"
+                : "border-border bg-background text-muted-foreground"
+            }`}
+          >
+            {score}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+        <span>{left}</span>
+        <span>{right}</span>
+      </div>
+    </div>
+  );
+}
+
+type NutritionPayload = Awaited<ReturnType<typeof getNutritionToday>>;
+
+function CalorieTrackerSheet({
+  open,
+  nutrition,
+  loading,
+  error,
+  caloriesLabel,
+  proteinLabel,
+  carbsLabel,
+  fatLabel,
+  knownCalories,
+  onClose,
+  onRetry,
+}: {
+  open: boolean;
+  nutrition: NutritionPayload | undefined;
+  loading: boolean;
+  error: boolean;
+  caloriesLabel: string;
+  proteinLabel: string;
+  carbsLabel: string;
+  fatLabel: string;
+  knownCalories: number;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const { language } = useLanguage();
+  const target = nutrition?.target_calories ?? null;
+  const progress = target ? Math.min(100, (knownCalories / target) * 100) : 0;
+
+  return (
+    <Drawer.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <Drawer.Portal>
+        <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm" />
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-[80] max-h-[85dvh] rounded-t-3xl border-t border-border bg-card outline-none">
+          <div className="mx-auto max-w-lg overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-border" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Drawer.Title className="font-display text-xl font-bold text-foreground">
+                  {language === "sv" ? "Kalorispårare" : "Calorie tracker"}
+                </Drawer.Title>
+                <Drawer.Description className="mt-1 text-sm text-muted-foreground">
+                  {language === "sv" ? "Dagens mat och makron." : "Today’s food and macros."}
+                </Drawer.Description>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-border"
+                aria-label={language === "sv" ? "Stäng kalorispåraren" : "Close calorie tracker"}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {loading && !nutrition ? (
+              <div className="grid min-h-40 place-items-center">
+                <Shimmer>
+                  {language === "sv" ? "Läser in dagens mat…" : "Loading today’s food…"}
+                </Shimmer>
+              </div>
+            ) : error && !nutrition ? (
+              <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+                <p>
+                  {language === "sv"
+                    ? "Kunde inte läsa kalorierna. Inget har ändrats."
+                    : "Could not load calories. Nothing was changed."}
+                </p>
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="mt-3 min-h-11 rounded-lg border border-amber-400/50 px-4 font-bold"
+                >
+                  {language === "sv" ? "Försök igen" : "Retry"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <section className="mt-5 rounded-xl border border-border bg-background p-4">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <div className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                        {language === "sv" ? "Kalorier idag" : "Calories today"}
+                      </div>
+                      <div className="mt-1 text-2xl font-bold text-foreground">
+                        {caloriesLabel}
+                        {target ? ` / ${target}` : ""}{" "}
+                        <span className="text-sm text-muted-foreground">kcal</span>
+                      </div>
+                    </div>
+                    {error && (
+                      <button
+                        type="button"
+                        onClick={onRetry}
+                        className="min-h-11 text-xs font-bold text-amber-300"
+                      >
+                        {language === "sv" ? "Synka igen" : "Retry sync"}
+                      </button>
+                    )}
+                  </div>
+                  {target && (
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  )}
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    {[
+                      ["P", proteinLabel],
+                      ["C", carbsLabel],
+                      ["F", fatLabel],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-lg border border-border/60 bg-card p-2 text-center"
+                      >
+                        <div className="font-display text-[10px] font-bold text-primary">
+                          {label}
+                        </div>
+                        <div className="mt-0.5 text-sm font-bold text-foreground">{value}g</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="mt-4">
+                  <h3 className="font-display text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    {language === "sv" ? "Dagens måltider" : "Today’s meals"}
+                  </h3>
+                  <div className="mt-2 divide-y divide-border/60 rounded-xl border border-border bg-background">
+                    {nutrition?.meals.length ? (
+                      nutrition.meals.map((meal, index) => (
+                        <div
+                          key={`${meal.logged_at}-${index}`}
+                          className="flex items-start justify-between gap-3 p-3"
+                        >
+                          <div className="min-w-0 text-sm text-foreground">{meal.description}</div>
+                          <div className="shrink-0 text-sm font-bold text-muted-foreground">
+                            {meal.calories == null ? "—" : `${Math.round(meal.calories)} kcal`}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-4 text-sm text-muted-foreground">
+                        {language === "sv"
+                          ? "Inga måltider loggade idag. Skicka en matbild till coachen för att börja."
+                          : "No meals logged today. Send your coach a food photo to begin."}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer.Root>
+  );
+}
+
+function WorkoutReviewSheet({
+  open,
+  workoutTitle,
+  saving,
+  onSkip,
+  onSubmit,
+}: {
+  open: boolean;
+  workoutTitle: string;
+  saving: boolean;
+  onSkip: () => void;
+  onSubmit: (values: {
+    difficulty: number;
+    energy: number;
+    discomfort: number;
+    note: string;
+  }) => void;
+}) {
+  const { language } = useLanguage();
+  const [difficulty, setDifficulty] = useState<number | null>(null);
+  const [energy, setEnergy] = useState<number | null>(null);
+  const [discomfort, setDiscomfort] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setDifficulty(null);
+    setEnergy(null);
+    setDiscomfort(null);
+    setNote("");
+  }, [open, workoutTitle]);
+
+  const complete = difficulty != null && energy != null && discomfort != null;
+  return (
+    <Drawer.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !saving) onSkip();
+      }}
+    >
+      <Drawer.Portal>
+        <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm" />
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-[80] max-h-[92dvh] rounded-t-3xl border-t border-border bg-card outline-none">
+          <div className="mx-auto max-w-lg px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-border" />
+            <Drawer.Title className="font-display text-xl font-bold text-foreground">
+              {language === "sv" ? "Snabb träningskoll" : "Quick workout check-in"}
+            </Drawer.Title>
+            <Drawer.Description className="mt-1 text-sm text-muted-foreground">
+              {workoutTitle} ·{" "}
+              {language === "sv"
+                ? "Tre tryck hjälper coachen att hålla programmet rätt."
+                : "Three taps help your coach keep the program on target."}
+            </Drawer.Description>
+
+            <div className="mt-5 grid gap-4">
+              <ReviewScale
+                icon={Gauge}
+                label={language === "sv" ? "Hur svårt var passet?" : "How difficult was it?"}
+                left={language === "sv" ? "Mycket lätt" : "Very easy"}
+                right={language === "sv" ? "För svårt" : "Too hard"}
+                value={difficulty}
+                onChange={setDifficulty}
+              />
+              <ReviewScale
+                icon={BatteryCharging}
+                label={language === "sv" ? "Hur var energin?" : "How was your energy?"}
+                left={language === "sv" ? "Helt slut" : "Drained"}
+                right={language === "sv" ? "Utmärkt" : "Excellent"}
+                value={energy}
+                onChange={setEnergy}
+              />
+              <ReviewScale
+                icon={ShieldAlert}
+                label={language === "sv" ? "Smärta eller obehag?" : "Pain or discomfort?"}
+                left={language === "sv" ? "Ingen" : "None"}
+                right={language === "sv" ? "Allvarlig" : "Severe"}
+                value={discomfort}
+                onChange={setDiscomfort}
+              />
+            </div>
+
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value.slice(0, 1000))}
+              rows={2}
+              placeholder={
+                language === "sv"
+                  ? "Valfri kommentar till coachen…"
+                  : "Optional note for your coach…"
+              }
+              className="mt-4 max-h-24 min-h-14 w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            />
+
+            <div className="mt-3 grid grid-cols-[0.7fr_1.3fr] gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={onSkip}
+                className="min-h-12 rounded-xl border border-border text-sm font-bold text-muted-foreground disabled:opacity-50"
+              >
+                {language === "sv" ? "Hoppa över" : "Skip"}
+              </button>
+              <button
+                type="button"
+                disabled={!complete || saving}
+                onClick={() => {
+                  if (!complete) return;
+                  onSubmit({
+                    difficulty,
+                    energy,
+                    discomfort,
+                    note,
+                  });
+                }}
+                className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-primary-foreground disabled:opacity-40"
+              >
+                {saving && <RefreshCw className="h-4 w-4 animate-spin" />}
+                {language === "sv" ? "Spara kontroll" : "Save check-in"}
+              </button>
+            </div>
+          </div>
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }
 
@@ -1659,35 +2093,38 @@ function SessionTimerBar({ session, minutes }: { session: WorkoutSession; minute
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   };
   const pct = Math.min(100, (elapsed / totalMs) * 100);
+  const dayLabel =
+    session.title.match(/^(?:day|dag)\s*\d+/i)?.[0] ??
+    session.title.split(/\s+[—–-]\s+/)[0] ??
+    session.title;
 
   return (
-    <div className="flex min-h-12 items-center gap-3 bg-primary/[0.04] px-3 py-2">
-      <Dumbbell className="h-5 w-5 shrink-0 text-primary" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="font-display text-[9px] font-bold uppercase tracking-[0.16em] text-primary">
-            {t("chat.live_workout")}
-          </span>
-          <span
-            className={`shrink-0 font-display text-xs font-bold ${over ? "text-red-400" : "text-foreground"}`}
-          >
-            {over ? `+${mmss(remaining)}` : mmss(remaining)}
-            <span className="ml-2 text-emerald-400">
-              {session.done}/{session.total}
-            </span>
-          </span>
-        </div>
-        <div className="mt-0.5 flex items-center gap-3">
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-            {session.title}
-          </span>
-          <div className="h-1 w-20 shrink-0 overflow-hidden rounded-full bg-secondary">
-            <div
-              className={`h-full transition-all ${over ? "bg-red-400" : "bg-primary"}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
+    <div className="w-[9.25rem] min-w-0 rounded-lg border border-primary/35 bg-primary/[0.06] px-2 py-1.5">
+      <div className="flex items-center justify-between gap-1">
+        <span className="truncate font-display text-[8px] font-bold uppercase tracking-[0.1em] text-primary">
+          {t("chat.live_workout")}
+        </span>
+        <span
+          className={`shrink-0 font-display text-[10px] font-bold ${
+            over ? "text-red-400" : "text-foreground"
+          }`}
+        >
+          {over ? `+${mmss(remaining)}` : mmss(remaining)}
+        </span>
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-1">
+        <span className="min-w-0 truncate text-[10px] font-semibold text-foreground">
+          {dayLabel}
+        </span>
+        <span className="shrink-0 font-display text-[9px] font-bold text-emerald-400">
+          {session.done}/{session.total}
+        </span>
+      </div>
+      <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
+        <div
+          className={`h-full transition-all ${over ? "bg-red-400" : "bg-primary"}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );
@@ -1698,6 +2135,7 @@ function WorkoutPanel({
   onToggleSet,
   onFinish,
   disabled,
+  forceCollapsed,
 }: {
   session: WorkoutSession;
   onToggleSet: (
@@ -1711,100 +2149,135 @@ function WorkoutPanel({
   ) => Promise<SetSaveOutcome>;
   onFinish: () => void;
   disabled: boolean;
+  forceCollapsed: boolean;
 }) {
   const { language, t } = useLanguage();
   const allDone = session.total > 0 && session.done === session.total;
-  const [expanded, setExpanded] = useState<string | null>(session.next?.id ?? null);
+  const [panelExpanded, setPanelExpanded] = useState(true);
+  const [expandedExercise, setExpandedExercise] = useState<string | null>(session.next?.id ?? null);
   const firstExerciseId = session.exercises[0]?.id ?? null;
+  const showDetails = panelExpanded && !forceCollapsed;
 
   useEffect(() => {
-    setExpanded(session.next?.id ?? firstExerciseId);
+    setExpandedExercise(session.next?.id ?? firstExerciseId);
   }, [session.id, session.next?.id, firstExerciseId]);
 
   return (
-    <div className="max-h-[38dvh] overflow-y-auto rounded-xl border border-border bg-background p-2.5">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-          <Dumbbell className="h-3.5 w-3.5 text-primary" /> {session.title}
+    <div
+      className={`rounded-xl border border-border bg-background ${
+        showDetails ? "max-h-[38dvh] overflow-y-auto p-2.5" : "p-1.5"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setPanelExpanded((value) => !value)}
+        className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left ${
+          showDetails ? "mb-2" : ""
+        }`}
+        aria-expanded={showDetails}
+        aria-label={
+          showDetails
+            ? language === "sv"
+              ? "Minimera träningspasset"
+              : "Minimize workout"
+            : language === "sv"
+              ? "Öppna träningspasset"
+              : "Expand workout"
+        }
+      >
+        <div className="min-w-0">
+          <div className="truncate text-xs font-bold text-foreground">{session.title}</div>
+          <div className="mt-0.5 font-display text-[9px] font-bold uppercase tracking-[0.12em] text-primary">
+            {t("chat.live_workout")}
+          </div>
         </div>
-        <span className="font-display text-[10px] font-bold text-emerald-400">
-          {session.done}/{session.total}
-        </span>
-      </div>
-      <div className="flex flex-col gap-1">
-        {session.exercises.map((e) => {
-          const exerciseName = language === "sv" ? e.name_sv : e.name_en;
-          const hasSets = e.sets.length > 0;
-          const doneSets = e.sets.filter((s) => s.completed).length;
-          const open = expanded === e.id;
-          return (
-            <div key={e.id} className="rounded-lg border border-border/60 bg-card/50">
-              <div className="flex min-h-11 items-center gap-2 px-2">
-                <span
-                  aria-label={
-                    e.completed
-                      ? t("chat.exercise_complete", { name: exerciseName })
-                      : t("chat.exercise_incomplete", { name: exerciseName })
-                  }
-                  className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${
-                    e.completed
-                      ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
-                      : "border-border"
-                  }`}
-                >
-                  {e.completed && <Check className="h-3 w-3" strokeWidth={3} />}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setExpanded(open ? null : e.id)}
-                  className="flex min-h-11 min-w-0 flex-1 items-center justify-between gap-2 text-left text-xs"
-                  aria-expanded={open}
-                >
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="font-display text-[10px] font-bold text-emerald-400">
+            {session.done}/{session.total}
+          </span>
+          {showDetails ? (
+            <ChevronDown className="h-5 w-5 text-primary" />
+          ) : (
+            <ChevronUp className="h-5 w-5 text-primary" />
+          )}
+        </div>
+      </button>
+      {showDetails && (
+        <div className="flex flex-col gap-1">
+          {session.exercises.map((e) => {
+            const exerciseName = language === "sv" ? e.name_sv : e.name_en;
+            const hasSets = e.sets.length > 0;
+            const doneSets = e.sets.filter((s) => s.completed).length;
+            const open = expandedExercise === e.id;
+            return (
+              <div key={e.id} className="rounded-lg border border-border/60 bg-card/50">
+                <div className="flex min-h-11 items-center gap-2 px-2">
                   <span
-                    className={`truncate ${e.completed ? "text-muted-foreground line-through" : "text-foreground"}`}
+                    aria-label={
+                      e.completed
+                        ? t("chat.exercise_complete", { name: exerciseName })
+                        : t("chat.exercise_incomplete", { name: exerciseName })
+                    }
+                    className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${
+                      e.completed
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+                        : "border-border"
+                    }`}
                   >
-                    {exerciseName}
-                    {e.target ? ` — ${e.target}` : ""}
+                    {e.completed && <Check className="h-3 w-3" strokeWidth={3} />}
                   </span>
-                  {hasSets && (
-                    <span className="shrink-0 font-display text-[10px] font-bold text-muted-foreground">
-                      {doneSets}/{e.sets.length}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedExercise(open ? null : e.id)}
+                    className="flex min-h-11 min-w-0 flex-1 items-center justify-between gap-2 text-left text-xs"
+                    aria-expanded={open}
+                  >
+                    <span
+                      className={`truncate ${e.completed ? "text-muted-foreground line-through" : "text-foreground"}`}
+                    >
+                      {exerciseName}
+                      {e.target ? ` — ${e.target}` : ""}
                     </span>
-                  )}
-                </button>
-              </div>
-              {open && hasSets && (
-                <div className="flex flex-col gap-1 border-t border-border/60 px-2 py-1.5">
-                  {e.sets.map((s) => {
-                    const remainingAfter = e.sets.filter(
-                      (x) => !x.completed && x.id !== s.id,
-                    ).length;
-                    return (
-                      <SetRow
-                        key={s.id}
-                        set={s}
-                        disabled={disabled}
-                        onToggle={(expectedRevision, completed, weight, reps) =>
-                          onToggleSet(
-                            s.id,
-                            expectedRevision,
-                            completed,
-                            exerciseName,
-                            remainingAfter === 0,
-                            weight,
-                            reps,
-                          )
-                        }
-                      />
-                    );
-                  })}
+                    {hasSets && (
+                      <span className="shrink-0 font-display text-[10px] font-bold text-muted-foreground">
+                        {doneSets}/{e.sets.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {allDone && (
+                {open && hasSets && (
+                  <div className="flex flex-col gap-1 border-t border-border/60 px-2 py-1.5">
+                    {e.sets.map((s) => {
+                      const remainingAfter = e.sets.filter(
+                        (x) => !x.completed && x.id !== s.id,
+                      ).length;
+                      return (
+                        <SetRow
+                          key={s.id}
+                          set={s}
+                          disabled={disabled}
+                          onToggle={(expectedRevision, completed, weight, reps) =>
+                            onToggleSet(
+                              s.id,
+                              expectedRevision,
+                              completed,
+                              exerciseName,
+                              remainingAfter === 0,
+                              weight,
+                              reps,
+                            )
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {showDetails && allDone && (
         <button
           type="button"
           onClick={onFinish}
@@ -1833,11 +2306,11 @@ function SetRow({
   disabled: boolean;
 }) {
   const { t } = useLanguage();
-  const enrichedSet = set as typeof set & { target_weight_kg?: number | null };
-  const serverWeight = set.weight_kg != null ? String(set.weight_kg) : "";
-  const serverReps = set.reps != null ? String(set.reps) : "";
-  const [weight, setWeight] = useState(set.weight_kg != null ? String(set.weight_kg) : "");
-  const [reps, setReps] = useState(set.reps != null ? String(set.reps) : "");
+  const defaults = workoutSetDefaults(set);
+  const serverWeight = defaults.weight;
+  const serverReps = defaults.reps;
+  const [weight, setWeight] = useState(serverWeight);
+  const [reps, setReps] = useState(serverReps);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -1945,9 +2418,7 @@ function SetRow({
           disabled={disabled || saving}
           inputMode="decimal"
           aria-label={t("chat.weight_for_set", { count: set.set_index })}
-          placeholder={
-            enrichedSet.target_weight_kg != null ? `target ${enrichedSet.target_weight_kg}` : "kg"
-          }
+          placeholder="kg"
           className="h-11 w-[5.5rem] rounded-md border border-border bg-background px-2 text-center text-sm text-foreground placeholder:text-[10px] placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-60"
         />
         <span className="text-muted-foreground">×</span>
@@ -1965,7 +2436,7 @@ function SetRow({
           disabled={disabled || saving}
           inputMode="numeric"
           aria-label={t("chat.reps_for_set", { count: set.set_index })}
-          placeholder={set.target_reps ?? t("common.reps")}
+          placeholder={t("common.reps")}
           className="h-11 w-16 rounded-md border border-border bg-background px-2 text-center text-sm text-foreground placeholder:text-[10px] placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-60"
         />
         <button

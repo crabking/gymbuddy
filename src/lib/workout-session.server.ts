@@ -477,6 +477,7 @@ export async function startSession(
           .set({
             start_date: earliest?.date ?? activeProgram.start_date,
             end_date: latest?.date ?? activeProgram.end_date,
+            revision: sql`${programs.revision} + 1`,
             weekday_indices:
               activeProgram.schedule_mode === "weekday"
                 ? shiftWeekdayIndices((activeProgram.weekday_indices as number[]) ?? [], shiftDays)

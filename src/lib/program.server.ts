@@ -287,6 +287,8 @@ export async function generateProgram(
               completedTrainingWeeks: trainingWeeksSeen,
               isDeload,
             }),
+            progression_step_kg:
+              exercise.start_weight_kg == null ? null : (exercise.increment_kg ?? 2.5),
             notes: exercise.notes?.trim() || null,
           };
         });
@@ -744,6 +746,10 @@ export async function markProgramDay(
       .where(and(eq(programDays.id, dayId), eq(programDays.program_id, program.id)))
       .returning({ id: programDays.id });
     if (!updated) return { ok: false as const, error: "program_day_not_found" };
+    await tx
+      .update(programs)
+      .set({ revision: sql`${programs.revision} + 1` })
+      .where(eq(programs.id, program.id));
 
     const statuses = await tx
       .select({ status: programDays.status })
@@ -881,6 +887,10 @@ export async function resolveProgramDay(
       .update(programDays)
       .set({ status: opts.status, session_id: null, resolution_note: reason })
       .where(eq(programDays.id, day.id));
+    await tx
+      .update(programs)
+      .set({ revision: sql`${programs.revision} + 1` })
+      .where(eq(programs.id, program.id));
     const statuses = await tx
       .select({ status: programDays.status })
       .from(programDays)
@@ -1280,10 +1290,16 @@ export async function adjustProgramExercise(
       repRange: opts.rep_range?.trim() ?? null,
       notes: opts.notes,
     });
+    const [updatedProgram] = await tx
+      .update(programs)
+      .set({ revision: sql`${programs.revision} + 1` })
+      .where(eq(programs.id, program.id))
+      .returning({ revision: programs.revision });
     return finish({
       ok: true as const,
       updated: matches.length,
       active_session_updated: activeSessionUpdated,
+      program_revision: updatedProgram?.revision ?? program.revision + 1,
     });
   });
 }
@@ -1428,6 +1444,7 @@ export async function shiftProgramSchedule(
         .set({
           start_date: earliest.date,
           end_date: latest.date,
+          revision: sql`${programs.revision} + 1`,
           weekday_indices:
             program.schedule_mode === "weekday"
               ? shiftWeekdayIndices((program.weekday_indices as number[]) ?? [], opts.days)

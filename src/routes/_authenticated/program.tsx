@@ -3,8 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Drawer } from "vaul";
-import { CalendarRange, Check, X, Dumbbell, Moon, ChevronRight, Sparkles } from "lucide-react";
-import { getProgramFull } from "@/lib/gym-buddy.functions";
+import {
+  CalendarRange,
+  Check,
+  X,
+  Dumbbell,
+  Moon,
+  ChevronRight,
+  Sparkles,
+  History,
+  ChevronDown,
+} from "lucide-react";
+import { getProgramAdaptationHistory, getProgramFull } from "@/lib/gym-buddy.functions";
 import { TabBar } from "@/components/TabBar";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -94,6 +104,15 @@ function ProgramPage() {
   const firstOpenExerciseId = openDay?.exercises[0]?.id ?? null;
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [guideFailed, setGuideFailed] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const adaptationHistoryQuery = useQuery({
+    queryKey: ["adaptation-history", program?.id],
+    queryFn: () =>
+      getProgramAdaptationHistory({
+        data: { program_id: program?.id ?? null, limit: 20 },
+      }),
+    enabled: !!program,
+  });
   const selectedExercise =
     openDay?.exercises.find((exercise) => exercise.id === selectedExerciseId) ??
     openDay?.exercises[0] ??
@@ -236,6 +255,71 @@ function ProgramPage() {
               {t("program.talk_coach")} <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
+        )}
+
+        {program && (adaptationHistoryQuery.data?.length ?? 0) > 0 && (
+          <section className="mb-3 overflow-hidden rounded-2xl border border-border bg-card">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((open) => !open)}
+              aria-expanded={historyOpen}
+              className="flex min-h-12 w-full items-center justify-between gap-3 px-3.5 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" />
+                <span>
+                  <span className="block font-display text-xs font-bold uppercase tracking-wider text-foreground">
+                    {language === "sv" ? "Anpassningshistorik" : "Adaptation history"}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {language === "sv"
+                      ? `${adaptationHistoryQuery.data?.length ?? 0} sparade beslut`
+                      : `${adaptationHistoryQuery.data?.length ?? 0} saved decisions`}
+                  </span>
+                </span>
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 text-muted-foreground transition-transform ${
+                  historyOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+            {historyOpen && (
+              <div className="max-h-56 divide-y divide-border overflow-y-auto border-t border-border">
+                {adaptationHistoryQuery.data?.map((entry) => {
+                  const selected = entry.options.find(
+                    (option) => option.id === entry.selected_option_id,
+                  );
+                  const title =
+                    entry.status === "kept"
+                      ? language === "sv"
+                        ? "Programmet behölls"
+                        : "Plan kept"
+                      : selected
+                        ? language === "sv"
+                          ? selected.title_sv
+                          : selected.title_en
+                        : language === "sv"
+                          ? "Tidigare rekommendation"
+                          : "Previous recommendation";
+                  return (
+                    <div key={entry.id} className="px-3.5 py-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-foreground">{title}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          {entry.session_date}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                        {entry.session_title} ·{" "}
+                        {language === "sv" ? entry.rationale_sv : entry.rationale_en}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         )}
 
         {program && (

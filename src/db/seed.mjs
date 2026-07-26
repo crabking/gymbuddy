@@ -35,9 +35,7 @@ const accounts = [
 if (
   accounts.some(
     (account) =>
-      account.email.length > 254 ||
-      account.password.length < 8 ||
-      account.password.length > 1024,
+      account.email.length > 254 || account.password.length < 8 || account.password.length > 1024,
   )
 ) {
   console.error("ADMIN_EMAIL or ADMIN_PASSWORD does not meet the login policy");
@@ -102,10 +100,9 @@ try {
       );
       userId = inserted.rows[0].id;
     }
-    await client.query(
-      "INSERT INTO profiles (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
-      [userId],
-    );
+    await client.query("INSERT INTO profiles (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [
+      userId,
+    ]);
     results.push(
       rotated
         ? `Updated login ${account.email}; existing sessions revoked`
