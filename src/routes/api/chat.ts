@@ -876,6 +876,7 @@ ${attendanceVoice}
 ${summarizeSession(activeSession, appLanguage)}
 - "Start today's workout" → call \`start_workout_session\` with \`start_next_now=true\` (no exercise list needed). It atomically moves the next planned session and every remaining date when needed. Ad-hoc sessions need an explicit exercise list.
 - When they finish an exercise, call \`mark_exercise_done\`, then hype them and name the NEXT unchecked exercise.
+- If they explicitly stop after only part of the prescribed work, NEVER fill untouched sets with defaults. Save only the sets they actually reported, then call \`complete_workout_session\` with their real explanation in \`partial_reason\`. The partial session remains completed history with its exact performed volume. If load, pain-free movement suitability, equipment, or recoverability caused it, use your coaching judgment and the program tools to repair matching unresolved work before giving the next instruction.
 - All done → \`complete_workout_session\` and celebrate. Never claim an exercise is done unless it shows [x] above or you just marked it.
 
 ### Session history (last 7 days)
@@ -1468,7 +1469,7 @@ ${input.notes}
 
           const completeWorkoutSessionTool = tool({
             description:
-              "Complete the active workout session. Enforces duration realism — a planned session finished implausibly fast is refused; relay the coach_note and ask what actually happened. Pass override_reason only for genuine explanations (e.g. trained offline earlier).",
+              "Complete the active workout session. Enforces duration realism — a planned session finished implausibly fast is refused; relay the coach_note and ask what actually happened. Pass override_reason only for genuine timing explanations (e.g. trained offline earlier). If the user explicitly stops after doing some work, preserve every performed set and pass their real reason as partial_reason; this honestly closes a partial session instead of erasing it or inventing completed sets.",
             inputSchema: z
               .object({
                 override_reason: z
@@ -1478,13 +1479,23 @@ ${input.notes}
                   .max(500)
                   .nullable()
                   .describe("Genuine reason to accept an implausible duration; null normally"),
+                partial_reason: z
+                  .string()
+                  .trim()
+                  .min(3)
+                  .max(500)
+                  .nullable()
+                  .describe(
+                    "User's explicit reason for ending with prescribed sets/exercises unfinished; null for a fully completed workout",
+                  ),
               })
               .strict(),
-            execute: async ({ override_reason }) => {
+            execute: async ({ override_reason, partial_reason }) => {
               const r = await guardMutation(() =>
                 completeSession(userId, {
                   planned_minutes: profile?.session_minutes ?? 60,
                   override_reason,
+                  partial_reason,
                   session_id: activeSession?.id ?? undefined,
                   expected_data_epoch: dataEpoch,
                 }),
@@ -1495,6 +1506,8 @@ ${input.notes}
                 duration_min: r.duration_min,
                 cycle_completed: r.cycle_completed,
                 program_name: r.program_name,
+                partial: r.partial,
+                incomplete_issues: r.incomplete_issues ?? [],
                 next_step: r.cycle_completed
                   ? appLanguage === "sv"
                     ? "Hela programperioden är slutförd. Fira, granska resultaten och erbjud nästa programperiod på svenska."

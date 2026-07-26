@@ -132,6 +132,117 @@ describe.runIf(hasDatabase).sequential("production-sized program generation", ()
   }
 });
 
+describe.runIf(hasDatabase).sequential("honest partial workout completion", () => {
+  const userId = randomUUID();
+
+  beforeAll(async () => {
+    const db = getDb();
+    await db.insert(users).values({
+      id: userId,
+      email: `partial-workout-${userId}@example.invalid`,
+      password_hash: "not-a-real-login",
+    });
+    await db.insert(profiles).values({
+      id: userId,
+      display_name: "Partial Workout Test",
+      session_minutes: 60,
+      onboarding_completed: true,
+    });
+    await generateProgram(userId, {
+      name: "Partial Workout Cycle",
+      goal: "Verify exact performed volume",
+      experience: "intermediate",
+      start_date: "2037-01-05",
+      weeks: 1,
+      session_minutes: 60,
+      deload_weeks: [],
+      progression_rules: "Only progress from performed work.",
+      why: "Regression coverage for ending a workout after two of three sets.",
+      source_key: `partial-workout-program-${userId}`,
+      week_template: [
+        {
+          title: "Day 1 — Upper",
+          focus: "Bench practice",
+          exercises: [
+            {
+              exercise_id: "bench-press",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 60,
+              increment_kg: 2.5,
+              increment_every_weeks: 1,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await getDb().delete(users).where(eq(users.id, userId));
+  });
+
+  it("preserves two performed sets and closes without inventing the third", async () => {
+    const program = await getActiveProgram(userId, "2037-01-05");
+    const day = program?.days[0];
+    if (!day) throw new Error("partial_program_day_missing");
+    const started = await startSession(userId, {
+      date: day.date,
+      programDayId: day.id,
+      source_key: `partial-workout-start-${userId}`,
+    });
+    if (!started.ok || !started.session) throw new Error("partial_workout_start_failed");
+    const [first, second, third] = started.session.exercises[0].sets;
+    for (const set of [first, second]) {
+      if (!set) throw new Error("partial_workout_set_missing");
+      const marked = await markSetDone(userId, set.id, {
+        completed: true,
+        weight_kg: 60,
+        reps: 5,
+        expected_revision: set.revision,
+      });
+      expect(marked).toMatchObject({ ok: true });
+    }
+
+    await expect(
+      completeSession(userId, {
+        planned_minutes: 60,
+        override_reason: "The performed work was logged after training offline.",
+        session_id: started.session.id,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: "incomplete_workout" });
+
+    const completed = await completeSession(userId, {
+      planned_minutes: 60,
+      override_reason: "The performed work was logged after training offline.",
+      partial_reason: "The third set caused form to break down, so the user stopped.",
+      session_id: started.session.id,
+    });
+    expect(completed).toMatchObject({
+      ok: true,
+      partial: true,
+      cycle_completed: true,
+    });
+
+    const history = await getWorkoutHistory(userId, { limit: 5 });
+    expect(history[0]).toMatchObject({
+      status: "completed",
+      end_reason:
+        "completed_partial: The third set caused form to break down, so the user stopped.",
+    });
+    expect(history[0].exercises[0].sets).toEqual([
+      expect.objectContaining({ completed: true, weight_kg: 60, reps: 5 }),
+      expect.objectContaining({ completed: true, weight_kg: 60, reps: 5 }),
+      expect.objectContaining({
+        id: third?.id,
+        completed: false,
+        weight_kg: null,
+        reps: null,
+      }),
+    ]);
+  });
+});
+
 describe.runIf(hasDatabase).sequential("training lifecycle database integration", () => {
   const userId = randomUUID();
 

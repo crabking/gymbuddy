@@ -1243,6 +1243,8 @@ export type CompleteResult =
       duration_min: number;
       cycle_completed: boolean;
       program_name: string | null;
+      partial: boolean;
+      incomplete_issues?: string[];
       idempotent_replay?: boolean;
     }
   | { ok: false; error: string; coach_note: string };
@@ -1253,6 +1255,7 @@ export async function completeSession(
   opts?: {
     planned_minutes?: number | null;
     override_reason?: string | null;
+    partial_reason?: string | null;
     session_id?: string | null;
     expected_data_epoch?: number;
   },
@@ -1271,6 +1274,14 @@ export async function completeSession(
       ok: false,
       error: "invalid_override_reason",
       coach_note: "The completion explanation is too long.",
+    };
+  }
+  const partialReason = opts?.partial_reason?.trim() || null;
+  if (partialReason && (partialReason.length < 3 || partialReason.length > 1_000)) {
+    return {
+      ok: false,
+      error: "invalid_partial_reason",
+      coach_note: "A partial workout needs a short, specific reason.",
     };
   }
 
@@ -1325,6 +1336,7 @@ export async function completeSession(
           ),
         cycle_completed: linkedProgram?.status === "completed",
         program_name: linkedProgram?.name ?? null,
+        partial: current.end_reason?.startsWith("completed_partial:") ?? false,
         idempotent_replay: true,
       };
     }
@@ -1366,11 +1378,19 @@ export async function completeSession(
         sets: setsByExercise.get(exercise.id) ?? [],
       })),
     );
-    if (completionIssues.length) {
+    if (completionIssues.length && !partialReason) {
       return {
         ok: false as const,
         error: "incomplete_workout",
         coach_note: `The workout is not complete: ${completionIssues.join(" ")} Every performed set needs its actual reps before closing it.`,
+      };
+    }
+    if (completionIssues.length && !setRows.some((set) => set.completed)) {
+      return {
+        ok: false as const,
+        error: "partial_workout_has_no_completed_sets",
+        coach_note:
+          "No performed sets are recorded. Skip or reschedule the workout instead of completing an empty session.",
       };
     }
 
@@ -1432,13 +1452,18 @@ export async function completeSession(
 
     const completedAt = new Date().toISOString();
     const durationMinutes = Math.min(1_440, Math.max(0, Math.round(elapsedMin)));
+    const endReason = partialReason
+      ? `completed_partial: ${partialReason}`
+      : overrideReason
+        ? `completed_override: ${overrideReason}`
+        : "completed";
     const [updated] = await tx
       .update(workoutSessions)
       .set({
         status: "completed",
         completed_at: completedAt,
         duration_minutes: durationMinutes,
-        end_reason: overrideReason ? `completed_override: ${overrideReason}` : "completed",
+        end_reason: endReason,
       })
       .where(
         and(
@@ -1460,6 +1485,8 @@ export async function completeSession(
       duration_min: durationMinutes,
       cycle_completed: cycleCompleted,
       program_name: programName,
+      partial: Boolean(partialReason),
+      ...(partialReason ? { incomplete_issues: completionIssues } : {}),
       idempotent_replay: false,
     };
   });
