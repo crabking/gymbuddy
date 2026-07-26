@@ -215,6 +215,7 @@ describe.runIf(hasDatabase).sequential("honest partial workout completion", () =
     const completed = await completeSession(userId, {
       planned_minutes: 60,
       override_reason: "The performed work was logged after training offline.",
+      actual_duration_minutes: 35,
       partial_reason: "The third set caused form to break down, so the user stopped.",
       session_id: started.session.id,
     });
@@ -222,11 +223,13 @@ describe.runIf(hasDatabase).sequential("honest partial workout completion", () =
       ok: true,
       partial: true,
       cycle_completed: true,
+      duration_min: 35,
     });
 
     const history = await getWorkoutHistory(userId, { limit: 5 });
     expect(history[0]).toMatchObject({
       status: "completed",
+      duration_minutes: 35,
       end_reason:
         "completed_partial: The third set caused form to break down, so the user stopped.",
     });

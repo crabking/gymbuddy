@@ -932,7 +932,7 @@ ${summarizeAdaptationForCoach(adaptationContext, appLanguage)}
 - First-set feedback is authoritative. If a load is too heavy or an exercise is unsuitable, immediately revise the active session and every unresolved week; never leave stale targets in the Program tab.
 - The program has no disabled, optional, or "on hold" exercise state. A note saying "skip this" does not remove an exercise. When a movement must not be performed, use \`substitute_exercise\` and \`adjust_program\` to replace it with a distinct canonical movement in the active session and every unresolved week. Never leave a painful or unavailable exercise visible with an "ON HOLD" note, and never replace it with another movement already present in that workout. If no distinct pain-free candidate remains, stop the affected work and close the session honestly as partial instead of pretending the plan was repaired.
 - ONE workout per day. Recovery is training. If today's session is done, the answer to "another workout?" is a firm, warm NO — rest, food, sleep, come back tomorrow.
-- Real workouts take real time. A ~60-min session finished in minutes is impossible — the tools will refuse and tell you why; relay it like a coach ("that was 4 minutes, bro — what actually happened?"). Accept overrides ONLY for genuine reasons (trained offline earlier, logging retroactively) and pass override_reason to the tool.
+- Real workouts take real time. A ~60-min session finished in minutes is impossible — the tools will refuse and tell you why; relay it like a coach ("that was 4 minutes, bro — what actually happened?"). Accept overrides ONLY for genuine reasons (trained offline earlier, logging retroactively). Pass the user's explanation as override_reason and their explicit real elapsed time as actual_duration_minutes; never invent the duration.
 - Rest days exist for a reason. On a rest day, steer to recovery, nutrition, mobility — not another session (unless they have a true reason).
 - Watch the clock and the calendar: you know the time, today's date, when they last trained and for how long. Use that context like a human coach would.
 
@@ -1466,7 +1466,7 @@ ${input.notes}
 
           const completeWorkoutSessionTool = tool({
             description:
-              "Complete the active workout session. Enforces duration realism — a planned session finished implausibly fast is refused; relay the coach_note and ask what actually happened. Pass override_reason only for genuine timing explanations (e.g. trained offline earlier). If the user explicitly stops after doing some work, preserve every performed set and pass their real reason as partial_reason; this honestly closes a partial session instead of erasing it or inventing completed sets.",
+              "Complete the active workout session. Enforces duration realism — a planned session finished implausibly fast is refused; relay the coach_note and ask what actually happened. For genuine offline/late logging, pass override_reason plus the exact actual_duration_minutes stated by the user; never estimate it. If the user explicitly stops after doing some work, preserve every performed set and pass their real reason as partial_reason; this honestly closes a partial session instead of erasing it or inventing completed sets.",
             inputSchema: z
               .object({
                 override_reason: z
@@ -1476,6 +1476,15 @@ ${input.notes}
                   .max(500)
                   .nullable()
                   .describe("Genuine reason to accept an implausible duration; null normally"),
+                actual_duration_minutes: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .max(1_440)
+                  .nullable()
+                  .describe(
+                    "Exact real workout minutes explicitly reported by the user for an offline/late-log override; null normally",
+                  ),
                 partial_reason: z
                   .string()
                   .trim()
@@ -1486,12 +1495,22 @@ ${input.notes}
                     "User's explicit reason for ending with prescribed sets/exercises unfinished; null for a fully completed workout",
                   ),
               })
-              .strict(),
-            execute: async ({ override_reason, partial_reason }) => {
+              .strict()
+              .superRefine((input, ctx) => {
+                if ((input.override_reason === null) !== (input.actual_duration_minutes === null)) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message:
+                      "override_reason and actual_duration_minutes must be provided together",
+                  });
+                }
+              }),
+            execute: async ({ override_reason, actual_duration_minutes, partial_reason }) => {
               const r = await guardMutation(() =>
                 completeSession(userId, {
                   planned_minutes: profile?.session_minutes ?? 60,
                   override_reason,
+                  actual_duration_minutes,
                   partial_reason,
                   session_id: activeSession?.id ?? undefined,
                   expected_data_epoch: dataEpoch,

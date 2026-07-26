@@ -78,6 +78,7 @@ import { compactWorkoutLabel } from "@/lib/workout-label";
 import { NextWorkoutActions } from "@/components/NextWorkoutActions";
 import { SkipWorkoutModal } from "@/components/SkipWorkoutModal";
 import { workoutSkipUiEvent } from "@/lib/chat-ui-events";
+import { setupStatus, type SetupKey } from "@/lib/setup-progress";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -323,33 +324,7 @@ function ChatGate() {
 type Profile = NonNullable<Awaited<ReturnType<typeof getProfile>>>;
 type WorkspaceFile = Awaited<ReturnType<typeof getWorkspaceFiles>>[number];
 
-type SetupKey = "profile" | "schedule" | "baseline" | "meals";
 type BuildKey = "schedule" | "plan" | "meals";
-
-function setupStatus(profile: Profile) {
-  return {
-    profile: !!(
-      profile.display_name &&
-      profile.goal &&
-      profile.experience &&
-      profile.days_per_week &&
-      profile.session_minutes &&
-      profile.equipment &&
-      profile.age &&
-      profile.height_cm &&
-      profile.weight_kg &&
-      profile.sex
-    ),
-    schedule: !!profile.schedule_note,
-    baseline: !!profile.recent_training_baseline,
-    meals: !!(
-      profile.activity_level &&
-      profile.diet_style &&
-      profile.meal_preferences &&
-      profile.daily_calorie_target
-    ),
-  } as Record<SetupKey, boolean>;
-}
 
 function workspaceFile(files: WorkspaceFile[] | undefined, path: string) {
   return files?.find((file) => file.path === path) ?? null;

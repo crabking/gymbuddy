@@ -1255,6 +1255,7 @@ export async function completeSession(
   opts?: {
     planned_minutes?: number | null;
     override_reason?: string | null;
+    actual_duration_minutes?: number | null;
     partial_reason?: string | null;
     session_id?: string | null;
     expected_data_epoch?: number;
@@ -1274,6 +1275,26 @@ export async function completeSession(
       ok: false,
       error: "invalid_override_reason",
       coach_note: "The completion explanation is too long.",
+    };
+  }
+  const actualDurationMinutes = opts?.actual_duration_minutes ?? null;
+  if (
+    actualDurationMinutes !== null &&
+    (!Number.isInteger(actualDurationMinutes) ||
+      actualDurationMinutes < 1 ||
+      actualDurationMinutes > 1_440)
+  ) {
+    return {
+      ok: false,
+      error: "invalid_actual_duration",
+      coach_note: "The reported workout duration must be between 1 and 1440 minutes.",
+    };
+  }
+  if (actualDurationMinutes !== null && !overrideReason) {
+    return {
+      ok: false,
+      error: "duration_override_reason_required",
+      coach_note: "A reported offline duration needs the user's timing explanation.",
     };
   }
   const partialReason = opts?.partial_reason?.trim() || null;
@@ -1451,7 +1472,8 @@ export async function completeSession(
     }
 
     const completedAt = new Date().toISOString();
-    const durationMinutes = Math.min(1_440, Math.max(0, Math.round(elapsedMin)));
+    const durationMinutes =
+      actualDurationMinutes ?? Math.min(1_440, Math.max(0, Math.round(elapsedMin)));
     const endReason = partialReason
       ? `completed_partial: ${partialReason}`
       : overrideReason
@@ -1920,12 +1942,30 @@ export function summarizeSession(s: ActiveSession, language: AppLanguage = "en")
   }
   const startedMin = Math.round((Date.now() - new Date(s.started_at).getTime()) / 60000);
   const lines = s.exercises
-    .map(
-      (e) =>
-        `  ${e.completed ? "[x]" : "[ ]"} ${
-          language === "sv" ? e.name_sv : e.name_en
-        }${e.target ? ` — ${e.target}` : ""}`,
-    )
+    .map((e) => {
+      const completedSets = e.sets.filter((set) => set.completed);
+      const performed = completedSets
+        .map((set) => {
+          const reps = set.reps == null ? "?" : String(set.reps);
+          return set.weight_kg == null
+            ? `S${set.set_index} ${reps} reps`
+            : `S${set.set_index} ${set.weight_kg}kg×${reps}`;
+        })
+        .join(", ");
+      const progress =
+        e.sets.length > 0
+          ? language === "sv"
+            ? ` | loggat ${completedSets.length}/${e.sets.length}${
+                performed ? `: ${performed}` : ""
+              }`
+            : ` | logged ${completedSets.length}/${e.sets.length}${
+                performed ? `: ${performed}` : ""
+              }`
+          : "";
+      return `  ${e.completed ? "[x]" : "[ ]"} ${
+        language === "sv" ? e.name_sv : e.name_en
+      }${e.target ? ` — ${e.target}` : ""}${progress}`;
+    })
     .join("\n");
   if (language === "sv") {
     return `Aktivt pass "${s.title}" — pågått i ${startedMin} min, ${s.done}/${s.total} klara\n${lines}`;
