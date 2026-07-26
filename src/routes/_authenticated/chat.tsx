@@ -988,6 +988,11 @@ function ChatScreen() {
         );
         return { ok: false };
       }
+      qc.setQueryData(["workout-session"], result.session);
+      const savedSet =
+        result.session?.exercises
+          .flatMap((exercise) => exercise.sets)
+          .find((sessionSet) => sessionSet.id === setId) ?? null;
       if (completed && lastOfExercise) {
         const event = `__ui_event__ finished all sets of "${exerciseName}" in the workout panel`;
         if (busy) {
@@ -999,7 +1004,7 @@ function ChatScreen() {
           void sendMessage({ text: event });
         }
       }
-      return { ok: true };
+      return { ok: true, savedSet };
     } catch (error) {
       if (isDataEpochConflict(error)) {
         await refreshAfterDataEpochConflict(qc);
@@ -2560,7 +2565,7 @@ function PendingImage({ file, onRemove }: { file: File; onRemove: () => void }) 
 type WorkoutSession = NonNullable<Awaited<ReturnType<typeof getActiveWorkoutSession>>>;
 type WorkoutSet = WorkoutSession["exercises"][number]["sets"][number];
 type SetSaveOutcome =
-  | { ok: true }
+  | { ok: true; savedSet: WorkoutSet | null }
   | { ok: false; conflict?: false }
   | { ok: false; conflict: true; latestSet: WorkoutSet | null };
 
@@ -2855,13 +2860,14 @@ function SetRow({
     setSaving(true);
     setError(null);
     try {
-      const outcome = await onToggle(
-        dirty ? editRevisionRef.current : set.revision,
-        completed,
-        w,
-        r,
-      );
+      const outcome = await onToggle(editRevisionRef.current, completed, w, r);
       if (outcome.ok) {
+        if (outcome.savedSet) {
+          const savedDefaults = workoutSetDefaults(outcome.savedSet);
+          setWeight(savedDefaults.weight);
+          setReps(savedDefaults.reps);
+          editRevisionRef.current = outcome.savedSet.revision;
+        }
         setDirty(false);
         setConflict(false);
       } else if (outcome.conflict) {

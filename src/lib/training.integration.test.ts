@@ -1120,6 +1120,17 @@ describe.runIf(hasDatabase).sequential("adaptive beginner program integration", 
       "2035-01-15",
     ]);
 
+    const attemptedSet = started.session.exercises[0]?.sets[0];
+    if (!attemptedSet) throw new Error("Beginner calibration set missing");
+    await expect(
+      markSetDone(userId, attemptedSet.id, {
+        completed: true,
+        weight_kg: 20,
+        reps: 3,
+        expected_revision: attemptedSet.revision,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
     await expect(
       adjustProgramExercise(userId, {
         exercise: "back-squat",
@@ -1130,10 +1141,28 @@ describe.runIf(hasDatabase).sequential("adaptive beginner program integration", 
     ).resolves.toMatchObject({ ok: true, updated: 2, active_session_updated: true });
 
     const active = await getActiveSession(userId);
-    expect(active?.exercises[0]).toMatchObject({
-      exercise_id: "bodyweight-squat",
+    const attemptedExercise = active?.exercises.find(
+      (exercise) => exercise.exercise_id === "back-squat",
+    );
+    expect(attemptedExercise).toMatchObject({
+      completed: true,
     });
-    expect(active?.exercises[0]?.sets.every((set) => set.target_weight_kg === null)).toBe(true);
+    expect(attemptedExercise?.sets).toEqual([
+      expect.objectContaining({
+        set_index: 1,
+        completed: true,
+        weight_kg: 20,
+        reps: 3,
+      }),
+    ]);
+    const replacementExercise = active?.exercises.find(
+      (exercise) => exercise.exercise_id === "bodyweight-squat",
+    );
+    expect(replacementExercise).toMatchObject({
+      completed: false,
+    });
+    expect(replacementExercise?.sets).toHaveLength(3);
+    expect(replacementExercise?.sets.every((set) => set.target_weight_kg === null)).toBe(true);
     const after = await getActiveProgram(userId, "2035-01-05");
     expect(
       after?.days

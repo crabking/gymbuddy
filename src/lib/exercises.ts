@@ -675,6 +675,22 @@ const KNEE_SPARING_CANDIDATES: readonly ExerciseId[] = [
 ];
 
 /**
+ * A different movement pattern is a fallback, not the first choice. These
+ * candidates preserve the same broad muscle-group work when every closer
+ * option is unavailable. The coach still confirms the exact equipment before
+ * persisting one.
+ */
+const SECONDARY_SUBSTITUTION_CANDIDATES: Partial<Record<ExerciseId, readonly ExerciseId[]>> = {
+  "lat-pulldown": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+  "single-arm-lat-pulldown": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+  "straight-arm-cable-pulldown": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+  "pull-up": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+  "chin-up": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+  "assisted-pull-up": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+  "weighted-pull-up": ["machine-row", "chest-supported-row", "one-arm-dumbbell-row"],
+};
+
+/**
  * Equipment failures need a varied shortlist, not eight near-identical
  * machines. Round-robin across equipment types while keeping the closest
  * same-equipment alternative first, so the coach can offer real choices that
@@ -704,7 +720,16 @@ export function exerciseSubstitutionsForReason(
       .slice(0, Math.max(0, limit));
   }
 
-  const all = exerciseSubstitutions(id, EXERCISE_CATALOG.length);
+  const secondary = SECONDARY_SUBSTITUTION_CANDIDATES[source.id as ExerciseId] ?? [];
+  const all = [
+    ...exerciseSubstitutions(id, EXERCISE_CATALOG.length),
+    ...secondary
+      .map((candidateId) => getExercise(candidateId))
+      .filter((candidate): candidate is ExerciseDefinition => candidate != null),
+  ].filter(
+    (candidate, index, candidates) =>
+      candidates.findIndex((item) => item.id === candidate.id) === index,
+  );
   if (!reason.trim().toLowerCase().startsWith("no_equipment:")) {
     return all.filter((candidate) => !excluded.has(candidate.id)).slice(0, Math.max(0, limit));
   }

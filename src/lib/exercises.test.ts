@@ -104,6 +104,19 @@ describe("exercise catalog", () => {
     expect(options.every((option) => getExercise(option.id) === option)).toBe(true);
   });
 
+  it("offers a machine-row fallback when a beginner loses every vertical-pull option", () => {
+    const options = exerciseSubstitutionsForReason(
+      "lat-pulldown",
+      "no_equipment:cable stack is broken, no assisted pull-up machine, cannot do a pull-up yet, row machines available",
+      8,
+    );
+    const ids = options.map((option) => option.id);
+
+    expect(ids).toContain("machine-row");
+    expect(options.find((option) => option.id === "machine-row")?.equipment).toBe("machine");
+    expect(options.every((option) => getExercise(option.id) === option)).toBe(true);
+  });
+
   it("offers distinct hip-dominant candidates instead of another painful knee pattern", () => {
     const options = exerciseSubstitutionsForReason(
       "step-up",
