@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { useLanguage } from "@/components/LanguageProvider";
 
 // In-app confirmation dialog — replaces native window.confirm(), which mobile
@@ -9,6 +9,7 @@ export function ConfirmModal({
   body,
   confirmLabel,
   danger,
+  children,
   onConfirm,
   onCancel,
 }: {
@@ -17,6 +18,7 @@ export function ConfirmModal({
   body?: string;
   confirmLabel?: string;
   danger?: boolean;
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -25,13 +27,17 @@ export function ConfirmModal({
   const bodyId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const onCancelRef = useRef(onCancel);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  }, [onCancel]);
 
   useEffect(() => {
     if (!open) return;
     const previousFocus = document.activeElement as HTMLElement | null;
-    const focusTimer = window.setTimeout(() => confirmRef.current?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
+      if (event.key === "Escape") onCancelRef.current();
       if (event.key !== "Tab") return;
       const focusable = Array.from(
         dialogRef.current?.querySelectorAll<HTMLElement>(
@@ -51,11 +57,10 @@ export function ConfirmModal({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", onKeyDown);
       previousFocus?.focus();
     };
-  }, [onCancel, open]);
+  }, [open]);
 
   if (!open) return null;
   return (
@@ -81,6 +86,7 @@ export function ConfirmModal({
             {body}
           </p>
         )}
+        {children}
         <div className="mt-4 flex gap-2">
           <button
             type="button"

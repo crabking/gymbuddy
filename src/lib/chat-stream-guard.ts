@@ -12,8 +12,15 @@ export async function pipeGuaranteedCoachResponse(options: {
   write: ChatChunkWriter;
   fallbackText: string;
   reportError?: (error: unknown) => void;
+  transformText?: (text: string) => string;
 }) {
-  const { source, write, fallbackText, reportError = () => undefined } = options;
+  const {
+    source,
+    write,
+    fallbackText,
+    reportError = () => undefined,
+    transformText = (text) => text,
+  } = options;
   let finishChunk: Extract<UIMessageChunk, { type: "finish" }> | undefined;
   let sawVisibleText = false;
   let wasAborted = false;
@@ -38,8 +45,11 @@ export async function pipeGuaranteedCoachResponse(options: {
       if (chunk.type === "abort") {
         wasAborted = true;
       }
-      if (chunk.type === "text-delta" && chunk.delta.trim()) {
-        sawVisibleText = true;
+      if (chunk.type === "text-delta") {
+        const delta = transformText(chunk.delta);
+        if (delta.trim()) sawVisibleText = true;
+        write({ ...chunk, delta });
+        continue;
       }
       write(chunk);
     }
@@ -60,7 +70,7 @@ export async function pipeGuaranteedCoachResponse(options: {
     );
     const id = "coach-recovery";
     write({ type: "text-start", id });
-    write({ type: "text-delta", id, delta: fallbackText });
+    write({ type: "text-delta", id, delta: transformText(fallbackText) });
     write({ type: "text-end", id });
   }
 

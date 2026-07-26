@@ -12,6 +12,7 @@ import {
   workoutSessions,
 } from "@/db/schema";
 import { findExercise, getExercise, type AppLanguage, type ExerciseId } from "@/lib/exercises";
+import { summarizeAttendancePattern } from "@/lib/attendance";
 import {
   acquireAccountMutationLock,
   requireExpectedDataEpoch,
@@ -608,6 +609,7 @@ export async function getTodayProgramDay(userId: string, today: string) {
   return {
     ...day,
     program_name: program.name,
+    program_revision: program.revision,
     schedule_mode: program.schedule_mode,
     exercises: exercises.map((row) => ({
       ...row.exercise,
@@ -646,6 +648,7 @@ export async function getNextProgramDay(userId: string, today: string) {
   return {
     ...day,
     program_name: program.name,
+    program_revision: program.revision,
     schedule_mode: program.schedule_mode,
     exercises: exerciseRows.map((row) => ({
       ...row.exercise,
@@ -770,9 +773,12 @@ export async function resolveProgramDay(
   userId: string,
   opts: {
     date: string;
+    day_id?: string;
     status: "skipped" | "planned";
     reason: string;
     source_key: string;
+    auto_recover_progression?: boolean;
+    expected_program_revision?: number;
     expected_data_epoch?: number;
   },
 ) {
@@ -794,8 +800,10 @@ export async function resolveProgramDay(
   const sourceKey = opts.source_key.trim();
   const payloadHash = operationPayloadHash("resolve_day", {
     date: opts.date,
+    day_id: opts.day_id ?? null,
     status: opts.status,
     reason,
+    auto_recover_progression: opts.auto_recover_progression === true,
   });
   const db = getDb();
   return db.transaction(async (tx) => {
@@ -861,10 +869,33 @@ export async function resolveProgramDay(
       reactivatingLatestCompletedCycle = Boolean(program);
     }
     if (!program) return finish({ ok: false as const, error: "no_active_program" });
+    if (
+      opts.expected_program_revision != null &&
+      program.revision !== opts.expected_program_revision
+    ) {
+      return finish({
+        ok: false as const,
+        error: "program_revision_conflict",
+        expected_revision: opts.expected_program_revision,
+        current_revision: program.revision,
+      });
+    }
     const [day] = await tx
-      .select({ id: programDays.id, title: programDays.title, status: programDays.status })
+      .select({
+        id: programDays.id,
+        week: programDays.week,
+        day_index: programDays.day_index,
+        title: programDays.title,
+        status: programDays.status,
+      })
       .from(programDays)
-      .where(and(eq(programDays.program_id, program.id), eq(programDays.date, opts.date)))
+      .where(
+        and(
+          eq(programDays.program_id, program.id),
+          eq(programDays.date, opts.date),
+          ...(opts.day_id ? [eq(programDays.id, opts.day_id)] : []),
+        ),
+      )
       .limit(1);
     if (!day) return finish({ ok: false as const, error: "program_day_not_found" });
     if (day.status === "completed") {
@@ -887,6 +918,63 @@ export async function resolveProgramDay(
       .update(programDays)
       .set({ status: opts.status, session_id: null, resolution_note: reason })
       .where(eq(programDays.id, day.id));
+
+    const recoveryChanges: Array<{
+      program_day_id: string;
+      date: string;
+      exercise_id: string | null;
+      exercise_name: string;
+      before_kg: number;
+      after_kg: number;
+      progression_step_kg: number;
+    }> = [];
+    if (opts.status === "skipped" && opts.auto_recover_progression) {
+      const futurePrescriptions = await tx
+        .select({
+          id: programExercises.id,
+          program_day_id: programDays.id,
+          date: programDays.date,
+          exercise_id: programExercises.exercise_id,
+          exercise_name: programExercises.name,
+          target_weight_kg: programExercises.target_weight_kg,
+          progression_step_kg: programExercises.progression_step_kg,
+        })
+        .from(programExercises)
+        .innerJoin(programDays, eq(programDays.id, programExercises.program_day_id))
+        .where(
+          and(
+            eq(programDays.program_id, program.id),
+            eq(programDays.status, "planned"),
+            eq(programDays.day_index, day.day_index),
+            sql`${programDays.date} > ${opts.date}`,
+            sql`${programExercises.target_weight_kg} IS NOT NULL`,
+            sql`${programExercises.progression_step_kg} > 0`,
+          ),
+        )
+        .orderBy(asc(programDays.date), asc(programExercises.position));
+
+      for (const prescription of futurePrescriptions) {
+        const before = prescription.target_weight_kg;
+        const step = prescription.progression_step_kg;
+        if (before == null || step == null || step <= 0) continue;
+        const after = Math.max(0, Math.round((before - step) * 100) / 100);
+        if (after === before) continue;
+        await tx
+          .update(programExercises)
+          .set({ target_weight_kg: after })
+          .where(eq(programExercises.id, prescription.id));
+        recoveryChanges.push({
+          program_day_id: prescription.program_day_id,
+          date: prescription.date,
+          exercise_id: prescription.exercise_id,
+          exercise_name: prescription.exercise_name,
+          before_kg: before,
+          after_kg: after,
+          progression_step_kg: step,
+        });
+      }
+    }
+
     await tx
       .update(programs)
       .set({ revision: sql`${programs.revision} + 1` })
@@ -919,6 +1007,17 @@ export async function resolveProgramDay(
       title: day.title,
       status: opts.status,
       reason,
+      recovery:
+        opts.status === "skipped" && opts.auto_recover_progression
+          ? {
+              kind: recoveryChanges.length > 0 ? ("hold_progression" as const) : ("none" as const),
+              scope: "matching_weekly_session" as const,
+              day_index: day.day_index,
+              affected_days: new Set(recoveryChanges.map((change) => change.program_day_id)).size,
+              affected_exercises: recoveryChanges.length,
+              changes: recoveryChanges,
+            }
+          : null,
     });
   });
 }
@@ -1527,6 +1626,7 @@ export function summarizeProgram(
       }.
 Sparade orsaker till överhoppade pass:
 ${skippedDetails || "  (inga)"}
+${summarizeAttendancePattern(p.days, language)}
 Programperioden är stängd och sparad. Granska resultaten och erbjud sedan nästa programperiod.`;
     }
     return `"${p.name}" — COMPLETED (${done} workouts, ${skipped} skipped)${
@@ -1534,6 +1634,7 @@ Programperioden är stängd och sparad. Granska resultaten och erbjud sedan näs
     }.
 Recorded skip reasons:
 ${skippedDetails || "  (none)"}
+${summarizeAttendancePattern(p.days, language)}
 The cycle is closed and preserved. Review the results, then offer to build the next program cycle.`;
   }
   if (language === "sv") {
@@ -1545,6 +1646,7 @@ Försenade pass som kräver ett uttryckligt beslut om slutfört/överhoppat: ${o
 ${overdueDetails || "  (inga)"}
 Sparade orsaker till överhoppade pass:
 ${skippedDetails || "  (inga)"}
+${summarizeAttendancePattern(p.days, language)}
 Närmast:
 ${up || "  (inget schemalagt — granska försenade pass eller avsluta programperioden)"}`;
   }
@@ -1556,6 +1658,7 @@ Overdue workouts needing an explicit completed/skipped decision: ${overdue.lengt
 ${overdueDetails || "  (none)"}
 Recorded skip reasons:
 ${skippedDetails || "  (none)"}
+${summarizeAttendancePattern(p.days, language)}
 Next up:
 ${up || "  (none scheduled — review overdue workouts or close the cycle)"}`;
 }

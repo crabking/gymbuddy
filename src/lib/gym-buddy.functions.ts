@@ -251,6 +251,68 @@ export const startTodayWorkoutSession = createServerFn({ method: "POST" })
     });
   });
 
+export const skipNextWorkoutSession = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .validator((input: unknown) =>
+    z
+      .object({
+        client_date: IsoDateSchema,
+        program_day_id: z.string().uuid(),
+        program_day_date: IsoDateSchema,
+        reason: z.string().trim().min(1).max(500).nullable(),
+        request_id: z.string().uuid(),
+        expected_program_revision: z.number().int().min(0),
+        expected_data_epoch: z.number().int().min(0),
+      })
+      .strict()
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const serverToday = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const requested = new Date(`${data.client_date}T00:00:00.000Z`);
+    if (Math.abs(requested.getTime() - serverToday.getTime()) > 86_400_000) {
+      return {
+        ok: false as const,
+        error: "invalid_local_date",
+        coach_note: "Refresh the app before skipping this workout.",
+      };
+    }
+    const { getNextProgramDay, resolveProgramDay } = await import("@/lib/program.server");
+    const next = await getNextProgramDay(context.userId, data.client_date);
+    if (
+      !next ||
+      next.id !== data.program_day_id ||
+      next.date !== data.program_day_date ||
+      next.status !== "planned"
+    ) {
+      return {
+        ok: false as const,
+        error: "workout_changed",
+        coach_note: "The next workout changed on another device. Refresh and review it first.",
+      };
+    }
+    const result = await resolveProgramDay(context.userId, {
+      date: data.program_day_date,
+      day_id: data.program_day_id,
+      status: "skipped",
+      reason: data.reason ?? "No reason provided by user.",
+      source_key: `ui-skip:${data.request_id}`,
+      auto_recover_progression: true,
+      expected_program_revision: data.expected_program_revision,
+      expected_data_epoch: data.expected_data_epoch,
+    });
+    if (!result.ok) {
+      return {
+        ...result,
+        coach_note:
+          result.error === "program_revision_conflict"
+            ? "The program changed on another device. Refresh and review it before skipping."
+            : "That workout could not be skipped safely. Refresh and try again.",
+      };
+    }
+    return result;
+  });
+
 export const completeActiveSession = createServerFn({ method: "POST" })
   .middleware([requireAuth])
   .validator((input: unknown) =>
@@ -377,6 +439,11 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
         label: `${todayDay.title}${todayDay.is_deload ? " (deload)" : ""}`,
         detail: "today",
         has_program: true,
+        program_day_id: todayDay.id,
+        program_day_date: todayDay.date,
+        day_index: todayDay.day_index,
+        week: todayDay.week,
+        program_revision: todayDay.program_revision,
       };
     }
     const next = await getNextProgramDay(context.userId, today);
@@ -390,6 +457,11 @@ export const getTodayTrainingInfo = createServerFn({ method: "POST" })
               ? `Day ${next.day_index}`
               : next.date,
         has_program: true,
+        program_day_id: next.id,
+        program_day_date: next.date,
+        day_index: next.day_index,
+        week: next.week,
+        program_revision: next.program_revision,
       };
     }
     const { getTodayTraining } = await import("@/lib/schedule.server");

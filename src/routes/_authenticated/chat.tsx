@@ -19,6 +19,7 @@ import {
   getActiveWorkoutSession,
   getWorkoutSessionReviewContext,
   startTodayWorkoutSession,
+  skipNextWorkoutSession,
   toggleSessionSet,
   completeActiveSession,
   submitPostWorkoutReview,
@@ -73,6 +74,9 @@ import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
 import { useLanguage } from "@/components/LanguageProvider";
 import { workoutSetDefaults } from "@/lib/workout-set-defaults";
 import { TRACKED_NUTRIENTS, type NutrientKey } from "@/lib/nutrients";
+import { compactWorkoutLabel } from "@/lib/workout-label";
+import { NextWorkoutActions } from "@/components/NextWorkoutActions";
+import { SkipWorkoutModal } from "@/components/SkipWorkoutModal";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -238,11 +242,33 @@ function deriveActivity(
 export const Route = createFileRoute("/_authenticated/chat")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { settings?: boolean; nutrition?: boolean; start?: boolean } => ({
-    ...(search.settings === true || search.settings === "true" ? { settings: true } : {}),
-    ...(search.nutrition === true || search.nutrition === "true" ? { nutrition: true } : {}),
-    ...(search.start === true || search.start === "true" ? { start: true } : {}),
-  }),
+  ): {
+    settings?: boolean;
+    nutrition?: boolean;
+    start?: boolean;
+    skipped?: boolean;
+    recovery?: "hold_progression" | "none";
+    recoveryChanges?: number;
+    recoveryDays?: number;
+  } => {
+    const recoveryChanges = Number(search.recoveryChanges);
+    const recoveryDays = Number(search.recoveryDays);
+    return {
+      ...(search.settings === true || search.settings === "true" ? { settings: true } : {}),
+      ...(search.nutrition === true || search.nutrition === "true" ? { nutrition: true } : {}),
+      ...(search.start === true || search.start === "true" ? { start: true } : {}),
+      ...(search.skipped === true || search.skipped === "true" ? { skipped: true } : {}),
+      ...(search.recovery === "hold_progression" || search.recovery === "none"
+        ? { recovery: search.recovery }
+        : {}),
+      ...(Number.isInteger(recoveryChanges) && recoveryChanges >= 0 && recoveryChanges <= 500
+        ? { recoveryChanges }
+        : {}),
+      ...(Number.isInteger(recoveryDays) && recoveryDays >= 0 && recoveryDays <= 104
+        ? { recoveryDays }
+        : {}),
+    };
+  },
   head: () => ({
     meta: [
       { title: "COACH — session" },
@@ -445,6 +471,7 @@ function ChatScreen() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [processingImage, setProcessingImage] = useState(false);
   const [workoutMutations, setWorkoutMutations] = useState(0);
+  const [skipWorkoutOpen, setSkipWorkoutOpen] = useState(false);
   const [calorieTrackerOpen, setCalorieTrackerOpen] = useState(false);
   const [adaptationSaving, setAdaptationSaving] = useState(false);
   const [reviewSession, setReviewSession] = useState<{
@@ -460,6 +487,7 @@ function ChatScreen() {
   const kickoffMessageId = useRef<string | null>(null);
   const kickoffInFlight = useRef(false);
   const startIntentHandled = useRef(false);
+  const skipIntentHandled = useRef(false);
   const clearChatErrorRef = useRef<() => void>(() => undefined);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
@@ -655,6 +683,19 @@ function ChatScreen() {
   );
   const buildDoneCount = Object.values(buildStatus_).filter(Boolean).length;
   const buildTotalSteps = Object.keys(buildStatus_).length;
+  const nextWorkoutLabel =
+    todayTraining && "day_index" in todayTraining && typeof todayTraining.day_index === "number"
+      ? compactWorkoutLabel(todayTraining.day_index, todayTraining.label, language)
+      : (todayTraining?.label ??
+        (language === "sv" ? "Nästa träningspass" : "Next scheduled workout"));
+  const canSkipNextWorkout =
+    !!todayTraining?.has_program &&
+    "program_day_id" in todayTraining &&
+    typeof todayTraining.program_day_id === "string" &&
+    "program_day_date" in todayTraining &&
+    typeof todayTraining.program_day_date === "string" &&
+    "program_revision" in todayTraining &&
+    typeof todayTraining.program_revision === "number";
 
   // Start every empty setup phase with a real coach turn. This covers both
   // fresh onboarding and the post-onboarding plan/build sequence.
@@ -664,6 +705,8 @@ function ChatScreen() {
   useEffect(() => {
     if (
       !kicked.current &&
+      !search.start &&
+      !search.skipped &&
       shouldAutoKickoffCoach({
         messages,
         inOnboarding,
@@ -689,6 +732,8 @@ function ChatScreen() {
     status,
     sendMessage,
     kickoffFailed,
+    search.skipped,
+    search.start,
   ]);
 
   // When onboarding finishes, clear the chat into a fresh session — and re-arm
@@ -828,7 +873,7 @@ function ChatScreen() {
           : t("chat.workout_ready"),
       );
       if (!busy) {
-        void sendMessage({ text: "__ui_event__ started today's workout from the app" });
+        void sendMessage({ text: "__ui_event__ started the next scheduled workout from the app" });
       }
     } catch (error) {
       if (isDataEpochConflict(error)) {
@@ -852,6 +897,61 @@ function ChatScreen() {
     }
   }
 
+  async function skipNextWorkout(reason: string | null) {
+    if (!canSkipNextWorkout || workoutMutations > 0) return;
+    setWorkoutMutations((count) => count + 1);
+    try {
+      const d = new Date();
+      const clientDate = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      const result = await whilePwaUpdateBlocked("workout-skip", () =>
+        skipNextWorkoutSession({
+          data: {
+            client_date: clientDate,
+            program_day_id: todayTraining.program_day_id,
+            program_day_date: todayTraining.program_day_date,
+            reason,
+            request_id: crypto.randomUUID(),
+            expected_program_revision: todayTraining.program_revision,
+            expected_data_epoch: (profile as Profile).data_epoch,
+          },
+        }),
+      );
+      if (!result.ok) {
+        toast.error(result.coach_note ?? t("chat.workout_unavailable"));
+        return;
+      }
+      setSkipWorkoutOpen(false);
+      toast.success(
+        language === "sv" ? "Passet har markerats som missat" : "Workout marked skipped",
+      );
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["program"] }),
+        qc.invalidateQueries({ queryKey: ["today-training"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      setQueuedUiEvent(
+        result.recovery?.kind === "hold_progression"
+          ? `__ui_event__ confirmed a workout skip. Factual result: ${result.recovery.affected_exercises} future exercise prescriptions across ${result.recovery.affected_days} repetitions of this same weekly training slot were held by one stored progression step; unrelated training days were unchanged. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.`
+          : `__ui_event__ confirmed a workout skip. Factual result: no future prescription remained to hold. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.`,
+      );
+    } catch (error) {
+      if (isDataEpochConflict(error)) {
+        await refreshAfterDataEpochConflict(qc);
+        toast.error(t("chat.account_changed"));
+      } else if (isUnauthorizedError(error)) {
+        await hardNavigateToAuth(qc);
+      } else {
+        toast.error(
+          language === "sv"
+            ? "Passet kunde inte hoppas över säkert."
+            : "The workout could not be skipped safely.",
+        );
+      }
+    } finally {
+      setWorkoutMutations((count) => Math.max(0, count - 1));
+    }
+  }
+
   useEffect(() => {
     if (!search.start || startIntentHandled.current || sessionQuery.isPending) return;
     startIntentHandled.current = true;
@@ -860,6 +960,17 @@ function ChatScreen() {
     // The URL intent is consumed once; startWorkout deliberately uses the latest query state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.start, session, sessionQuery.isPending, sessionQuery.isError, navigate]);
+
+  useEffect(() => {
+    if (!search.skipped || skipIntentHandled.current) return;
+    skipIntentHandled.current = true;
+    void navigate({ to: "/chat", search: {}, replace: true });
+    setQueuedUiEvent(
+      search.recovery === "hold_progression"
+        ? `__ui_event__ confirmed a workout skip from the Program tab. Factual result: ${search.recoveryChanges ?? 0} future exercise prescriptions across ${search.recoveryDays ?? 0} repetitions of this same weekly training slot were held by one stored progression step; unrelated training days were unchanged. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.`
+        : "__ui_event__ confirmed a workout skip from the Program tab. Factual result: no future prescription remained to hold. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.",
+    );
+  }, [navigate, search.recovery, search.recoveryChanges, search.recoveryDays, search.skipped]);
 
   async function toggleSet(
     setId: string,
@@ -1561,23 +1672,12 @@ function ChatScreen() {
                   : "Couldn’t load the workout · Retry"}
               </button>
             ) : !keyboardOpen && !pendingAdaptation && todayTraining?.has_program ? (
-              <button
-                type="button"
-                onClick={() => void startWorkout()}
-                disabled={workoutMutations > 0}
-                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/20 disabled:opacity-50"
-              >
-                {workoutMutations > 0 ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}{" "}
-                {workoutMutations > 0
-                  ? language === "sv"
-                    ? "Startar…"
-                    : "Starting…"
-                  : t("chat.start_workout")}
-              </button>
+              <NextWorkoutActions
+                workoutLabel={nextWorkoutLabel}
+                busy={workoutMutations > 0}
+                onStart={() => void startWorkout()}
+                onSkip={() => setSkipWorkoutOpen(true)}
+              />
             ) : null}
           </div>
         )}
@@ -1654,6 +1754,14 @@ function ChatScreen() {
           </button>
         </div>
       </div>
+
+      <SkipWorkoutModal
+        open={skipWorkoutOpen}
+        workoutLabel={nextWorkoutLabel}
+        busy={workoutMutations > 0}
+        onCancel={() => setSkipWorkoutOpen(false)}
+        onConfirm={(reason) => void skipNextWorkout(reason)}
+      />
 
       <CalorieTrackerSheet
         open={calorieTrackerOpen}

@@ -15,5 +15,11 @@ describe("coach personality prompts", () => {
     expect(tank?.personality).toContain("🦍 is your recurring signature");
     expect(tank?.personality).toContain("continuity across days");
     expect(tank?.personality).toContain("instead of copying a canned sentence template");
+    expect(tank?.personality).toContain("never like a pre-written motivational speech");
+    expect(tank?.personality).toContain("Do not repeat the user's newest words back to them.");
+    expect(tank?.personality).toContain("You own the coaching moment");
+    expect(tank?.personality).toContain("Do not march through a fixed response structure");
+    expect(tank?.personality).toContain("Battle cries are earned emotional weapons");
+    expect(tank?.personality).not.toContain("pre-set speech");
   });
 });

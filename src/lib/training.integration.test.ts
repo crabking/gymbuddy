@@ -891,3 +891,292 @@ describe.runIf(hasDatabase).sequential("adaptive beginner program integration", 
     ).toBe(false);
   });
 });
+
+describe.runIf(hasDatabase).sequential("confirmed attendance skip integration", () => {
+  const userId = randomUUID();
+
+  beforeAll(async () => {
+    const db = getDb();
+    await db.insert(users).values({
+      id: userId,
+      email: `attendance-skip-${userId}@example.invalid`,
+      password_hash: "not-a-real-login",
+    });
+    await db.insert(profiles).values({
+      id: userId,
+      display_name: "Attendance Test",
+      coach_id: "brutus",
+      experience: "advanced",
+      onboarding_completed: true,
+    });
+    await generateProgram(userId, {
+      name: "Three Week Attendance Test",
+      goal: "powerlifting total",
+      experience: "advanced",
+      start_date: "2035-01-01",
+      weeks: 3,
+      session_minutes: 60,
+      deload_weeks: [],
+      progression_rules: "Only progress completed work.",
+      why: "Verify confirmed skip persistence and pattern context.",
+      source_key: `attendance-program-${userId}`,
+      week_template: [
+        {
+          title: "Day 1 — Upper",
+          exercises: [
+            {
+              exercise_id: "bench-press",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 80,
+              increment_kg: 2.5,
+              increment_every_weeks: 1,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await getDb().delete(users).where(eq(users.id, userId));
+  });
+
+  it("requires the exact next day and current revision, then records three weekly reasons", async () => {
+    const initial = await getActiveProgram(userId, "2035-01-01");
+    if (!initial) throw new Error("attendance_program_missing");
+    const first = initial.days[0]!;
+
+    await expect(
+      resolveProgramDay(userId, {
+        date: first.date,
+        day_id: randomUUID(),
+        status: "skipped",
+        reason: "Wrong stale card.",
+        source_key: `attendance-wrong-day-${userId}`,
+        expected_program_revision: initial.revision,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: "program_day_not_found" });
+
+    await expect(
+      resolveProgramDay(userId, {
+        date: first.date,
+        day_id: first.id,
+        status: "skipped",
+        reason: "Work ran late.",
+        source_key: `attendance-skip-1-${userId}`,
+        auto_recover_progression: true,
+        expected_program_revision: initial.revision,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: "skipped",
+      reason: "Work ran late.",
+      recovery: {
+        kind: "hold_progression",
+        affected_days: 2,
+        affected_exercises: 2,
+      },
+    });
+
+    const afterFirst = await getActiveProgram(userId, "2035-01-08");
+    if (!afterFirst) throw new Error("attendance_program_closed_early");
+    expect(
+      afterFirst.days
+        .filter((day) => day.status === "planned")
+        .map((day) => day.exercises[0]?.target_weight_kg),
+    ).toEqual([80, 82.5]);
+    const second = afterFirst.days.find((day) => day.status === "planned")!;
+    await expect(
+      resolveProgramDay(userId, {
+        date: second.date,
+        day_id: second.id,
+        status: "skipped",
+        reason: "Did not feel like training.",
+        source_key: `attendance-stale-revision-${userId}`,
+        expected_program_revision: initial.revision,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: "program_revision_conflict" });
+    await expect(
+      resolveProgramDay(userId, {
+        date: second.date,
+        day_id: second.id,
+        status: "skipped",
+        reason: "Did not feel like training.",
+        source_key: `attendance-skip-2-${userId}`,
+        auto_recover_progression: true,
+        expected_program_revision: afterFirst.revision,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: "skipped",
+      recovery: {
+        kind: "hold_progression",
+        affected_days: 1,
+        affected_exercises: 1,
+      },
+    });
+
+    const afterSecond = await getActiveProgram(userId, "2035-01-15");
+    if (!afterSecond) throw new Error("attendance_program_closed_early");
+    expect(
+      afterSecond.days.find((day) => day.status === "planned")?.exercises[0]?.target_weight_kg,
+    ).toBe(80);
+    const third = afterSecond.days.find((day) => day.status === "planned")!;
+    await expect(
+      resolveProgramDay(userId, {
+        date: third.date,
+        day_id: third.id,
+        status: "skipped",
+        reason: "Work again.",
+        source_key: `attendance-skip-3-${userId}`,
+        auto_recover_progression: true,
+        expected_program_revision: afterSecond.revision,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: "skipped",
+      cycle_completed: true,
+      recovery: { kind: "none", affected_days: 0, affected_exercises: 0 },
+    });
+
+    const finished = await getCurrentProgram(userId, "2035-01-15");
+    expect(finished?.days.map((day) => day.resolution_note)).toEqual([
+      "Work ran late.",
+      "Did not feel like training.",
+      "Work again.",
+    ]);
+  });
+});
+
+describe.runIf(hasDatabase).sequential("multi-day attendance recovery integration", () => {
+  const userId = randomUUID();
+
+  beforeAll(async () => {
+    const db = getDb();
+    await db.insert(users).values({
+      id: userId,
+      email: `attendance-scope-${userId}@example.invalid`,
+      password_hash: "not-a-real-login",
+    });
+    await db.insert(profiles).values({
+      id: userId,
+      display_name: "Attendance Scope Test",
+      coach_id: "brutus",
+      experience: "advanced",
+      onboarding_completed: true,
+    });
+    await generateProgram(userId, {
+      name: "Four Day Attendance Scope Test",
+      goal: "powerlifting total",
+      experience: "advanced",
+      start_date: "2036-01-01",
+      weeks: 2,
+      session_minutes: 60,
+      deload_weeks: [],
+      progression_rules: "Progress each weekly training slot independently.",
+      why: "Verify one missed session never rolls back unrelated training days.",
+      source_key: `attendance-scope-program-${userId}`,
+      week_template: [
+        {
+          title: "Day 1 — Squat",
+          exercises: [
+            {
+              exercise_id: "back-squat",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 100,
+              increment_kg: 2.5,
+              increment_every_weeks: 1,
+            },
+          ],
+        },
+        {
+          title: "Day 2 — Bench",
+          exercises: [
+            {
+              exercise_id: "bench-press",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 80,
+              increment_kg: 2.5,
+              increment_every_weeks: 1,
+            },
+          ],
+        },
+        {
+          title: "Day 3 — Deadlift",
+          exercises: [
+            {
+              exercise_id: "deadlift",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 140,
+              increment_kg: 5,
+              increment_every_weeks: 1,
+            },
+          ],
+        },
+        {
+          title: "Day 4 — Press",
+          exercises: [
+            {
+              exercise_id: "overhead-press",
+              sets: 3,
+              rep_range: "5",
+              start_weight_kg: 50,
+              increment_kg: 2.5,
+              increment_every_weeks: 1,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await getDb().delete(users).where(eq(users.id, userId));
+  });
+
+  it("holds only the matching weekly training slot after one of four sessions is skipped", async () => {
+    const initial = await getActiveProgram(userId, "2036-01-01");
+    if (!initial) throw new Error("attendance_scope_program_missing");
+    const skipped = initial.days.find((day) => day.week === 1 && day.day_index === 2);
+    if (!skipped) throw new Error("attendance_scope_day_missing");
+
+    await expect(
+      resolveProgramDay(userId, {
+        date: skipped.date,
+        day_id: skipped.id,
+        status: "skipped",
+        reason: "One isolated scheduling miss.",
+        source_key: `attendance-scope-skip-${userId}`,
+        auto_recover_progression: true,
+        expected_program_revision: initial.revision,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      recovery: {
+        kind: "hold_progression",
+        scope: "matching_weekly_session",
+        day_index: 2,
+        affected_days: 1,
+        affected_exercises: 1,
+      },
+    });
+
+    const after = await getActiveProgram(userId, "2036-01-02");
+    if (!after) throw new Error("attendance_scope_program_closed");
+    const weekTwoLoads = Object.fromEntries(
+      after.days
+        .filter((day) => day.week === 2)
+        .map((day) => [day.day_index, day.exercises[0]?.target_weight_kg]),
+    );
+    expect(weekTwoLoads).toEqual({
+      1: 102.5,
+      2: 80,
+      3: 145,
+      4: 52.5,
+    });
+  });
+});

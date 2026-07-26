@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Drawer } from "vaul";
@@ -14,11 +14,22 @@ import {
   History,
   ChevronDown,
 } from "lucide-react";
-import { getProgramAdaptationHistory, getProgramFull } from "@/lib/gym-buddy.functions";
+import {
+  getProfile,
+  getProgramAdaptationHistory,
+  getProgramFull,
+  skipNextWorkoutSession,
+} from "@/lib/gym-buddy.functions";
 import { TabBar } from "@/components/TabBar";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useLanguage } from "@/components/LanguageProvider";
 import type { TranslationKey } from "@/lib/i18n";
+import { compactWorkoutLabel } from "@/lib/workout-label";
+import { NextWorkoutActions } from "@/components/NextWorkoutActions";
+import { SkipWorkoutModal } from "@/components/SkipWorkoutModal";
+import { toast } from "sonner";
+import { hardNavigateToAuth, isUnauthorizedError } from "@/lib/client-session";
+import { whilePwaUpdateBlocked } from "@/lib/pwa-update";
 
 export const Route = createFileRoute("/_authenticated/program")({
   head: () => ({ meta: [{ title: "Program — COACH" }] }),
@@ -76,7 +87,14 @@ function statusStyle(day: Day, today: string) {
 
 function ProgramPage() {
   const { language, t } = useLanguage();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const today = todayStr();
+  const profileQuery = useQuery({
+    queryKey: ["profile"],
+    queryFn: () => getProfile({ data: undefined }),
+    staleTime: 60_000,
+  });
   const {
     data: program,
     isLoading,
@@ -105,6 +123,8 @@ function ProgramPage() {
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [guideFailed, setGuideFailed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [skipWorkoutOpen, setSkipWorkoutOpen] = useState(false);
+  const [skipBusy, setSkipBusy] = useState(false);
   const adaptationHistoryQuery = useQuery({
     queryKey: ["adaptation-history", program?.id],
     queryFn: () =>
@@ -135,6 +155,64 @@ function ProgramPage() {
   const doneCount = program?.days.filter((d) => d.status === "completed").length ?? 0;
   const isRolling = program?.schedule_mode === "rolling";
   const firstPlannedDayId = program?.days.find((day) => day.status === "planned")?.id ?? null;
+  const openWorkoutLabel = openDay
+    ? compactWorkoutLabel(openDay.day_index, openDay.title, language)
+    : language === "sv"
+      ? "Nästa träningspass"
+      : "Next scheduled workout";
+
+  async function skipOpenWorkout(reason: string | null) {
+    const profile = profileQuery.data;
+    if (!openDay || !program || !profile || openDay.id !== firstPlannedDayId || skipBusy) return;
+    setSkipBusy(true);
+    try {
+      const result = await whilePwaUpdateBlocked("workout-skip", () =>
+        skipNextWorkoutSession({
+          data: {
+            client_date: today,
+            program_day_id: openDay.id,
+            program_day_date: openDay.date,
+            reason,
+            request_id: crypto.randomUUID(),
+            expected_program_revision: program.revision,
+            expected_data_epoch: profile.data_epoch,
+          },
+        }),
+      );
+      if (!result.ok) {
+        toast.error(result.coach_note);
+        return;
+      }
+      setSkipWorkoutOpen(false);
+      setOpenDayId(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["program"] }),
+        queryClient.invalidateQueries({ queryKey: ["today-training"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      await navigate({
+        to: "/chat",
+        search: {
+          skipped: true,
+          recovery: result.recovery?.kind ?? "none",
+          recoveryChanges: result.recovery?.affected_exercises ?? 0,
+          recoveryDays: result.recovery?.affected_days ?? 0,
+        },
+      });
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        await hardNavigateToAuth(queryClient);
+      } else {
+        toast.error(
+          language === "sv"
+            ? "Passet kunde inte hoppas över säkert."
+            : "The workout could not be skipped safely.",
+        );
+      }
+    } finally {
+      setSkipBusy(false);
+    }
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -511,21 +589,27 @@ function ProgramPage() {
                         </button>
                       ))}
                     </div>
-                    {openDay.status === "planned" &&
-                      (openDay.date <= today ||
-                        (isRolling && openDay.id === firstPlannedDayId)) && (
-                        <Link
-                          to="/chat"
-                          search={{ start: true }}
-                          className="mt-2 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-bold text-primary-foreground"
-                        >
-                          <Dumbbell className="h-4 w-4" /> {t("program.start_due")}
-                        </Link>
-                      )}
+                    {openDay.status === "planned" && openDay.id === firstPlannedDayId && (
+                      <div className="mt-2">
+                        <NextWorkoutActions
+                          workoutLabel={openWorkoutLabel}
+                          busy={skipBusy || profileQuery.isPending}
+                          onStart={() => void navigate({ to: "/chat", search: { start: true } })}
+                          onSkip={() => setSkipWorkoutOpen(true)}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
+            <SkipWorkoutModal
+              open={skipWorkoutOpen}
+              workoutLabel={openWorkoutLabel}
+              busy={skipBusy || profileQuery.isPending}
+              onCancel={() => setSkipWorkoutOpen(false)}
+              onConfirm={(reason) => void skipOpenWorkout(reason)}
+            />
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>

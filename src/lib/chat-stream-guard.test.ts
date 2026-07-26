@@ -39,6 +39,32 @@ describe("guaranteed coach response stream", () => {
     expect(reportError).not.toHaveBeenCalled();
   });
 
+  it("can enforce visible coach punctuation while preserving the stream", async () => {
+    const output: UIMessageChunk[] = [];
+    await pipeGuaranteedCoachResponse({
+      source: chunks([
+        { type: "start" },
+        { type: "text-start", id: "model-text" },
+        {
+          type: "text-delta",
+          id: "model-text",
+          delta: "Week two down too — that is twice.",
+        },
+        { type: "text-end", id: "model-text" },
+        { type: "finish", finishReason: "stop" },
+      ]),
+      write: (chunk) => output.push(chunk),
+      fallbackText: "Retry.",
+      transformText: (text) => text.replace(/\s*—\s*/g, ", "),
+    });
+
+    expect(output).toContainEqual({
+      type: "text-delta",
+      id: "model-text",
+      delta: "Week two down too, that is twice.",
+    });
+  });
+
   it("turns a terminal provider error into visible retryable text", async () => {
     const { output, reportError } = await guard([
       { type: "start" },
