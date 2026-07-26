@@ -9,6 +9,7 @@ import {
   exerciseCatalogForPrompt,
   exerciseName,
   exerciseSubstitutions,
+  exerciseSubstitutionsForReason,
   findExercise,
   getExercise,
 } from "@/lib/exercises";
@@ -90,6 +91,17 @@ describe("exercise catalog", () => {
       expect(english).toContain(`${exercise.id} = ${exercise.name_en} (${exercise.equipment})`);
       expect(swedish).toContain(`${exercise.id} = ${exercise.name_sv} (${exercise.equipment})`);
     }
+  });
+
+  it("diversifies equipment-failure options without leaving the canonical catalog", () => {
+    const options = exerciseSubstitutionsForReason(
+      "lying-leg-curl",
+      "no_equipment:lying leg curl machine",
+      8,
+    );
+    expect(options.map((option) => option.id)).toContain("dumbbell-romanian-deadlift");
+    expect(new Set(options.map((option) => option.equipment)).size).toBeGreaterThan(2);
+    expect(options.every((option) => getExercise(option.id) === option)).toBe(true);
   });
 
   it("ships one unique, correctly sized production guide per catalog row", () => {

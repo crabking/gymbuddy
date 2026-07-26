@@ -639,6 +639,43 @@ export function exerciseSubstitutions(id: ExerciseId | string, limit = 3) {
     .slice(0, Math.max(0, limit));
 }
 
+/**
+ * Equipment failures need a varied shortlist, not eight near-identical
+ * machines. Round-robin across equipment types while keeping the closest
+ * same-equipment alternative first, so the coach can offer real choices that
+ * are guaranteed to exist in the canonical catalog.
+ */
+export function exerciseSubstitutionsForReason(id: ExerciseId | string, reason: string, limit = 8) {
+  const all = exerciseSubstitutions(id, EXERCISE_CATALOG.length);
+  if (!reason.trim().toLowerCase().startsWith("no_equipment:")) {
+    return all.slice(0, Math.max(0, limit));
+  }
+  const source = getExercise(id);
+  const buckets = new Map<string, ExerciseDefinition[]>();
+  for (const candidate of all) {
+    const bucket = buckets.get(candidate.equipment) ?? [];
+    bucket.push(candidate);
+    buckets.set(candidate.equipment, bucket);
+  }
+  const equipmentOrder = [
+    ...(source?.equipment && buckets.has(source.equipment) ? [source.equipment] : []),
+    ...[...buckets.keys()].filter((equipment) => equipment !== source?.equipment),
+  ];
+  const result: ExerciseDefinition[] = [];
+  for (let index = 0; result.length < limit; index++) {
+    let added = false;
+    for (const equipment of equipmentOrder) {
+      const candidate = buckets.get(equipment)?.[index];
+      if (!candidate) continue;
+      result.push(candidate);
+      added = true;
+      if (result.length >= limit) break;
+    }
+    if (!added) break;
+  }
+  return result;
+}
+
 export function exerciseName(
   exerciseId: string | null | undefined,
   language: AppLanguage,

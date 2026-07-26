@@ -16,7 +16,7 @@ import {
   EXERCISE_IDS,
   exerciseCatalogForPrompt,
   exerciseName,
-  exerciseSubstitutions,
+  exerciseSubstitutionsForReason,
   getExercise,
   type AppLanguage,
 } from "@/lib/exercises";
@@ -2283,7 +2283,7 @@ ${programInput.why}
 
           const substituteExerciseTool = tool({
             description:
-              "Get canonical substitute exercises for a lift the user dislikes or can't do. Returns catalog options with equipment needs so you can choose at most two that fit the clarified reason. ALWAYS use this before swapping an exercise — never lazy-swap or silently drop.",
+              "Get canonical substitute exercises for a lift the user dislikes or can't do. Returns persistable catalog options with equipment needs so you can choose at most two that fit the clarified reason. ALWAYS use this before naming choices or swapping an exercise. Offer only returned options, never invent a candidate, lazy-swap, or silently drop the movement.",
             inputSchema: z
               .object({
                 exercise_id: z.enum(EXERCISE_IDS),
@@ -2299,11 +2299,13 @@ ${programInput.why}
               const selectedExercise = getExercise(exercise_id);
               const exercise = selectedExercise?.name_en ?? exercise_id;
               const language = profile?.preferred_language === "sv" ? "sv" : "en";
-              const catalogOptions = exerciseSubstitutions(exercise_id, 8).map((item) => ({
-                exercise_id: item.id,
-                name: language === "sv" ? item.name_sv : item.name_en,
-                equipment: item.equipment,
-              }));
+              const catalogOptions = exerciseSubstitutionsForReason(exercise_id, reason, 8).map(
+                (item) => ({
+                  exercise_id: item.id,
+                  name: language === "sv" ? item.name_sv : item.name_en,
+                  equipment: item.equipment,
+                }),
+              );
               return {
                 ok: true,
                 exercise_id,
@@ -2313,7 +2315,7 @@ ${programInput.why}
                 note:
                   language === "sv"
                     ? "Fråga vilket alternativ användaren föredrar och bekräfta utrustningen innan bytet sparas."
-                    : "Ask which option the user prefers and confirm the equipment before saving the swap.",
+                    : "Offer at most two choices from options above and confirm the equipment before saving the swap. Never name a replacement outside this returned list.",
               };
             },
           });
