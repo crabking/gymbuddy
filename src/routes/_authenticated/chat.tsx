@@ -17,6 +17,7 @@ import {
   resetOnboarding,
   resetWorkspace,
   getActiveWorkoutSession,
+  getWorkoutSessionReviewContext,
   startTodayWorkoutSession,
   toggleSessionSet,
   completeActiveSession,
@@ -452,6 +453,7 @@ function ChatScreen() {
   const clearChatErrorRef = useRef<() => void>(() => undefined);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
+  const lastActiveSession = useRef<typeof session>(session ?? null);
 
   useEffect(() => {
     getCurrentUser({ data: undefined })
@@ -460,6 +462,33 @@ function ChatScreen() {
         if (isUnauthorizedError(error)) void hardNavigateToAuth(qc);
       });
   }, [qc]);
+
+  useEffect(() => {
+    if (session) {
+      lastActiveSession.current = session;
+      return;
+    }
+    const completedCandidate = lastActiveSession.current;
+    if (!completedCandidate) return;
+    lastActiveSession.current = null;
+    void getWorkoutSessionReviewContext({ data: { session_id: completedCandidate.id } })
+      .then((context) => {
+        if (context?.status !== "completed") return;
+        setReviewSession((current) =>
+          current?.id === context.id
+            ? current
+            : {
+                id: context.id,
+                title: context.title,
+                cycleCompleted: context.cycle_completed,
+                programName: context.program_name,
+              },
+        );
+      })
+      .catch((error) => {
+        if (isUnauthorizedError(error)) void hardNavigateToAuth(qc);
+      });
+  }, [qc, session]);
 
   useEffect(() => {
     if (search.settings) setOpenSection("all");
@@ -866,10 +895,16 @@ function ChatScreen() {
         );
         return { ok: false };
       }
-      if (completed && lastOfExercise && !busy) {
-        void sendMessage({
-          text: `__ui_event__ finished all sets of "${exerciseName}" in the workout panel`,
-        });
+      if (completed && lastOfExercise) {
+        const event = `__ui_event__ finished all sets of "${exerciseName}" in the workout panel`;
+        if (busy) {
+          // The user can keep logging sets while the coach is replying. Preserve
+          // the newest completion so the next turn re-reads the live workout
+          // instead of leaving stale "next exercise" guidance on screen.
+          setQueuedUiEvent(event);
+        } else {
+          void sendMessage({ text: event });
+        }
       }
       return { ok: true };
     } catch (error) {

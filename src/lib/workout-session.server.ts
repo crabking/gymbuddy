@@ -166,6 +166,30 @@ export async function getActiveSession(userId: string): Promise<ActiveSession> {
   };
 }
 
+export async function getSessionReviewContext(userId: string, sessionId: string) {
+  const [row] = await getDb()
+    .select({
+      id: workoutSessions.id,
+      title: workoutSessions.title,
+      status: workoutSessions.status,
+      program_name: programs.name,
+      program_status: programs.status,
+    })
+    .from(workoutSessions)
+    .leftJoin(programDays, eq(programDays.id, workoutSessions.program_day_id))
+    .leftJoin(programs, eq(programs.id, programDays.program_id))
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.user_id, userId)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    program_name: row.program_name,
+    cycle_completed: row.program_status === "completed",
+  };
+}
+
 export type StartResult =
   | { ok: true; session: ActiveSession; resumed: boolean; idempotent_replay?: boolean }
   | { ok: false; error: string; coach_note: string };

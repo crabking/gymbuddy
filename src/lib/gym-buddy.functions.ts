@@ -204,6 +204,14 @@ export const getActiveWorkoutSession = createServerFn({ method: "GET" })
     return getActiveSession(context.userId);
   });
 
+export const getWorkoutSessionReviewContext = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .validator((input: unknown) => z.object({ session_id: z.string().uuid() }).strict().parse(input))
+  .handler(async ({ data, context }) => {
+    const { getSessionReviewContext } = await import("@/lib/workout-session.server");
+    return getSessionReviewContext(context.userId, data.session_id);
+  });
+
 const IsoDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
