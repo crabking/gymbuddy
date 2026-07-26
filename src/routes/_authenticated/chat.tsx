@@ -77,6 +77,7 @@ import { TRACKED_NUTRIENTS, type NutrientKey } from "@/lib/nutrients";
 import { compactWorkoutLabel } from "@/lib/workout-label";
 import { NextWorkoutActions } from "@/components/NextWorkoutActions";
 import { SkipWorkoutModal } from "@/components/SkipWorkoutModal";
+import { workoutSkipUiEvent } from "@/lib/chat-ui-events";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -931,8 +932,12 @@ function ChatScreen() {
       ]);
       setQueuedUiEvent(
         result.recovery?.kind === "hold_progression"
-          ? `__ui_event__ confirmed a workout skip. Factual result: ${result.recovery.affected_exercises} future exercise prescriptions across ${result.recovery.affected_days} repetitions of this same weekly training slot were held by one stored progression step; unrelated training days were unchanged. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.`
-          : `__ui_event__ confirmed a workout skip. Factual result: no future prescription remained to hold. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.`,
+          ? workoutSkipUiEvent("chat", {
+              kind: "hold_progression",
+              affected_exercises: result.recovery.affected_exercises,
+              affected_days: result.recovery.affected_days,
+            })
+          : workoutSkipUiEvent("chat", { kind: "none" }),
       );
     } catch (error) {
       if (isDataEpochConflict(error)) {
@@ -967,8 +972,12 @@ function ChatScreen() {
     void navigate({ to: "/chat", search: {}, replace: true });
     setQueuedUiEvent(
       search.recovery === "hold_progression"
-        ? `__ui_event__ confirmed a workout skip from the Program tab. Factual result: ${search.recoveryChanges ?? 0} future exercise prescriptions across ${search.recoveryDays ?? 0} repetitions of this same weekly training slot were held by one stored progression step; unrelated training days were unchanged. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.`
-        : "__ui_event__ confirmed a workout skip from the Program tab. Factual result: no future prescription remained to hold. The saved reason and exact attendance history are already in live state. Do not repeat the reason or mechanically narrate this marker. Respond with your own coaching judgment.",
+        ? workoutSkipUiEvent("program", {
+            kind: "hold_progression",
+            affected_exercises: search.recoveryChanges ?? 0,
+            affected_days: search.recoveryDays ?? 0,
+          })
+        : workoutSkipUiEvent("program", { kind: "none" }),
     );
   }, [navigate, search.recovery, search.recoveryChanges, search.recoveryDays, search.skipped]);
 
