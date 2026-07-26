@@ -45,7 +45,6 @@ import {
   UtensilsCrossed,
   Brain,
   Dumbbell,
-  Flame,
   Play,
   ChevronRight,
   BatteryCharging,
@@ -73,6 +72,7 @@ import { prepareChatImage } from "@/lib/image-upload";
 import { usePwaUpdateBlocker, whilePwaUpdateBlocked } from "@/lib/pwa-update";
 import { useLanguage } from "@/components/LanguageProvider";
 import { workoutSetDefaults } from "@/lib/workout-set-defaults";
+import { TRACKED_NUTRIENTS, type NutrientKey } from "@/lib/nutrients";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -88,10 +88,16 @@ function useChatViewport() {
   useEffect(() => {
     const visualViewport = window.visualViewport;
     let largestHeight = Math.round(visualViewport?.height ?? window.innerHeight);
+    let baselineWidth = Math.round(visualViewport?.width ?? window.innerWidth);
     let orientationTimer: number | undefined;
 
     const sync = () => {
       const height = Math.round(visualViewport?.height ?? window.innerHeight);
+      const width = Math.round(visualViewport?.width ?? window.innerWidth);
+      if (Math.abs(width - baselineWidth) > 50) {
+        baselineWidth = width;
+        largestHeight = height;
+      }
       largestHeight = Math.max(largestHeight, height);
 
       const active = document.activeElement;
@@ -109,6 +115,7 @@ function useChatViewport() {
     const resetOrientationBaseline = () => {
       window.clearTimeout(orientationTimer);
       orientationTimer = window.setTimeout(() => {
+        baselineWidth = Math.round(visualViewport?.width ?? window.innerWidth);
         largestHeight = Math.round(visualViewport?.height ?? window.innerHeight);
         sync();
       }, 250);
@@ -229,8 +236,11 @@ function deriveActivity(
 }
 
 export const Route = createFileRoute("/_authenticated/chat")({
-  validateSearch: (search: Record<string, unknown>): { settings?: boolean; start?: boolean } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { settings?: boolean; nutrition?: boolean; start?: boolean } => ({
     ...(search.settings === true || search.settings === "true" ? { settings: true } : {}),
+    ...(search.nutrition === true || search.nutrition === "true" ? { nutrition: true } : {}),
     ...(search.start === true || search.start === "true" ? { start: true } : {}),
   }),
   head: () => ({
@@ -493,6 +503,10 @@ function ChatScreen() {
   useEffect(() => {
     if (search.settings) setOpenSection("all");
   }, [search.settings]);
+
+  useEffect(() => {
+    if (search.nutrition) setCalorieTrackerOpen(true);
+  }, [search.nutrition]);
 
   // Private, invite-only app: any signed-in user can self-reset their own data.
   const isAdmin = !!userEmail;
@@ -1179,13 +1193,19 @@ function ChatScreen() {
       className="flex min-h-0 flex-col overflow-hidden bg-background"
       style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
     >
+      {!keyboardOpen && <TabBar activeWorkout={Boolean(session)} />}
+
       {/* Header */}
       <header
-        className={`shrink-0 border-b border-border bg-card px-3 pt-[max(0.5rem,env(safe-area-inset-top))] ${
-          keyboardOpen ? "pb-2" : "pb-3"
+        className={`shrink-0 border-b border-border bg-card px-3 ${
+          keyboardOpen ? "pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]" : "py-2"
         }`}
       >
-        <div className={`${keyboardOpen ? "" : "mb-2.5"} flex items-center justify-between gap-2`}>
+        <div
+          className={`flex items-center justify-between gap-2 ${
+            !keyboardOpen && (inOnboarding || buildDoneCount < buildTotalSteps) ? "mb-2.5" : ""
+          }`}
+        >
           <div className="flex items-center gap-2.5">
             <img
               src={coach.portrait}
@@ -1219,16 +1239,6 @@ function ChatScreen() {
                 session={session}
                 minutes={(profile as Profile).session_minutes ?? 60}
               />
-            )}
-            {!inOnboarding && (
-              <button
-                onClick={() => setCalorieTrackerOpen(true)}
-                type="button"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-border bg-background/60 text-primary transition hover:border-primary"
-                aria-label={language === "sv" ? "Öppna kalorispåraren" : "Open calorie tracker"}
-              >
-                <Flame className="h-5 w-5" />
-              </button>
             )}
           </div>
         </div>
@@ -1503,78 +1513,82 @@ function ChatScreen() {
       )}
 
       {/* Live workout module — coach is connected in real time */}
-      {!inOnboarding && (
-        <div
-          className={`shrink-0 border-t border-border bg-card/40 px-3 ${
-            keyboardOpen ? "py-1" : "py-2"
-          }`}
-        >
-          {sessionQuery.isPending && !session ? (
-            <div className="flex min-h-11 items-center justify-center">
-              <Shimmer>
-                {language === "sv" ? "Kontrollerar träningspasset…" : "Checking workout…"}
-              </Shimmer>
-            </div>
-          ) : session ? (
-            <>
-              {sessionQuery.isError && (
-                <button
-                  type="button"
-                  onClick={() => void sessionQuery.refetch()}
-                  className="mb-2 min-h-11 w-full rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-300"
-                >
-                  {language === "sv"
-                    ? "Synkronisering av passet pausad · Försök igen"
-                    : "Workout sync paused · Retry"}
-                </button>
-              )}
-              <WorkoutPanel
-                session={session}
-                onToggleSet={toggleSet}
-                onFinish={finishWorkout}
+      {!inOnboarding &&
+        ((sessionQuery.isPending && !session) ||
+          Boolean(session) ||
+          sessionQuery.isError ||
+          (!keyboardOpen && !pendingAdaptation && Boolean(todayTraining?.has_program))) && (
+          <div
+            className={`shrink-0 border-t border-border bg-card/40 px-3 ${
+              keyboardOpen ? "py-1" : "py-2"
+            }`}
+          >
+            {sessionQuery.isPending && !session ? (
+              <div className="flex min-h-11 items-center justify-center">
+                <Shimmer>
+                  {language === "sv" ? "Kontrollerar träningspasset…" : "Checking workout…"}
+                </Shimmer>
+              </div>
+            ) : session ? (
+              <>
+                {sessionQuery.isError && (
+                  <button
+                    type="button"
+                    onClick={() => void sessionQuery.refetch()}
+                    className="mb-2 min-h-11 w-full rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-300"
+                  >
+                    {language === "sv"
+                      ? "Synkronisering av passet pausad · Försök igen"
+                      : "Workout sync paused · Retry"}
+                  </button>
+                )}
+                <WorkoutPanel
+                  session={session}
+                  onToggleSet={toggleSet}
+                  onFinish={finishWorkout}
+                  disabled={workoutMutations > 0}
+                  forceCollapsed={keyboardOpen}
+                />
+              </>
+            ) : sessionQuery.isError ? (
+              <button
+                type="button"
+                onClick={() => void sessionQuery.refetch()}
+                className="min-h-11 w-full rounded-xl border border-border px-3 text-sm font-bold text-primary"
+              >
+                {language === "sv"
+                  ? "Kunde inte läsa in passet · Försök igen"
+                  : "Couldn’t load the workout · Retry"}
+              </button>
+            ) : !keyboardOpen && !pendingAdaptation && todayTraining?.has_program ? (
+              <button
+                type="button"
+                onClick={() => void startWorkout()}
                 disabled={workoutMutations > 0}
-                forceCollapsed={keyboardOpen}
-              />
-            </>
-          ) : sessionQuery.isError ? (
-            <button
-              type="button"
-              onClick={() => void sessionQuery.refetch()}
-              className="min-h-11 w-full rounded-xl border border-border px-3 text-sm font-bold text-primary"
-            >
-              {language === "sv"
-                ? "Kunde inte läsa in passet · Försök igen"
-                : "Couldn’t load the workout · Retry"}
-            </button>
-          ) : !keyboardOpen && !pendingAdaptation && todayTraining?.has_program ? (
-            <button
-              type="button"
-              onClick={() => void startWorkout()}
-              disabled={workoutMutations > 0}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/20 disabled:opacity-50"
-            >
-              {workoutMutations > 0 ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4" />
-              )}{" "}
-              {workoutMutations > 0
-                ? language === "sv"
-                  ? "Startar…"
-                  : "Starting…"
-                : t("chat.start_workout")}
-            </button>
-          ) : null}
-        </div>
-      )}
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3 text-sm font-bold text-primary transition hover:bg-primary/20 disabled:opacity-50"
+              >
+                {workoutMutations > 0 ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}{" "}
+                {workoutMutations > 0
+                  ? language === "sv"
+                    ? "Startar…"
+                    : "Starting…"
+                  : t("chat.start_workout")}
+              </button>
+            ) : null}
+          </div>
+        )}
 
       {/* Composer */}
       <div
-        className={`shrink-0 border-t border-border bg-background px-3 pt-3 ${
-          keyboardOpen ? "pb-2" : "pb-3"
+        className={`shrink-0 border-t border-border bg-card p-2 ${
+          keyboardOpen ? "pb-[max(0.5rem,env(safe-area-inset-bottom))]" : ""
         }`}
       >
-        <div className="flex items-end gap-2">
+        <div className="flex items-stretch overflow-hidden rounded-xl border border-border bg-card">
           <input
             ref={cameraRef}
             type="file"
@@ -1601,7 +1615,7 @@ function ChatScreen() {
             type="button"
             onClick={() => cameraRef.current?.click()}
             disabled={processingImage || busy}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground hover:border-primary hover:text-primary disabled:opacity-50"
+            className="grid min-h-12 w-12 shrink-0 place-items-center border-r border-border bg-card text-foreground hover:text-primary disabled:opacity-50"
             aria-label={t("chat.take_photo")}
           >
             {processingImage ? (
@@ -1622,14 +1636,14 @@ function ChatScreen() {
             rows={1}
             enterKeyHint="send"
             placeholder={t("chat.ask", { name: coach.name })}
-            className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-border bg-card px-4 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none sm:text-[15px]"
+            className="max-h-32 min-h-12 min-w-0 flex-1 resize-none border-0 bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none sm:text-[15px]"
           />
           <button
             type="button"
             onPointerDown={(event) => event.preventDefault()}
             onClick={busy ? () => stop() : submit}
             disabled={processingImage || (!busy && !input.trim() && pendingFiles.length === 0)}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition disabled:opacity-40"
+            className="grid min-h-12 w-12 shrink-0 place-items-center bg-primary text-primary-foreground transition disabled:opacity-40"
             aria-label={busy ? (language === "sv" ? "Stoppa" : "Stop") : t("chat.send")}
           >
             {busy ? (
@@ -1641,8 +1655,6 @@ function ChatScreen() {
         </div>
       </div>
 
-      {!keyboardOpen && <TabBar activeWorkout={Boolean(session)} />}
-
       <CalorieTrackerSheet
         open={calorieTrackerOpen}
         nutrition={nutrition}
@@ -1653,7 +1665,12 @@ function ChatScreen() {
         carbsLabel={carbsLabel}
         fatLabel={fatLabel}
         knownCalories={knownCalories}
-        onClose={() => setCalorieTrackerOpen(false)}
+        onClose={() => {
+          setCalorieTrackerOpen(false);
+          if (search.nutrition) {
+            void navigate({ to: "/chat", search: {}, replace: true });
+          }
+        }}
         onRetry={() => void nutritionQuery.refetch()}
       />
 
@@ -1815,39 +1832,117 @@ function CalorieTrackerSheet({
   onRetry: () => void;
 }) {
   const { language } = useLanguage();
-  const target = nutrition?.target_calories ?? null;
-  const progress = target ? Math.min(100, (knownCalories / target) * 100) : 0;
+  const [section, setSection] = useState<"overview" | "nutrients" | "meals">("overview");
+  useEffect(() => {
+    if (open) setSection("overview");
+  }, [open]);
+  const calorieTarget = nutrition?.target_calories ?? null;
+  const macroMetrics = [
+    {
+      key: "protein",
+      label: language === "sv" ? "Protein" : "Protein",
+      value: nutrition?.known_totals.protein_g ?? 0,
+      display: proteinLabel,
+      target: nutrition?.target_protein_g ?? null,
+      color: "bg-cyan-400",
+    },
+    {
+      key: "carbs",
+      label: language === "sv" ? "Kolhydrater" : "Carbs",
+      value: nutrition?.known_totals.carbs_g ?? 0,
+      display: carbsLabel,
+      target: nutrition?.target_carbs_g ?? null,
+      color: "bg-amber-400",
+    },
+    {
+      key: "fat",
+      label: language === "sv" ? "Fett" : "Fat",
+      value: nutrition?.known_totals.fat_g ?? 0,
+      display: fatLabel,
+      target: nutrition?.target_fat_g ?? null,
+      color: "bg-violet-400",
+    },
+  ] as const;
+  const weeklyScores =
+    nutrition?.week_days.map((day) => {
+      if (!day.meal_count) return { date: day.date, score: 0, empty: true };
+      const ratios = [
+        calorieTarget ? day.known_calories / calorieTarget : null,
+        nutrition.target_protein_g ? day.known_protein_g / nutrition.target_protein_g : null,
+        nutrition.target_carbs_g ? day.known_carbs_g / nutrition.target_carbs_g : null,
+        nutrition.target_fat_g ? day.known_fat_g / nutrition.target_fat_g : null,
+      ].filter((value): value is number => value != null);
+      const score = ratios.length
+        ? ratios.reduce((sum, value) => sum + Math.min(value, 1), 0) / ratios.length
+        : 0;
+      return { date: day.date, score, empty: false };
+    }) ?? [];
+  const ingredientColors = [
+    "bg-primary",
+    "bg-cyan-400",
+    "bg-amber-400",
+    "bg-violet-400",
+    "bg-emerald-400",
+  ];
+  const shortDay = (date: string) =>
+    new Date(`${date}T12:00:00`)
+      .toLocaleDateString(language === "sv" ? "sv-SE" : "en-US", { weekday: "narrow" })
+      .toUpperCase();
+  const sectionLabels = {
+    overview: language === "sv" ? "Översikt" : "Overview",
+    nutrients: language === "sv" ? "Näringsämnen" : "Nutrients",
+    meals: language === "sv" ? "Måltider" : "Meals",
+  } as const;
+  const nutrientValue = (key: NutrientKey) => nutrition?.nutrient_totals[key] ?? 0;
+  const nutrientKnown = (key: NutrientKey) => nutrition?.nutrient_known_ingredients[key] ?? 0;
+  const nutrientUnknown = (key: NutrientKey) => nutrition?.nutrient_unknown_ingredients[key] ?? 0;
+  const formatNutrient = (value: number) => {
+    if (value === 0) return "0";
+    if (value < 1) return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+    if (value < 10) return value.toFixed(1).replace(/\.0$/, "");
+    return Math.round(value).toLocaleString(language === "sv" ? "sv-SE" : "en-US");
+  };
+  const keyNutrients: NutrientKey[] = [
+    "fiber_g",
+    "magnesium_mg",
+    "potassium_mg",
+    "iron_mg",
+    "calcium_mg",
+    "vitamin_d_mcg",
+  ];
 
   return (
     <Drawer.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-[80] max-h-[85dvh] rounded-t-3xl border-t border-border bg-card outline-none">
-          <div className="mx-auto max-w-lg overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3">
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-border" />
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-[80] flex h-[85dvh] max-h-[85dvh] flex-col rounded-t-3xl border-t border-border bg-card outline-none">
+          <div className="mx-auto flex h-full min-h-0 w-full max-w-lg flex-col px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+            <div className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-border" />
             <div className="flex items-start justify-between gap-3">
               <div>
                 <Drawer.Title className="font-display text-xl font-bold text-foreground">
-                  {language === "sv" ? "Kalorispårare" : "Calorie tracker"}
+                  {language === "sv" ? "Näringsspårare" : "Nutrition tracker"}
                 </Drawer.Title>
-                <Drawer.Description className="mt-1 text-sm text-muted-foreground">
-                  {language === "sv" ? "Dagens mat och makron." : "Today’s food and macros."}
+                <Drawer.Description className="text-xs text-muted-foreground">
+                  {language === "sv"
+                    ? "Makron, vitaminer och mineraler."
+                    : "Macros, vitamins, and minerals."}
                 </Drawer.Description>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-border"
-                aria-label={language === "sv" ? "Stäng kalorispåraren" : "Close calorie tracker"}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border"
+                aria-label={language === "sv" ? "Stäng näringsspåraren" : "Close nutrition tracker"}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {loading && !nutrition ? (
-              <div className="grid min-h-40 place-items-center">
+              <div className="grid flex-1 place-items-center">
                 <Shimmer>
-                  {language === "sv" ? "Läser in dagens mat…" : "Loading today’s food…"}
+                  {language === "sv" ? "Läser in dagens mat…" : "Loading today's food…"}
                 </Shimmer>
               </div>
             ) : error && !nutrition ? (
@@ -1867,81 +1962,365 @@ function CalorieTrackerSheet({
               </div>
             ) : (
               <>
-                <section className="mt-5 rounded-xl border border-border bg-background p-4">
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <div className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                        {language === "sv" ? "Kalorier idag" : "Calories today"}
-                      </div>
-                      <div className="mt-1 text-2xl font-bold text-foreground">
-                        {caloriesLabel}
-                        {target ? ` / ${target}` : ""}{" "}
-                        <span className="text-sm text-muted-foreground">kcal</span>
-                      </div>
-                    </div>
-                    {error && (
+                <div
+                  className="mt-3 grid shrink-0 grid-cols-3 gap-1 rounded-xl border border-border bg-background p-1"
+                  role="tablist"
+                  aria-label={language === "sv" ? "Näringsvyer" : "Nutrition views"}
+                >
+                  {(Object.keys(sectionLabels) as Array<keyof typeof sectionLabels>).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={section === key}
+                      onClick={() => setSection(key)}
+                      className={`min-h-10 rounded-lg px-1 font-display text-[11px] font-bold transition ${
+                        section === key
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {sectionLabels[key]}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  {section === "overview" && (
+                    <div className="space-y-2">
+                      <section className="rounded-xl border border-border bg-background p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                              {language === "sv" ? "Kalorier idag" : "Calories today"}
+                            </div>
+                            <div className="text-xl font-bold text-foreground">
+                              {caloriesLabel}
+                              {calorieTarget ? ` / ${calorieTarget}` : ""}{" "}
+                              <span className="text-xs text-muted-foreground">kcal</span>
+                            </div>
+                          </div>
+                          {error && (
+                            <button
+                              type="button"
+                              onClick={onRetry}
+                              className="min-h-11 text-xs font-bold text-amber-300"
+                            >
+                              {language === "sv" ? "Synka igen" : "Retry sync"}
+                            </button>
+                          )}
+                        </div>
+                        {calorieTarget && (
+                          <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
+                            <div
+                              className="h-full bg-primary transition-all"
+                              style={{
+                                width: `${Math.min(100, (knownCalories / calorieTarget) * 100)}%`,
+                              }}
+                            />
+                          </div>
+                        )}
+                        <div className="mt-3 space-y-2">
+                          {macroMetrics.map((metric) => (
+                            <div
+                              key={metric.key}
+                              className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-2"
+                            >
+                              <div className="text-xs font-bold text-foreground">
+                                {metric.label}
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                                <div
+                                  className={`h-full ${metric.color} transition-all`}
+                                  style={{
+                                    width: `${
+                                      metric.target
+                                        ? Math.min(100, (metric.value / metric.target) * 100)
+                                        : 0
+                                    }%`,
+                                  }}
+                                />
+                              </div>
+                              <div className="min-w-[4.5rem] text-right text-xs font-bold text-foreground">
+                                {metric.display}
+                                {metric.target ? ` / ${Math.round(metric.target)}` : ""}g
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
                       <button
                         type="button"
-                        onClick={onRetry}
-                        className="min-h-11 text-xs font-bold text-amber-300"
+                        onClick={() => setSection("nutrients")}
+                        className="w-full rounded-xl border border-border bg-background p-3 text-left"
                       >
-                        {language === "sv" ? "Synka igen" : "Retry sync"}
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-display text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                            {language === "sv" ? "Viktiga näringsämnen" : "Key nutrients"}
+                          </h3>
+                          <span className="text-[9px] font-bold text-primary">
+                            {language === "sv" ? "VISA ALLA" : "VIEW ALL"}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                          {keyNutrients.map((key) => {
+                            const nutrient = TRACKED_NUTRIENTS.find((item) => item.key === key)!;
+                            const value = nutrientValue(key);
+                            const progress = nutrient.dailyValue
+                              ? Math.min(100, (value / nutrient.dailyValue) * 100)
+                              : 0;
+                            return (
+                              <div key={key}>
+                                <div className="flex items-center justify-between gap-2 text-[10px]">
+                                  <span className="truncate font-semibold text-foreground">
+                                    {language === "sv" ? nutrient.sv : nutrient.en}
+                                  </span>
+                                  <span className="shrink-0 text-muted-foreground">
+                                    {nutrientKnown(key)
+                                      ? `${formatNutrient(value)}${nutrient.unit}`
+                                      : "—"}
+                                  </span>
+                                </div>
+                                <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
+                                  <div
+                                    className="h-full bg-emerald-400"
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </button>
-                    )}
-                  </div>
-                  {target && (
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className="h-full bg-primary transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
+
+                      <section className="rounded-xl border border-border bg-background px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-display text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                            {language === "sv" ? "14 dagars trend" : "14-day trend"}
+                          </h3>
+                          <span className="text-[9px] text-muted-foreground">
+                            {nutrition?.trend_summary.logged_days ?? 0}/14{" "}
+                            {language === "sv" ? "loggade" : "logged"}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid h-12 grid-cols-14 items-end gap-1">
+                          {weeklyScores.map((day) => (
+                            <div
+                              key={day.date}
+                              className="flex h-full flex-col items-center justify-end gap-1"
+                            >
+                              <div className="flex h-8 w-full items-end overflow-hidden rounded-sm bg-secondary">
+                                <div
+                                  className={`w-full ${day.empty ? "bg-border/50" : "bg-primary"}`}
+                                  style={{
+                                    height: `${day.empty ? 8 : Math.max(8, day.score * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className="text-[8px] font-bold text-muted-foreground">
+                                {shortDay(day.date)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
+                          <span>
+                            {language === "sv" ? "Snitt / loggad dag" : "Avg / logged day"}
+                          </span>
+                          <span className="font-bold text-foreground">
+                            {nutrition?.trend_summary.average_calories == null
+                              ? "—"
+                              : `${Math.round(nutrition.trend_summary.average_calories)} kcal`}
+                            {" · "}
+                            {nutrition?.trend_summary.average_protein_g == null
+                              ? "—"
+                              : `${Math.round(nutrition.trend_summary.average_protein_g)}g P`}
+                          </span>
+                        </div>
+                      </section>
                     </div>
                   )}
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    {[
-                      ["P", proteinLabel],
-                      ["C", carbsLabel],
-                      ["F", fatLabel],
-                    ].map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="rounded-lg border border-border/60 bg-card p-2 text-center"
-                      >
-                        <div className="font-display text-[10px] font-bold text-primary">
-                          {label}
-                        </div>
-                        <div className="mt-0.5 text-sm font-bold text-foreground">{value}g</div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
 
-                <section className="mt-4">
-                  <h3 className="font-display text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                    {language === "sv" ? "Dagens måltider" : "Today’s meals"}
-                  </h3>
-                  <div className="mt-2 divide-y divide-border/60 rounded-xl border border-border bg-background">
-                    {nutrition?.meals.length ? (
-                      nutrition.meals.map((meal, index) => (
-                        <div
-                          key={`${meal.logged_at}-${index}`}
-                          className="flex items-start justify-between gap-3 p-3"
-                        >
-                          <div className="min-w-0 text-sm text-foreground">{meal.description}</div>
-                          <div className="shrink-0 text-sm font-bold text-muted-foreground">
-                            {meal.calories == null ? "—" : `${Math.round(meal.calories)} kcal`}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-4 text-sm text-muted-foreground">
+                  {section === "nutrients" && (
+                    <div>
+                      <div className="mb-2 rounded-xl border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-[10px] leading-relaxed text-muted-foreground">
                         {language === "sv"
-                          ? "Inga måltider loggade idag. Skicka en matbild till coachen för att börja."
-                          : "No meals logged today. Send your coach a food photo to begin."}
+                          ? "Uppskattad dagsmängd från loggade ingredienser. Referensvärden är generella vuxenvärden, inte personliga medicinska mål."
+                          : "Estimated daily amount from logged ingredients. Reference values are general adult values, not personal medical targets."}
                       </div>
-                    )}
-                  </div>
-                </section>
+                      {(["vitamins", "minerals", "other"] as const).map((group) => (
+                        <section key={group} className="mb-3">
+                          <h3 className="mb-1.5 font-display text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                            {group === "vitamins"
+                              ? language === "sv"
+                                ? "Vitaminer"
+                                : "Vitamins"
+                              : group === "minerals"
+                                ? language === "sv"
+                                  ? "Mineraler"
+                                  : "Minerals"
+                                : language === "sv"
+                                  ? "Övrigt"
+                                  : "Other"}
+                          </h3>
+                          <div className="divide-y divide-border/60 rounded-xl border border-border bg-background px-3">
+                            {TRACKED_NUTRIENTS.filter((nutrient) => nutrient.group === group).map(
+                              (nutrient) => {
+                                const value = nutrientValue(nutrient.key);
+                                const known = nutrientKnown(nutrient.key);
+                                const unknown = nutrientUnknown(nutrient.key);
+                                const progress = nutrient.dailyValue
+                                  ? Math.min(100, (value / nutrient.dailyValue) * 100)
+                                  : 0;
+                                const limitExceeded =
+                                  nutrient.kind === "limit" &&
+                                  nutrient.dailyValue != null &&
+                                  value > nutrient.dailyValue;
+                                return (
+                                  <div key={nutrient.key} className="py-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-xs font-semibold text-foreground">
+                                        {language === "sv" ? nutrient.sv : nutrient.en}
+                                      </span>
+                                      <span
+                                        className={`text-right text-[10px] font-bold ${
+                                          limitExceeded ? "text-amber-300" : "text-foreground"
+                                        }`}
+                                      >
+                                        {known ? `${formatNutrient(value)} ${nutrient.unit}` : "—"}
+                                        {nutrient.dailyValue != null && (
+                                          <span className="font-normal text-muted-foreground">
+                                            {" "}
+                                            / {nutrient.dailyValue} {nutrient.unit}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                    {nutrient.dailyValue != null && (
+                                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
+                                        <div
+                                          className={`h-full ${
+                                            limitExceeded
+                                              ? "bg-amber-400"
+                                              : nutrient.kind === "limit"
+                                                ? "bg-cyan-400"
+                                                : "bg-emerald-400"
+                                          }`}
+                                          style={{ width: `${progress}%` }}
+                                        />
+                                      </div>
+                                    )}
+                                    {unknown > 0 && (
+                                      <div className="mt-1 text-[9px] text-muted-foreground">
+                                        {language === "sv"
+                                          ? `${unknown} ingrediens(er) saknar uppskattning`
+                                          : `${unknown} ingredient(s) missing an estimate`}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              },
+                            )}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+
+                  {section === "meals" && (
+                    <section>
+                      <h3 className="font-display text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                        {language === "sv" ? "Dagens måltider" : "Today's meals"}
+                      </h3>
+                      <div className="mt-1.5 divide-y divide-border/60 rounded-xl border border-border bg-background">
+                        {nutrition?.meals.length ? (
+                          nutrition.meals.map((meal, index) => (
+                            <div key={`${meal.logged_at}-${index}`} className="p-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 text-xs font-semibold text-foreground">
+                                  {meal.description}
+                                </div>
+                                <div className="shrink-0 text-xs font-bold text-primary">
+                                  {meal.calories == null
+                                    ? "—"
+                                    : `${Math.round(meal.calories)} kcal`}
+                                </div>
+                              </div>
+                              <div className="mt-1 text-[10px] font-semibold text-muted-foreground">
+                                Protein {meal.protein_g == null ? "—" : Math.round(meal.protein_g)}g
+                                {" · "}
+                                {language === "sv" ? "Kolhydrater" : "Carbs"}{" "}
+                                {meal.carbs_g == null ? "—" : Math.round(meal.carbs_g)}g ·{" "}
+                                {language === "sv" ? "Fett" : "Fat"}{" "}
+                                {meal.fat_g == null ? "—" : Math.round(meal.fat_g)}g
+                              </div>
+                              {meal.ingredients.length > 0 && (
+                                <>
+                                  <div
+                                    className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-secondary"
+                                    aria-label={
+                                      language === "sv"
+                                        ? "Ingrediensernas kalorifördelning"
+                                        : "Ingredient calorie contribution"
+                                    }
+                                  >
+                                    {meal.ingredients.map((ingredient, ingredientIndex) => (
+                                      <span
+                                        key={`${ingredient.name}-bar-${ingredientIndex}`}
+                                        className={
+                                          ingredientColors[
+                                            ingredientIndex % ingredientColors.length
+                                          ]
+                                        }
+                                        style={{
+                                          width: `${
+                                            meal.calories
+                                              ? (ingredient.calories / meal.calories) * 100
+                                              : 100 / meal.ingredients.length
+                                          }%`,
+                                        }}
+                                        title={`${ingredient.name}: ${ingredient.calories} kcal`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <div className="mt-1.5 space-y-1">
+                                    {meal.ingredients.map((ingredient, ingredientIndex) => (
+                                      <div
+                                        key={`${ingredient.name}-${ingredientIndex}`}
+                                        className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-2 py-1 text-[9px] text-muted-foreground"
+                                      >
+                                        <span className="min-w-0 truncate">
+                                          {ingredient.name} · {ingredient.amount} ·{" "}
+                                          {ingredient.calories} kcal
+                                        </span>
+                                        <span className="shrink-0 uppercase text-primary">
+                                          {ingredient.estimate_confidence ??
+                                            (language === "sv" ? "äldre" : "legacy")}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="p-3 text-xs leading-relaxed text-muted-foreground">
+                            {language === "sv"
+                              ? "Inga måltider idag. Skicka en matbild så uppskattar coachen ingredienser, portioner, makron, vitaminer och mineraler."
+                              : "No meals today. Send a food photo and your coach will estimate ingredients, portions, macros, vitamins, and minerals."}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+                </div>
+                <p className="shrink-0 px-1 pt-2 text-[9px] leading-relaxed text-muted-foreground">
+                  {language === "sv"
+                    ? "Alla matbildsvärden är uppskattningar, inte laboratoriemätningar."
+                    : "All food-photo values are estimates, not laboratory measurements."}
+                </p>
               </>
             )}
           </div>

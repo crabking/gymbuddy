@@ -9,4 +9,11 @@ describe("coach personality prompts", () => {
       expect(coach.personality).not.toMatch(/\b(?:usually|favor)\b/);
     }
   });
+
+  it("keeps Tank's recurring gorilla identity strong without canned sentence templates", () => {
+    const tank = COACHES.find((coach) => coach.name === "Tank");
+    expect(tank?.personality).toContain("🦍 is your recurring signature");
+    expect(tank?.personality).toContain("continuity across days");
+    expect(tank?.personality).toContain("instead of copying a canned sentence template");
+  });
 });

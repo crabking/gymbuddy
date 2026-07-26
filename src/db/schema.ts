@@ -13,6 +13,7 @@ import {
   check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { FoodNutrientEstimates } from "../lib/nutrients";
 
 // Column *property* names are snake_case to match the app's existing shapes
 // (e.g. profile.display_name, insert({ user_id, parts })), so query objects and
@@ -99,6 +100,9 @@ export const profiles = pgTable(
     active_plan_id: uuid("active_plan_id"),
     schedule_note: text("schedule_note"),
     meal_preferences: text("meal_preferences"),
+    daily_protein_target_g: doublePrecision("daily_protein_target_g"),
+    daily_carbs_target_g: doublePrecision("daily_carbs_target_g"),
+    daily_fat_target_g: doublePrecision("daily_fat_target_g"),
     timezone: text("timezone"),
     coach_gender: text("coach_gender").notNull().default("male"),
     coach_id: text("coach_id").notNull().default("rex"),
@@ -128,6 +132,18 @@ export const profiles = pgTable(
     check(
       "profiles_calorie_target_check",
       sql`${t.daily_calorie_target} IS NULL OR ${t.daily_calorie_target} BETWEEN 800 AND 10000`,
+    ),
+    check(
+      "profiles_protein_target_check",
+      sql`${t.daily_protein_target_g} IS NULL OR ${t.daily_protein_target_g} BETWEEN 0 AND 1000`,
+    ),
+    check(
+      "profiles_carbs_target_check",
+      sql`${t.daily_carbs_target_g} IS NULL OR ${t.daily_carbs_target_g} BETWEEN 0 AND 2000`,
+    ),
+    check(
+      "profiles_fat_target_check",
+      sql`${t.daily_fat_target_g} IS NULL OR ${t.daily_fat_target_g} BETWEEN 0 AND 1000`,
     ),
     check(
       "profiles_language_check",
@@ -271,6 +287,21 @@ export const mealLogs = pgTable(
     protein_g: doublePrecision("protein_g"),
     carbs_g: doublePrecision("carbs_g"),
     fat_g: doublePrecision("fat_g"),
+    ingredients: jsonb("ingredients")
+      .$type<
+        Array<{
+          name: string;
+          amount: string;
+          calories: number;
+          protein_g: number;
+          carbs_g: number;
+          fat_g: number;
+          nutrients?: FoodNutrientEstimates;
+          estimate_confidence?: "high" | "medium" | "low";
+        }>
+      >()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     // A calendar day belongs to the user, not the database server. Every
     // writer must supply the phone-local date explicitly.
     logged_date: date("logged_date", { mode: "string" }).notNull(),
@@ -300,6 +331,7 @@ export const mealLogs = pgTable(
     ),
     check("meal_logs_carbs_check", sql`${t.carbs_g} IS NULL OR ${t.carbs_g} BETWEEN 0 AND 2000`),
     check("meal_logs_fat_check", sql`${t.fat_g} IS NULL OR ${t.fat_g} BETWEEN 0 AND 1000`),
+    check("meal_logs_ingredients_check", sql`jsonb_typeof(${t.ingredients}) = 'array'`),
     check("meal_logs_description_length_check", sql`length(${t.description}) BETWEEN 1 AND 2000`),
   ],
 );

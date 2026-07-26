@@ -36,6 +36,9 @@ suite("long-term tracking invariants", () => {
       id: userId,
       weight_kg: 80,
       daily_calorie_target: 2500,
+      daily_protein_target_g: 180,
+      daily_carbs_target_g: 300,
+      daily_fat_target_g: 70,
     });
   });
 
@@ -60,7 +63,21 @@ suite("long-term tracking invariants", () => {
     const nutrition = await getNutrition(userId, stockholmDay, "Europe/Stockholm");
     expect(nutrition.date).toBe(stockholmDay);
     expect(nutrition.calories).toBe(650);
+    expect(nutrition).toMatchObject({
+      target_protein_g: 180,
+      target_carbs_g: 300,
+      target_fat_g: 70,
+    });
     expect(nutrition.meals.map((meal) => meal.description)).toContain("Late local dinner");
+    expect(nutrition.week_days).toHaveLength(14);
+    expect(nutrition.trend_summary).toMatchObject({
+      calendar_days: 14,
+      logged_days: 1,
+      meal_count: 1,
+      complete_calorie_days: 1,
+      average_calories: 650,
+      average_protein_g: 45,
+    });
   });
 
   it("keeps unknown nutrition distinct from consumed zero", async () => {
@@ -93,6 +110,12 @@ suite("long-term tracking invariants", () => {
       calories: null,
       known_calories: 0,
       meal_count: 0,
+    });
+    expect(nutrition.trend_summary).toMatchObject({
+      logged_days: 1,
+      meal_count: 2,
+      complete_calorie_days: 0,
+      average_calories: null,
     });
   });
 

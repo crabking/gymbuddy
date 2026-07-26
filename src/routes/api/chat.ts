@@ -24,6 +24,49 @@ import { isIsoDate, localDateInTimeZone, normalizeTimeZone } from "@/lib/local-d
 import { pipeGuaranteedCoachResponse } from "@/lib/chat-stream-guard";
 import { beginnerCalibrationPrescription } from "@/lib/training-logic";
 
+const EstimatedNutrientSchema = z
+  .object({
+    fiber_g: z.number().min(0).max(1_000_000).nullable(),
+    total_sugars_g: z.number().min(0).max(1_000_000).nullable(),
+    added_sugars_g: z.number().min(0).max(1_000_000).nullable(),
+    saturated_fat_g: z.number().min(0).max(1_000_000).nullable(),
+    trans_fat_g: z.number().min(0).max(1_000_000).nullable(),
+    monounsaturated_fat_g: z.number().min(0).max(1_000_000).nullable(),
+    polyunsaturated_fat_g: z.number().min(0).max(1_000_000).nullable(),
+    omega_3_g: z.number().min(0).max(1_000_000).nullable(),
+    omega_6_g: z.number().min(0).max(1_000_000).nullable(),
+    cholesterol_mg: z.number().min(0).max(1_000_000).nullable(),
+    sodium_mg: z.number().min(0).max(1_000_000).nullable(),
+    potassium_mg: z.number().min(0).max(1_000_000).nullable(),
+    calcium_mg: z.number().min(0).max(1_000_000).nullable(),
+    iron_mg: z.number().min(0).max(1_000_000).nullable(),
+    magnesium_mg: z.number().min(0).max(1_000_000).nullable(),
+    zinc_mg: z.number().min(0).max(1_000_000).nullable(),
+    selenium_mcg: z.number().min(0).max(1_000_000).nullable(),
+    phosphorus_mg: z.number().min(0).max(1_000_000).nullable(),
+    copper_mg: z.number().min(0).max(1_000_000).nullable(),
+    manganese_mg: z.number().min(0).max(1_000_000).nullable(),
+    iodine_mcg: z.number().min(0).max(1_000_000).nullable(),
+    chloride_mg: z.number().min(0).max(1_000_000).nullable(),
+    chromium_mcg: z.number().min(0).max(1_000_000).nullable(),
+    molybdenum_mcg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_a_mcg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_c_mg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_d_mcg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_e_mg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_k_mcg: z.number().min(0).max(1_000_000).nullable(),
+    thiamin_b1_mg: z.number().min(0).max(1_000_000).nullable(),
+    riboflavin_b2_mg: z.number().min(0).max(1_000_000).nullable(),
+    niacin_b3_mg: z.number().min(0).max(1_000_000).nullable(),
+    pantothenic_b5_mg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_b6_mg: z.number().min(0).max(1_000_000).nullable(),
+    biotin_b7_mcg: z.number().min(0).max(1_000_000).nullable(),
+    folate_b9_mcg: z.number().min(0).max(1_000_000).nullable(),
+    vitamin_b12_mcg: z.number().min(0).max(1_000_000).nullable(),
+    choline_mg: z.number().min(0).max(1_000_000).nullable(),
+  })
+  .strict();
+
 // Bundle skill markdown at build time.
 import onboardingSkill from "@/agent/skills/onboarding.md?raw";
 import scheduleBuilderSkill from "@/agent/skills/schedule-builder.md?raw";
@@ -685,6 +728,19 @@ Before every visible reply, silently ask: "Could this response unmistakably come
 ${coachName}, even with the name removed?" If not, rewrite it in character. Safety and
 factual accuracy always remain intact, but you express them in ${coachName}'s own voice.
 
+## HUMAN CONTINUITY â€” SAME COACH, NEVER A GENERIC MODEL
+The user must feel that they are speaking to the same strongly defined coach every day,
+not a generic model with superficial flavor. Keep your signature worldview, intensity,
+vocabulary, humor, mannerisms, metaphors, and recurring emojis fully present. Signature
+markers are welcome and may recur often when naturalâ€”Tank can use 🦍 regularly because
+he is a gorilla. Never dilute the character merely to sound different.
+
+What you must avoid is robotic templating: copying the same complete opening, sentence
+skeleton, praise line, lecture, or closing across nearby replies regardless of context.
+Silently compare your draft with recent assistant messages and vary the construction when
+it feels canned. React specifically to what the user just said, remember prior details, and
+let the situation determine the response while remaining unmistakably ${coachName}.
+
 ## LANGUAGE
 The app-selected language for this live request is \`${appLanguage}\`.
 - \`sv\`: speak natural Swedish while preserving ${coachName}'s full personality.
@@ -839,7 +895,9 @@ ${weightTrend}
 
 ### Nutrition (today)
 ${summarizeNutrition(nutrition, appLanguage)}
-- You already KNOW what they've eaten today and how much room is left — use it. When they mention eating something, call \`log_meal\`. Answer "what have I had today / how many calories left" straight from the numbers above.
+- You already KNOW what they've eaten today, the full protein/carbs/fat targets, ingredient estimates, and how much room is left — use it.
+- When they mention eating something or send a food photo, call \`log_meal\`. Identify each visible/reported ingredient, estimate a realistic portion, calories, protein, carbs, fat, fiber, sugars, fatty-acid details, cholesterol, every listed vitamin, and every listed mineral for each ingredient. Include cooking oil/sauce/toppings. Use standard food-composition averages and midpoint portions when uncertain. Use null only when a nutrient genuinely cannot be estimated; never use 0 to mean unknown. The tracker sums ingredient rows.
+- Answer "what have I had today / how many calories, macros, vitamins, or minerals are left" straight from the live numbers above. Be explicit that photo/model-derived nutrition is an estimate rather than a lab measurement and invite a quick correction when portion or ingredients are unclear.
 
 ### Coach-defined measurements (latest value per metric)
 ${measurementSummary}
@@ -1123,7 +1181,13 @@ ${input.notes}
                 await writeWorkspaceFile(userId, "nutrition/targets.md", md);
                 await db
                   .update(profiles)
-                  .set({ daily_calorie_target: input.daily_calories, diet_style: input.diet_style })
+                  .set({
+                    daily_calorie_target: input.daily_calories,
+                    daily_protein_target_g: input.protein_g,
+                    daily_carbs_target_g: input.carbs_g,
+                    daily_fat_target_g: input.fat_g,
+                    diet_style: input.diet_style,
+                  })
                   .where(eq(profiles.id, userId));
               });
               return {
@@ -1228,21 +1292,39 @@ ${input.notes}
           let mealLogOrdinal = 0;
           const logMealTool = tool({
             description:
-              "Log a meal with estimated macros. Use midpoints of ranges; state assumptions in description. If one user message contains several distinct meals, log them in chronological order.",
+              "Log a complete meal estimate. Break the meal into visible or reported ingredients. For EVERY ingredient estimate a realistic portion, calories, protein, carbs, fat, fiber, sugars, fatty-acid details, cholesterol, all listed vitamins, and all listed minerals using standard food-composition averages and the midpoint of uncertainty. Use null only when a nutrient genuinely cannot be estimated; never use zero as unknown. Add a confidence level per ingredient and state important assumptions in the description. The server sums ingredient rows. Never omit oils, sauces, drinks, toppings, or condiments. If one message contains several meals, log them in chronological order.",
             inputSchema: z
               .object({
                 description: z.string().trim().min(1).max(2_000),
-                calories: z.number().int().min(0).max(10_000).nullable(),
-                protein_g: z.number().min(0).max(1_000).nullable(),
-                carbs_g: z.number().min(0).max(2_000).nullable(),
-                fat_g: z.number().min(0).max(1_000).nullable(),
+                ingredients: z
+                  .array(
+                    z
+                      .object({
+                        name: z.string().trim().min(1).max(160),
+                        amount: z.string().trim().min(1).max(100),
+                        calories: z.number().int().min(0).max(10_000),
+                        protein_g: z.number().min(0).max(1_000),
+                        carbs_g: z.number().min(0).max(2_000),
+                        fat_g: z.number().min(0).max(1_000),
+                        nutrients: EstimatedNutrientSchema,
+                        estimate_confidence: z.enum(["high", "medium", "low"]),
+                      })
+                      .strict(),
+                  )
+                  .min(1)
+                  .max(30),
               })
               .strict(),
             execute: async (input) => {
               const mealSourceKey = sourceKey(messageKey, `log_meal:${mealLogOrdinal++}`);
               const saved = await guardMutation(() =>
                 logMeal(userId, {
-                  ...input,
+                  description: input.description,
+                  calories: null,
+                  protein_g: null,
+                  carbs_g: null,
+                  fat_g: null,
+                  ingredients: input.ingredients,
                   logged_date: todayDate,
                   timezone: clientTimezone ?? profile.timezone ?? clientOffset ?? null,
                   source_key: mealSourceKey,

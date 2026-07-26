@@ -138,7 +138,9 @@ function ProgramPage() {
 
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <header className="border-b border-border bg-card px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <TabBar />
+
+      <header className="border-b border-border bg-card px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display text-lg font-bold text-foreground">
@@ -527,8 +529,6 @@ function ProgramPage() {
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
-
-      <TabBar />
     </div>
   );
 }

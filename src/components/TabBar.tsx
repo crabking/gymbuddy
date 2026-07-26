@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, CalendarRange, BarChart3, Settings, LogOut } from "lucide-react";
+import { MessageCircle, CalendarRange, Flame, BarChart3, Settings, LogOut } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { clearAccountCache } from "@/lib/client-session";
 const TABS = [
   { to: "/chat", labelKey: "nav.coach", Icon: MessageCircle },
   { to: "/program", labelKey: "nav.program", Icon: CalendarRange },
+  { to: "/chat", labelKey: "nav.nutrition", Icon: Flame, search: { nutrition: true } },
   { to: "/dashboard", labelKey: "nav.dashboard", Icon: BarChart3 },
 ] as const;
 
@@ -25,6 +26,9 @@ export function TabBar({ activeWorkout }: { activeWorkout?: boolean }) {
   const settingsActive =
     location.pathname.startsWith("/chat") &&
     Boolean((location.search as { settings?: boolean }).settings);
+  const nutritionActive =
+    location.pathname.startsWith("/chat") &&
+    Boolean((location.search as { nutrition?: boolean }).nutrition);
 
   const performLogout = async () => {
     if (signingOut) return;
@@ -68,22 +72,26 @@ export function TabBar({ activeWorkout }: { activeWorkout?: boolean }) {
 
   return (
     <>
-      <nav className="border-t border-border bg-card pb-[max(0.25rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto flex max-w-md">
+      <nav className="shrink-0 border-b border-border bg-card pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex max-w-lg">
           {TABS.map((t) => {
             const active =
-              location.pathname.startsWith(t.to) && !(t.to === "/chat" && settingsActive);
+              "search" in t
+                ? nutritionActive
+                : location.pathname.startsWith(t.to) &&
+                  !(t.to === "/chat" && (settingsActive || nutritionActive));
             return (
               <Link
-                key={t.to}
+                key={`${t.to}-${t.labelKey}`}
                 to={t.to}
+                search={"search" in t ? t.search : undefined}
                 aria-current={active ? "page" : undefined}
-                className="relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
+                className="relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
               >
                 {active && (
                   <motion.div
                     layoutId="tab-indicator"
-                    className="absolute inset-x-5 top-0 h-0.5 rounded-full bg-primary"
+                    className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-primary"
                     transition={{ type: "spring", stiffness: 500, damping: 40 }}
                   />
                 )}
@@ -104,14 +112,14 @@ export function TabBar({ activeWorkout }: { activeWorkout?: boolean }) {
           <Link
             to="/chat"
             search={{ settings: true }}
-            className="relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
+            className="relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1.5"
             aria-label={tr("nav.settings")}
             aria-current={settingsActive ? "page" : undefined}
           >
             {settingsActive && (
               <motion.div
                 layoutId="tab-indicator"
-                className="absolute inset-x-5 top-0 h-0.5 rounded-full bg-primary"
+                className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-primary"
                 transition={{ type: "spring", stiffness: 500, damping: 40 }}
               />
             )}
@@ -131,7 +139,7 @@ export function TabBar({ activeWorkout }: { activeWorkout?: boolean }) {
             type="button"
             onClick={() => void requestLogout()}
             disabled={signingOut}
-            className="flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-red-400 disabled:opacity-50"
+            className="flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-red-400 disabled:opacity-50"
             aria-label={tr("chat.sign_out")}
           >
             <LogOut className="h-5 w-5" />

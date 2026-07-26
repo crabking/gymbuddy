@@ -56,6 +56,7 @@ const en = {
 
   "nav.coach": "Coach",
   "nav.program": "Program",
+  "nav.nutrition": "Nutrition",
   "nav.dashboard": "Dashboard",
   "nav.settings": "Settings",
 
@@ -315,6 +316,7 @@ const sv: Record<TranslationKey, string> = {
 
   "nav.coach": "Coach",
   "nav.program": "Program",
+  "nav.nutrition": "Kost",
   "nav.dashboard": "Översikt",
   "nav.settings": "Inställningar",
 

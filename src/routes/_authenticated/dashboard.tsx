@@ -315,7 +315,9 @@ function DashboardPage() {
 
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <header className="border-b border-border bg-card px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <TabBar />
+
+      <header className="border-b border-border bg-card px-4 py-3">
         <div>
           <h1 className="font-display text-lg font-bold text-foreground">{t("dashboard.title")}</h1>
           <p className="text-[11px] text-muted-foreground">{t("dashboard.subtitle")}</p>
@@ -399,22 +401,30 @@ function DashboardPage() {
                 </p>
               ) : (
                 <>
-                  <div className="mb-3 flex flex-wrap gap-1.5">
-                    {lifts.slice(0, 8).map((l) => (
-                      <button
-                        key={l.name}
-                        type="button"
-                        onClick={() => setSelectedLift(l.name)}
-                        className={`min-h-11 shrink-0 rounded-sm border px-3 text-[11px] font-semibold transition ${
-                          lift?.name === l.name
-                            ? "border-primary bg-primary/15 text-primary"
-                            : "border-border bg-secondary/40 text-muted-foreground"
-                        }`}
-                      >
-                        {localizedExerciseName(l.name)}
-                      </button>
-                    ))}
-                  </div>
+                  <label className="mb-3 block">
+                    <span className="sr-only">
+                      {language === "sv" ? "Välj styrkeövning" : "Choose strength exercise"}
+                    </span>
+                    <select
+                      aria-label={
+                        language === "sv" ? "Välj styrkeövning" : "Choose strength exercise"
+                      }
+                      value={lift?.name ?? ""}
+                      onChange={(event) => setSelectedLift(event.target.value)}
+                      className="min-h-11 w-full rounded-xl border border-border bg-secondary/40 px-3 text-sm font-semibold text-foreground outline-none transition focus:border-primary"
+                    >
+                      {lifts.map((item) => (
+                        <option key={item.name} value={item.name}>
+                          {localizedExerciseName(item.name)} · {item.points.length}{" "}
+                          {language === "sv"
+                            ? "pass"
+                            : item.points.length === 1
+                              ? "session"
+                              : "sessions"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
@@ -871,8 +881,6 @@ function DashboardPage() {
           </>
         )}
       </main>
-
-      <TabBar />
     </div>
   );
 }

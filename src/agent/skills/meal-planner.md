@@ -15,7 +15,14 @@ selected.
 1. Use live profile `meal_preferences` first. If `nutrition/targets.md` exists, read it before giving macro advice.
 2. `read_file` `nutrition/targets.md` if it exists (calorie/protein targets).
 3. When the user asks for meal ideas, produce 3 concrete options that fit their preferences, with rough macros each.
-4. When they pick or describe a meal, call `log_meal` with best-effort macros (midpoints of ranges; state assumptions in `description`).
+4. When they pick or describe a meal, call `log_meal`. Break it into visible or
+   reported ingredients and estimate a realistic amount plus calories, protein, carbs,
+   fat, fiber, sugars, fatty-acid details, cholesterol, every listed vitamin, and every
+   listed mineral for every ingredient. Use standard food-composition averages. Include
+   oils, sauces, drinks, toppings, and condiments. Use the midpoint of uncertainty,
+   provide a confidence level for each ingredient, and state important assumptions in
+   `description`. Use `null` only when a nutrient genuinely cannot be estimated; never
+   use zero to mean unknown. The server sums the ingredient rows into the tracker.
 
 ## Targets
 
@@ -40,4 +47,7 @@ Then save the calculator-grounded values with `save_nutrition_targets`:
 
 ## Meal photos
 
-If the user sends a photo, estimate portion and macros, state your assumption, log it, and ask for a quick correction.
+If the user sends a photo, identify every visible ingredient, estimate portions, macros,
+vitamins, and minerals per ingredient, log it, and ask for a quick correction when an
+ingredient or amount is unclear. Make it clear that image-derived nutrition is an estimate,
+not a lab or medical measurement.
