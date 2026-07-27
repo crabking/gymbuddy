@@ -26,6 +26,25 @@ function notify() {
   listeners.forEach((listener) => listener());
 }
 
+export function getPwaInstallState() {
+  return {
+    canInstall: deferredPrompt !== null,
+    isInstalled: installed || detectInstalled(),
+  };
+}
+
+export async function requestPwaInstall(): Promise<InstallOutcome> {
+  const prompt = deferredPrompt;
+  if (!prompt) return "unavailable";
+
+  await prompt.prompt();
+  const choice = await prompt.userChoice;
+  deferredPrompt = null;
+  if (choice.outcome === "accepted") installed = true;
+  notify();
+  return choice.outcome;
+}
+
 export function initPwaInstall() {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
@@ -64,11 +83,7 @@ export function usePwaInstall() {
   const [state, setState] = useState({ canInstall: false, isInstalled: false });
 
   useEffect(() => {
-    const update = () =>
-      setState({
-        canInstall: deferredPrompt !== null,
-        isInstalled: installed || detectInstalled(),
-      });
+    const update = () => setState(getPwaInstallState());
 
     listeners.add(update);
     initPwaInstall();
@@ -78,17 +93,5 @@ export function usePwaInstall() {
     };
   }, []);
 
-  async function install(): Promise<InstallOutcome> {
-    const prompt = deferredPrompt;
-    if (!prompt) return "unavailable";
-
-    await prompt.prompt();
-    const choice = await prompt.userChoice;
-    deferredPrompt = null;
-    if (choice.outcome === "accepted") installed = true;
-    notify();
-    return choice.outcome;
-  }
-
-  return { ...state, install };
+  return { ...state, install: requestPwaInstall };
 }

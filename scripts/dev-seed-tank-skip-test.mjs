@@ -96,6 +96,16 @@ async function completeSupportingDays(client, targetWeek) {
        AND p.status = 'active'`,
     [existingUserId, localToday, targetWeek],
   );
+  await client.query(
+    `UPDATE workout_sessions ws
+     SET session_date = pd.date
+     FROM program_days pd, programs p
+     WHERE ws.program_day_id = pd.id
+       AND p.id = pd.program_id
+       AND p.user_id = $1
+       AND p.status = 'active'`,
+    [existingUserId],
+  );
 
   const daysResult = await client.query(
     `SELECT pd.id, pd.date, pd.title
