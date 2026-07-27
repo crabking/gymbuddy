@@ -20,6 +20,12 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Hooks 7 enables compiler-oriented rules that require a separate
+      // refactor of established UI components. Keep the existing correctness
+      // rules active while avoiding an unrelated behavior rewrite here.
+      "react-hooks/refs": "off",
+      "react-hooks/static-components": "off",
+      "react-hooks/set-state-in-effect": "off",
       "no-restricted-imports": [
         "error",
         {

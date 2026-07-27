@@ -13,6 +13,7 @@ import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { reportError } from "../lib/error-reporting";
 import { PwaRegistration } from "../components/PwaRegistration";
+import { AuthProvider } from "../components/AuthProvider";
 
 function NotFoundComponent() {
   return (
@@ -148,10 +149,12 @@ function RootComponent() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Outlet />
-      <Toaster theme="dark" position="top-center" />
-      <PwaRegistration />
-    </QueryClientProvider>
+    <AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <Outlet />
+        <Toaster theme="dark" position="top-center" />
+        <PwaRegistration />
+      </QueryClientProvider>
+    </AuthProvider>
   );
 }

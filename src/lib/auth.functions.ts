@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { setCookie, deleteCookie, getCookie, getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { COACH_IDS } from "@/lib/coaches";
+import { requireIdentity } from "@/lib/auth-middleware";
 
 // Server-only modules that pull in `pg` are imported dynamically inside the
 // handlers so they never reach the client bundle.
@@ -18,6 +19,10 @@ const LoginSchema = z
 export const login = createServerFn({ method: "POST" })
   .validator((input: unknown) => LoginSchema.parse(input))
   .handler(async ({ data }) => {
+    const { authProvider } = await import("./auth-config.server");
+    if (authProvider() === "clerk") {
+      throw new Error("Use the secure Clerk sign-in form");
+    }
     const request = getRequest();
     const {
       getClientAddress,
@@ -81,6 +86,13 @@ export const login = createServerFn({ method: "POST" })
   });
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {
+  const { authProvider } = await import("./auth-config.server");
+  if (authProvider() === "clerk") {
+    const { auth, clerkClient } = await import("@clerk/tanstack-react-start/server");
+    const { sessionId } = await auth();
+    if (sessionId) await clerkClient().sessions.revokeSession(sessionId);
+    return { ok: true };
+  }
   const { invalidateSession, SESSION_COOKIE, sessionCookieOptions } = await import("./auth.server");
   const token = getCookie(SESSION_COOKIE);
   await invalidateSession(token);
@@ -89,7 +101,45 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
 });
 
 export const getCurrentUser = createServerFn({ method: "GET" }).handler(async () => {
-  const { getUserFromRequest } = await import("./auth.server");
-  const user = await getUserFromRequest(getRequest());
+  const { getAuthenticatedUser } = await import("./identity.server");
+  const user = await getAuthenticatedUser(getRequest());
   return user ? { id: user.id, email: user.email } : null;
 });
+
+const AuthPreferencesSchema = z
+  .object({
+    coach_id: z.enum(COACH_IDS).optional(),
+    preferred_language: z.enum(["en", "sv"]).optional(),
+  })
+  .strict();
+
+/** Apply landing-page choices after Clerk has completed its redirect flow. */
+export const applyAuthPreferences = createServerFn({ method: "POST" })
+  .middleware([requireIdentity])
+  .validator((input: unknown) => AuthPreferencesSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { getDb } = await import("@/db/db.server");
+    const { profiles } = await import("@/db/schema");
+    if (data.coach_id) {
+      const { switchUserCoach } = await import("./coach-switch.server");
+      const { eq } = await import("drizzle-orm");
+      const [profile] = await getDb()
+        .select({ coach_id: profiles.coach_id })
+        .from(profiles)
+        .where(eq(profiles.id, context.userId))
+        .limit(1);
+      if (profile && profile.coach_id !== data.coach_id) {
+        await switchUserCoach(context.userId, data.coach_id);
+      }
+    }
+    if (data.preferred_language) {
+      await getDb()
+        .insert(profiles)
+        .values({ id: context.userId, preferred_language: data.preferred_language })
+        .onConflictDoUpdate({
+          target: profiles.id,
+          set: { preferred_language: data.preferred_language },
+        });
+    }
+    return { ok: true };
+  });

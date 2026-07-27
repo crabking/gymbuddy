@@ -393,11 +393,11 @@ export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { getUserFromRequest } = await import("@/lib/auth.server");
+        const { getAuthenticatedUser } = await import("@/lib/identity.server");
         const { readJsonBody, RequestBodyError, takeDistributedRateLimit } =
           await import("@/lib/security.server");
 
-        const user = await getUserFromRequest(request);
+        const user = await getAuthenticatedUser(request);
         if (!user) return new Response("Unauthorized", { status: 401 });
         const { hasCurrentPolicyBundle } = await import("@/lib/policies");
         if (!hasCurrentPolicyBundle(user)) {

@@ -2,7 +2,8 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
-import { login, getCurrentUser } from "@/lib/auth.functions";
+import { SignIn } from "@clerk/tanstack-react-start";
+import { login, getCurrentUser, applyAuthPreferences } from "@/lib/auth.functions";
 import { toast } from "sonner";
 import { AppIcon } from "@/components/AppIcon";
 import { InstallAppButton } from "@/components/InstallAppButton";
@@ -13,6 +14,7 @@ import { clearAccountCache } from "@/lib/client-session";
 import { usePwaUpdateBlocker } from "@/lib/pwa-update";
 import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
 import { isLanguage, type Language } from "@/lib/i18n";
+import { clerkFrontendEnabled, publicSignupsEnabled } from "@/lib/auth-config";
 
 type AuthSearch = {
   coach?: CoachId;
@@ -52,6 +54,7 @@ function AuthPage({ language }: { language: Language }) {
   const queryClient = useQueryClient();
   const loginFn = useServerFn(login);
   const getCurrentUserFn = useServerFn(getCurrentUser);
+  const applyAuthPreferencesFn = useServerFn(applyAuthPreferences);
   const { coach } = Route.useSearch();
   const selectedCoach = isCoachId(coach) ? coach : undefined;
   const [email, setEmail] = useState("");
@@ -62,14 +65,17 @@ function AuthPage({ language }: { language: Language }) {
 
   useEffect(() => {
     getCurrentUserFn({ data: undefined })
-      .then((user) => {
+      .then(async (user) => {
         if (!user) return;
+        await applyAuthPreferencesFn({
+          data: { coach_id: selectedCoach, preferred_language: language },
+        });
         navigate({ to: "/chat", replace: true });
       })
       .catch(() => {
         // The form remains usable when the session probe fails.
       });
-  }, [navigate, getCurrentUserFn]);
+  }, [applyAuthPreferencesFn, getCurrentUserFn, language, navigate, selectedCoach]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -152,41 +158,59 @@ function AuthPage({ language }: { language: Language }) {
               {t("auth.sign_in")}
             </h1>
 
-            <form onSubmit={handleSubmit} className="mt-6 space-y-3">
-              <label htmlFor="auth-email" className="sr-only">
-                {t("auth.email")}
-              </label>
-              <input
-                id="auth-email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-              />
-              <label htmlFor="auth-password" className="sr-only">
-                {t("auth.password")}
-              </label>
-              <input
-                id="auth-password"
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t("auth.password")}
-                className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="mt-2 h-12 w-full rounded-xl bg-primary font-bold text-primary-foreground shadow-lg shadow-primary/30 transition active:scale-[0.98] disabled:opacity-60"
-              >
-                {loading ? "…" : t("auth.sign_in")}
-              </button>
-            </form>
+            {clerkFrontendEnabled ? (
+              <div className="mt-6 flex justify-center">
+                <SignIn
+                  routing="hash"
+                  withSignUp={publicSignupsEnabled}
+                  forceRedirectUrl={`/auth?lang=${language}${selectedCoach ? `&coach=${selectedCoach}` : ""}`}
+                  fallbackRedirectUrl="/chat"
+                  appearance={{
+                    elements: {
+                      rootBox: "w-full",
+                      cardBox: "w-full",
+                      card: "w-full bg-card border border-border shadow-none",
+                    },
+                  }}
+                />
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="mt-6 space-y-3">
+                <label htmlFor="auth-email" className="sr-only">
+                  {t("auth.email")}
+                </label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                />
+                <label htmlFor="auth-password" className="sr-only">
+                  {t("auth.password")}
+                </label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={t("auth.password")}
+                  className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="mt-2 h-12 w-full rounded-xl bg-primary font-bold text-primary-foreground shadow-lg shadow-primary/30 transition active:scale-[0.98] disabled:opacity-60"
+                >
+                  {loading ? "…" : t("auth.sign_in")}
+                </button>
+              </form>
+            )}
           </div>
         </main>
         <footer className="flex min-h-11 shrink-0 items-center justify-center gap-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[9px] font-bold uppercase tracking-wide text-muted-foreground">

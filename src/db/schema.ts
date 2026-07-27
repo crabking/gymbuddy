@@ -31,17 +31,31 @@ const updatedAt = () =>
 
 // --- Auth (replaces Supabase Auth) ---
 
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
-  password_hash: text("password_hash").notNull(),
-  policy_bundle_version: text("policy_bundle_version"),
-  policy_accepted_at: timestamp("policy_accepted_at", {
-    withTimezone: true,
-    mode: "string",
-  }),
-  created_at: createdAt(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    // Local passwords remain available for a rollback-safe migration. Clerk-only
+    // accounts never receive a local password hash.
+    password_hash: text("password_hash"),
+    auth_provider: text("auth_provider").notNull().default("local"),
+    clerk_user_id: text("clerk_user_id").unique(),
+    policy_bundle_version: text("policy_bundle_version"),
+    policy_accepted_at: timestamp("policy_accepted_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    created_at: createdAt(),
+  },
+  (t) => [
+    check("users_auth_provider_check", sql`${t.auth_provider} IN ('local', 'clerk')`),
+    check(
+      "users_clerk_identity_check",
+      sql`(${t.auth_provider} = 'local') OR (${t.clerk_user_id} IS NOT NULL AND length(${t.clerk_user_id}) BETWEEN 5 AND 255)`,
+    ),
+  ],
+);
 
 export const sessions = pgTable(
   "sessions",
@@ -55,6 +69,84 @@ export const sessions = pgTable(
     created_at: createdAt(),
   },
   (t) => [index("sessions_user_idx").on(t.user_id), index("sessions_expiry_idx").on(t.expires_at)],
+);
+
+/**
+ * Minimal, idempotent receipt ledger for Clerk webhooks. We deliberately keep
+ * hashes and entity identifiers instead of duplicating full identity payloads.
+ */
+export const clerkEvents = pgTable(
+  "clerk_events",
+  {
+    id: text("id").primaryKey(),
+    event_type: text("event_type").notNull(),
+    entity_id: text("entity_id"),
+    payload_sha256: text("payload_sha256").notNull(),
+    received_at: timestamp("received_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    processed_at: timestamp("processed_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("clerk_events_type_processed_idx").on(t.event_type, t.processed_at),
+    check("clerk_events_id_check", sql`length(${t.id}) BETWEEN 1 AND 255`),
+    check("clerk_events_type_check", sql`length(${t.event_type}) BETWEEN 1 AND 100`),
+    check("clerk_events_hash_check", sql`${t.payload_sha256} ~ '^[a-f0-9]{64}$'`),
+  ],
+);
+
+/**
+ * Local entitlement mirror. Clerk Billing remains optional and feature-gated;
+ * this table lets authorization stay deterministic if its UI or webhooks lag.
+ */
+export const billingSubscriptions = pgTable(
+  "billing_subscriptions",
+  {
+    clerk_subscription_item_id: text("clerk_subscription_item_id").primaryKey(),
+    clerk_subscription_id: text("clerk_subscription_id"),
+    user_id: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    clerk_user_id: text("clerk_user_id"),
+    plan_id: text("plan_id"),
+    plan_slug: text("plan_slug"),
+    status: text("status").notNull(),
+    period_start: timestamp("period_start", { withTimezone: true, mode: "string" }),
+    period_end: timestamp("period_end", { withTimezone: true, mode: "string" }),
+    canceled_at: timestamp("canceled_at", { withTimezone: true, mode: "string" }),
+    updated_at: updatedAt(),
+  },
+  (t) => [
+    index("billing_subscriptions_user_status_idx").on(t.user_id, t.status),
+    index("billing_subscriptions_clerk_user_idx").on(t.clerk_user_id),
+    check(
+      "billing_subscriptions_status_check",
+      sql`${t.status} IN ('abandoned', 'active', 'canceled', 'ended', 'expired', 'incomplete', 'past_due', 'upcoming')`,
+    ),
+  ],
+);
+
+/** Privacy-minimal payment lifecycle mirror; no card or bank data is stored. */
+export const billingPayments = pgTable(
+  "billing_payments",
+  {
+    id: text("id").primaryKey(),
+    user_id: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    clerk_user_id: text("clerk_user_id"),
+    status: text("status").notNull(),
+    amount_minor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    charge_type: text("charge_type").notNull(),
+    occurred_at: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
+    updated_at: updatedAt(),
+  },
+  (t) => [
+    index("billing_payments_user_created_idx").on(t.user_id, t.occurred_at),
+    check("billing_payments_status_check", sql`${t.status} IN ('pending', 'paid', 'failed')`),
+    check("billing_payments_amount_check", sql`${t.amount_minor} >= 0`),
+    check("billing_payments_currency_check", sql`${t.currency} ~ '^[A-Z]{3}$'`),
+    check("billing_payments_charge_type_check", sql`${t.charge_type} IN ('checkout', 'recurring')`),
+  ],
 );
 
 /**

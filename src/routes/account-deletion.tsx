@@ -28,8 +28,8 @@ function AccountDeletionRoute() {
           title: sv ? "I appen" : "In the app",
           paragraphs: [
             sv
-              ? "Logga in, öppna Inställningar, välj Integritet och data och tryck på Radera konto. Bekräfta med ditt lösenord och ordet DELETE."
-              : "Sign in, open Settings, choose Privacy & data, and select Delete account. Confirm using your password and the word DELETE.",
+              ? "Logga in, öppna Inställningar, välj Integritet och data och tryck på Radera konto. Bekräfta din identitet när det efterfrågas och skriv DELETE."
+              : "Sign in, open Settings, choose Privacy & data, and select Delete account. Reconfirm your identity when requested and type DELETE.",
           ],
         },
         {

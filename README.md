@@ -4,11 +4,14 @@ A mobile-first AI personal trainer. An agentic coach that writes workout plans,
 builds training schedules, tracks meals and macros, and remembers your progress.
 
 **Stack:** TanStack Start (React 19, SSR) · Vite · Tailwind v4 · shadcn/ui ·
-**Postgres + Drizzle ORM** · self-hosted cookie-session auth · Vercel AI SDK
-(OpenAI-compatible **or** Anthropic) · Nitro (`node-server`) for self-hosting.
+**Postgres + Drizzle ORM** · provider-selectable local or Clerk authentication ·
+Vercel AI SDK (OpenAI-compatible **or** Anthropic) · Nitro (`node-server`) for
+self-hosting.
 
-Fully self-contained — no Supabase, no Lovable, no third-party auth. Invite-only:
-the only way in is an account you seed yourself; there is no public sign-up.
+Fully self-contained — no Supabase or Lovable. Local development defaults to
+invite-only cookie authentication. Clerk can provide email verification,
+password reset, social login, MFA, account management, and optional public
+registration without changing the UUIDs that own training data.
 
 ## Local development
 
@@ -45,6 +48,12 @@ See [`.env.example`](.env.example).
 | `TRUST_PROXY_HEADERS`            | Enable only behind a trusted proxy that overwrites forwarded IP headers |
 | `AI_MODEL`                       | Model id (e.g. `gpt-5.5`, or `claude-sonnet-5`)                         |
 | `AI_BASE_URL`                    | OpenAI mode only — override the base URL (OpenAI, OpenRouter, Groq, …)  |
+| `AUTH_PROVIDER`                  | `local` (default) or `clerk` on the server                              |
+| `VITE_AUTH_PROVIDER`             | Must match `AUTH_PROVIDER`; embedded in the browser build               |
+| `VITE_CLERK_PUBLISHABLE_KEY`     | Clerk public key; required at build time when Clerk is enabled          |
+| `CLERK_SECRET_KEY`               | Clerk Backend API secret; runtime only                                  |
+| `CLERK_WEBHOOK_SIGNING_SECRET`   | Verifies `/api/clerk/webhooks`; runtime only                            |
+| `BILLING_PROVIDER`               | `disabled` (default) or `clerk`                                         |
 
 ### Database workflow (Drizzle)
 
@@ -55,12 +64,37 @@ See [`.env.example`](.env.example).
 
 ### Managing logins
 
-There is no sign-up UI. To add or update a person, run the seed with their
-credentials (an existing email just gets its password reset):
+With `AUTH_PROVIDER=local`, there is no sign-up UI. To add or update a person,
+run the seed with their credentials (an existing email resets its password):
 
 ```sh
 ADMIN_EMAIL="friend@example.com" ADMIN_PASSWORD="their-password" npm run db:seed
 ```
+
+### Clerk setup
+
+1. Create separate Clerk development and production instances.
+2. Set `AUTH_PROVIDER=clerk` and `VITE_AUTH_PROVIDER=clerk`.
+3. Set the publishable and secret keys for the matching instance.
+4. Register `https://<origin>/api/clerk/webhooks` and subscribe to
+   `user.created`, `user.updated`, `user.deleted`, plus billing events only if
+   billing is enabled.
+5. Set the webhook signing secret and verify `/api/readiness`.
+6. Keep public sign-up off until the legal/operator launch gate is complete.
+
+The first authenticated request provisions a local UUID immediately; webhooks
+then keep identity changes synchronized. A verified Clerk email claims a
+matching invited account so programs and history survive the migration.
+Existing local `scrypt` hashes use a format Clerk cannot import. Existing users
+must use Clerk's password-reset flow (or be migrated as they enter a plaintext
+password during a controlled migration). Never copy hashes into Clerk as if
+they were a supported digest.
+
+Clerk Billing is intentionally off by default. It is not free (Clerk charges a
+percentage in addition to Stripe), is currently USD-only, and Clerk documents
+no tax/VAT handling or 3-D Secure. Those limitations are material for Sweden
+and the EU. Enabling it requires `BILLING_PROVIDER=clerk` and
+`CLERK_BILLING_LIMITATIONS_ACKNOWLEDGED=true`; obtain legal/tax review first.
 
 ## Production build
 
@@ -92,6 +126,10 @@ a normal deploy keeps the schema and your login up to date automatically.
    - `LEGAL_OPERATOR_NAME`, `LEGAL_CONTACT_EMAIL`, and
      `LEGAL_OPERATOR_COUNTRY` = the real public operator/controller details
    - `PUBLIC_SIGNUPS_ENABLED=false` while the service remains invite-only
+   - `VITE_PUBLIC_SIGNUPS_ENABLED=false` at build time
+   - Local auth: `AUTH_PROVIDER=local`, `VITE_AUTH_PROVIDER=local`
+   - Clerk auth: the Clerk variables listed above; secret and webhook values
+     remain runtime-only
    - `NODE_ENV=production`
 4. **Port / domain:** the container listens on **3000**. Set the port to `3000`,
    attach your domain under _Domains_, and Coolify terminates TLS for you — that's
@@ -149,7 +187,9 @@ ADMIN_EMAIL="friend@example.com" ADMIN_PASSWORD="a-long-password" node seed.mjs
 
 ## Notes
 
-- Auth is a self-hosted email+password with httpOnly cookie sessions; passwords
-  are hashed with Node's `scrypt` (no native deps). No email/confirmation flow.
+- Local auth uses email/password with HTTP-only cookie sessions and Node
+  `scrypt`. Clerk mode adds managed verification, recovery, MFA, user profile,
+  and session handling while the app database remains authoritative for fitness
+  data.
 - Access control is enforced in the query layer — every query filters by the
   session user id.

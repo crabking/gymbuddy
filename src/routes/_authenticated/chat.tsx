@@ -59,6 +59,8 @@ import {
   FileText,
   ShieldCheck,
   Trash2,
+  UserCog,
+  CreditCard,
 } from "lucide-react";
 import { COACH_IMAGES } from "@/lib/coach-assets";
 import { getCoach } from "@/lib/coaches";
@@ -84,6 +86,7 @@ import { NextWorkoutActions } from "@/components/NextWorkoutActions";
 import { SkipWorkoutModal } from "@/components/SkipWorkoutModal";
 import { workoutSkipUiEvent } from "@/lib/chat-ui-events";
 import { setupStatus, type SetupKey } from "@/lib/setup-progress";
+import { clerkFrontendEnabled } from "@/lib/auth-config";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -3409,6 +3412,35 @@ function SettingsDrawer({
               </SettingsGroup>
             )}
 
+            <SettingsGroup label={language === "sv" ? "Konto" : "Account"}>
+              <Link to="/account" className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3">
+                <UserCog className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    {language === "sv" ? "Inloggning och säkerhet" : "Sign-in and security"}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {language === "sv"
+                      ? "E-post, lösenord och kontosäkerhet."
+                      : "Email, password, and account security."}
+                  </span>
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </Link>
+              <Link to="/billing" className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3">
+                <CreditCard className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    {language === "sv" ? "Prenumeration" : "Subscription"}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {language === "sv" ? "Plan och betalningsstatus." : "Plan and payment status."}
+                  </span>
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </Link>
+            </SettingsGroup>
+
             <SettingsGroup label={language === "sv" ? "Integritet och data" : "Privacy & data"}>
               <a
                 href="/api/account-export"
@@ -3522,9 +3554,12 @@ function SettingsDrawer({
       <DeleteAccountModal
         open={deleteOpen}
         language={language}
+        passwordRequired={!clerkFrontendEnabled}
         onCancel={() => setDeleteOpen(false)}
         onDelete={async (password) => {
-          await deleteAccountFn({ data: { password, confirmation: "DELETE" } });
+          await deleteAccountFn({
+            data: { ...(password ? { password } : {}), confirmation: "DELETE" },
+          });
           await clearAccountCache(qc);
           window.location.replace("/");
         }}
@@ -3536,11 +3571,13 @@ function SettingsDrawer({
 function DeleteAccountModal({
   open,
   language,
+  passwordRequired,
   onCancel,
   onDelete,
 }: {
   open: boolean;
   language: "en" | "sv";
+  passwordRequired: boolean;
   onCancel: () => void;
   onDelete: (password: string) => Promise<void>;
 }) {
@@ -3569,16 +3606,18 @@ function DeleteAccountModal({
             ? "Detta raderar chatt, minnen, program, träningspass, kost och mätningar. Åtgärden kan inte ångras."
             : "This deletes chat, memories, programs, workouts, nutrition, and measurements. It cannot be undone."}
         </p>
-        <label className="mt-4 block text-xs font-bold uppercase tracking-wide text-foreground">
-          {sv ? "Lösenord" : "Password"}
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-1 h-11 w-full border border-border bg-background px-3 text-base normal-case tracking-normal outline-none focus:border-red-400"
-          />
-        </label>
+        {passwordRequired && (
+          <label className="mt-4 block text-xs font-bold uppercase tracking-wide text-foreground">
+            {sv ? "Lösenord" : "Password"}
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="mt-1 h-11 w-full border border-border bg-background px-3 text-base normal-case tracking-normal outline-none focus:border-red-400"
+            />
+          </label>
+        )}
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-foreground">
           {sv ? "Skriv DELETE" : "Type DELETE"}
           <input
@@ -3600,7 +3639,7 @@ function DeleteAccountModal({
           </button>
           <button
             type="button"
-            disabled={deleting || !password || confirmation !== "DELETE"}
+            disabled={deleting || (passwordRequired && !password) || confirmation !== "DELETE"}
             onClick={async () => {
               setDeleting(true);
               try {

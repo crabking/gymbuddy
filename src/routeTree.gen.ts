@@ -18,6 +18,8 @@ import { Route as HealthAndSafetyRouteImport } from './routes/health-and-safety'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustRouteImport } from './routes/trust'
+import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
+import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated/billing'
 import { Route as AuthenticatedChatRouteImport } from './routes/_authenticated/chat'
 import { Route as AuthenticatedConsentRouteImport } from './routes/_authenticated/consent'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -26,6 +28,7 @@ import { Route as ApiAccountExportRouteImport } from './routes/api/account-expor
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiReadinessRouteImport } from './routes/api/readiness'
+import { Route as ApiClerkWebhooksRouteImport } from './routes/api/clerk/webhooks'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -71,6 +74,16 @@ const TrustRoute = TrustRouteImport.update({
   path: '/trust',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedBillingRoute = AuthenticatedBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedChatRoute = AuthenticatedChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -111,6 +124,11 @@ const ApiReadinessRoute = ApiReadinessRouteImport.update({
   path: '/api/readiness',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiClerkWebhooksRoute = ApiClerkWebhooksRouteImport.update({
+  id: '/api/clerk/webhooks',
+  path: '/api/clerk/webhooks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -121,6 +139,8 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/trust': typeof TrustRoute
+  '/account': typeof AuthenticatedAccountRoute
+  '/billing': typeof AuthenticatedBillingRoute
   '/chat': typeof AuthenticatedChatRoute
   '/consent': typeof AuthenticatedConsentRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -129,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
   '/api/readiness': typeof ApiReadinessRoute
+  '/api/clerk/webhooks': typeof ApiClerkWebhooksRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -139,6 +160,8 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/trust': typeof TrustRoute
+  '/account': typeof AuthenticatedAccountRoute
+  '/billing': typeof AuthenticatedBillingRoute
   '/chat': typeof AuthenticatedChatRoute
   '/consent': typeof AuthenticatedConsentRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -147,6 +170,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
   '/api/readiness': typeof ApiReadinessRoute
+  '/api/clerk/webhooks': typeof ApiClerkWebhooksRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -159,6 +183,8 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/trust': typeof TrustRoute
+  '/_authenticated/account': typeof AuthenticatedAccountRoute
+  '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/chat': typeof AuthenticatedChatRoute
   '/_authenticated/consent': typeof AuthenticatedConsentRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -167,6 +193,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
   '/api/readiness': typeof ApiReadinessRoute
+  '/api/clerk/webhooks': typeof ApiClerkWebhooksRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -179,6 +206,8 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/terms'
     | '/trust'
+    | '/account'
+    | '/billing'
     | '/chat'
     | '/consent'
     | '/dashboard'
@@ -187,6 +216,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/health'
     | '/api/readiness'
+    | '/api/clerk/webhooks'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -197,6 +227,8 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/terms'
     | '/trust'
+    | '/account'
+    | '/billing'
     | '/chat'
     | '/consent'
     | '/dashboard'
@@ -205,6 +237,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/health'
     | '/api/readiness'
+    | '/api/clerk/webhooks'
   id:
     | '__root__'
     | '/'
@@ -216,6 +249,8 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/terms'
     | '/trust'
+    | '/_authenticated/account'
+    | '/_authenticated/billing'
     | '/_authenticated/chat'
     | '/_authenticated/consent'
     | '/_authenticated/dashboard'
@@ -224,6 +259,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/health'
     | '/api/readiness'
+    | '/api/clerk/webhooks'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -240,6 +276,7 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiReadinessRoute: typeof ApiReadinessRoute
+  ApiClerkWebhooksRoute: typeof ApiClerkWebhooksRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -307,6 +344,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrustRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/account': {
+      id: '/_authenticated/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AuthenticatedAccountRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/billing': {
+      id: '/_authenticated/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AuthenticatedBillingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chat': {
       id: '/_authenticated/chat'
       path: '/chat'
@@ -363,10 +414,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReadinessRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/clerk/webhooks': {
+      id: '/api/clerk/webhooks'
+      path: '/api/clerk/webhooks'
+      fullPath: '/api/clerk/webhooks'
+      preLoaderRoute: typeof ApiClerkWebhooksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
+  AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedChatRoute: typeof AuthenticatedChatRoute
   AuthenticatedConsentRoute: typeof AuthenticatedConsentRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
@@ -374,6 +434,8 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAccountRoute: AuthenticatedAccountRoute,
+  AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedChatRoute: AuthenticatedChatRoute,
   AuthenticatedConsentRoute: AuthenticatedConsentRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
@@ -397,6 +459,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiReadinessRoute: ApiReadinessRoute,
+  ApiClerkWebhooksRoute: ApiClerkWebhooksRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

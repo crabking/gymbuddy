@@ -1,8 +1,8 @@
-export const CURRENT_POLICY_BUNDLE_VERSION = "2026-07-27.1";
+export const CURRENT_POLICY_BUNDLE_VERSION = "2026-07-27.2";
 
 export const POLICY_DOCUMENTS = {
-  terms: "2026-07-27",
-  privacy_notice: "2026-07-27",
+  terms: "2026-07-27.2",
+  privacy_notice: "2026-07-27.2",
   health_data: "2026-07-27",
   health_safety: "2026-07-27",
   adult_attestation: "2026-07-27",

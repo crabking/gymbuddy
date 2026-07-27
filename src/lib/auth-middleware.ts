@@ -2,8 +2,8 @@ import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 
 async function authenticatedContext() {
-  const { getUserFromRequest } = await import("./auth.server");
-  const user = await getUserFromRequest(getRequest());
+  const { getAuthenticatedUser } = await import("./identity.server");
+  const user = await getAuthenticatedUser(getRequest());
   if (!user) throw new Error("Unauthorized");
   return { userId: user.id, user };
 }

@@ -2,6 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import {
   adaptationProposals,
+  billingPayments,
+  billingSubscriptions,
   chatMessages,
   chatRuns,
   mealLogs,
@@ -45,9 +47,17 @@ export async function exportAccountData(userId: string) {
     measurementRows,
     workspaceRows,
     consentRows,
+    billingSubscriptionRows,
+    billingPaymentRows,
   ] = await Promise.all([
     db
-      .select({ id: users.id, email: users.email, created_at: users.created_at })
+      .select({
+        id: users.id,
+        email: users.email,
+        auth_provider: users.auth_provider,
+        clerk_user_id: users.clerk_user_id,
+        created_at: users.created_at,
+      })
       .from(users)
       .where(eq(users.id, userId)),
     db.select().from(profiles).where(eq(profiles.id, userId)),
@@ -66,6 +76,8 @@ export async function exportAccountData(userId: string) {
     db.select().from(measurements).where(eq(measurements.user_id, userId)),
     db.select().from(workspaceFiles).where(eq(workspaceFiles.user_id, userId)),
     db.select().from(policyConsents).where(eq(policyConsents.user_id, userId)),
+    db.select().from(billingSubscriptions).where(eq(billingSubscriptions.user_id, userId)),
+    db.select().from(billingPayments).where(eq(billingPayments.user_id, userId)),
   ]);
 
   const programIds = programRows.map((row) => row.id);
@@ -120,6 +132,8 @@ export async function exportAccountData(userId: string) {
     meals: mealRows,
     weight_logs: weightRows,
     measurements: measurementRows,
+    billing_subscriptions: billingSubscriptionRows,
+    billing_payments: billingPaymentRows,
     photo_files: [],
     photo_note:
       "COACH does not retain uploaded photo files. Images are sent to the configured AI provider for the active request only.",

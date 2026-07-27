@@ -33,12 +33,13 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
         {
           title: "Uppgifter vi behandlar",
           bullets: [
-            "Konto: e-postadress, lösenordshash, sessioner och samtyckeshistorik.",
+            "Konto: e-postadress, inloggningsidentitet, sessioner och samtyckeshistorik. Vid lokal inloggning lagras en lösenordshash; vid Clerk-inloggning lagras en Clerk-identitet.",
             "Profil: namn, ålder, kön, längd, vikt, språk, mål, erfarenhet, utrustning, kost och eventuella skador eller begränsningar.",
             "Träning: program, genomförda och överhoppade pass, vikter, repetitioner, återhämtningssvar och progression.",
             "Kost och mätningar: måltidsbeskrivningar, uppskattade kalorier, näringsämnen, kroppsvikt och andra mått som du väljer att logga.",
             "Coachning: chattmeddelanden, permanenta minnen och agentens sparade arbetsfiler.",
             "Teknisk säkerhetsdata: begränsade serverloggar, tidszon, versionsinformation och hashad enhetsinformation vid samtycke.",
+            "Betalningar när de aktiveras: plan, prenumerationsstatus och betalningshändelser. COACH lagrar inte fullständiga kort- eller bankuppgifter.",
           ],
         },
         {
@@ -59,7 +60,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
         {
           title: "AI och personuppgiftsbiträden",
           paragraphs: [
-            "Chatttext, relevant profil- och träningskontext samt bilder du aktivt bifogar kan skickas till den AI-leverantör som operatören har konfigurerat. Databas-, server- och infrastrukturföretag behandlar uppgifter endast för att driva tjänsten. Leverantörer och internationella överföringar ska dokumenteras innan offentlig lansering.",
+            "Chatttext, relevant profil- och träningskontext samt bilder du aktivt bifogar kan skickas till den AI-leverantör som operatören har konfigurerat. När Clerk är aktiverat behandlar Clerk konto- och inloggningsuppgifter. Om betalningar aktiveras behandlar Clerk och Stripe betalningsuppgifter. Databas-, server- och infrastrukturföretag behandlar uppgifter endast för att driva tjänsten. Leverantörer, personuppgiftsbiträdesavtal och internationella överföringar ska dokumenteras innan offentlig lansering.",
           ],
         },
         {
@@ -96,12 +97,13 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
       {
         title: "Data we process",
         bullets: [
-          "Account data: email address, password hash, sessions, and consent history.",
+          "Account data: email address, sign-in identity, sessions, and consent history. Local sign-in stores a password hash; Clerk sign-in stores a Clerk identity.",
           "Profile data: name, age, sex, height, weight, language, goals, experience, equipment, diet, and injuries or limitations.",
           "Training data: programs, completed and skipped sessions, weights, repetitions, recovery feedback, and progression.",
           "Nutrition and measurements: meal descriptions, estimated calories and nutrients, bodyweight, and other measurements you choose to log.",
           "Coaching data: chat messages, permanent memories, and saved agent workspace files.",
           "Limited technical security data: server logs, timezone, version details, and hashed device information recorded with consent.",
+          "Payments when enabled: plan, subscription status, and payment events. COACH does not store full card or bank details.",
         ],
       },
       {
@@ -122,7 +124,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
       {
         title: "AI and processors",
         paragraphs: [
-          "Chat text, relevant profile and training context, and images you actively attach may be sent to the AI provider configured by the operator. Database, server, and infrastructure providers process data only to operate the service. Providers and international transfer safeguards must be documented before public launch.",
+          "Chat text, relevant profile and training context, and images you actively attach may be sent to the AI provider configured by the operator. When enabled, Clerk processes account and authentication data. If payments are enabled, Clerk and Stripe process payment data. Database, server, and infrastructure providers process data only to operate the service. Providers, processor agreements, and international transfer safeguards must be documented before public launch.",
         ],
       },
       {
@@ -189,6 +191,12 @@ export function termsContent(config: PublicLegalConfig, language: Language) {
             ],
           },
           {
+            title: "Betalda planer",
+            paragraphs: [
+              "Om en betald plan erbjuds ska pris, valuta, faktureringsperiod, automatisk förnyelse och uppsägningsvillkor visas innan köp. Betalningar hanteras av den angivna betalningsleverantören. Tvingande konsumenträtt, inklusive eventuell ångerrätt, gäller alltid.",
+            ],
+          },
+          {
             title: "Tillgänglighet och ansvar",
             paragraphs: [
               "Tjänsten tillhandahålls utan garanti om ständig tillgänglighet eller felfria AI-resultat. Inget i villkoren begränsar ansvar som inte får begränsas enligt tvingande lag. I övrigt ansvarar operatören inte för indirekta förluster eller beslut som en användare fattar utan rimlig kontroll.",
@@ -238,6 +246,12 @@ export function termsContent(config: PublicLegalConfig, language: Language) {
             title: "Your data",
             paragraphs: [
               "You retain rights in content you provide. You grant the operator a limited right to process that content only to deliver, secure, and improve your use of the service as described in the privacy policy.",
+            ],
+          },
+          {
+            title: "Paid plans",
+            paragraphs: [
+              "If a paid plan is offered, its price, currency, billing period, automatic renewal, and cancellation terms will be shown before purchase. Payments are handled by the named payment provider. Mandatory consumer rights, including any applicable withdrawal right, always apply.",
             ],
           },
           {
@@ -341,8 +355,8 @@ export function trustContent(config: PublicLegalConfig, language: Language) {
             title: "Kontogränser",
             bullets: [
               "Alla produktfrågor filtreras på det autentiserade konto-ID:t.",
-              "Lösenord lagras som saltade scrypt-hashar, inte i klartext.",
-              "Råa sessionstokens lagras endast i säkra HTTP-only-cookies och hashade på servern.",
+              "Vid lokal inloggning lagras lösenord som saltade scrypt-hashar, inte i klartext. När Clerk är aktiverat hanterar Clerk inloggningsuppgifterna.",
+              "Lokala råa sessionstokens lagras endast i säkra HTTP-only-cookies och hashade på servern. Clerk-sessioner verifieras av Clerk SDK.",
               "Känsliga ändringar har ursprungskontroll, storleksgränser och hastighetsbegränsning.",
             ],
           },
@@ -378,8 +392,8 @@ export function trustContent(config: PublicLegalConfig, language: Language) {
             title: "Account boundaries",
             bullets: [
               "Every product query is scoped to the authenticated account ID.",
-              "Passwords are stored as salted scrypt hashes, never plaintext.",
-              "Raw session tokens exist only in secure HTTP-only cookies and are hashed server-side.",
+              "Local passwords are stored as salted scrypt hashes, never plaintext. When Clerk is enabled, Clerk manages sign-in credentials.",
+              "Raw local session tokens exist only in secure HTTP-only cookies and are hashed server-side. Clerk sessions are verified by the Clerk SDK.",
               "Sensitive mutations use origin checks, body limits, and rate limiting.",
             ],
           },
