@@ -2,7 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
 import {
   adaptationProposals,
-  billingPayments,
+  authSessions,
+  authUsers,
   billingSubscriptions,
   chatMessages,
   chatRuns,
@@ -47,15 +48,14 @@ export async function exportAccountData(userId: string) {
     measurementRows,
     workspaceRows,
     consentRows,
+    authAccountRows,
+    authSessionRows,
     billingSubscriptionRows,
-    billingPaymentRows,
   ] = await Promise.all([
     db
       .select({
         id: users.id,
         email: users.email,
-        auth_provider: users.auth_provider,
-        clerk_user_id: users.clerk_user_id,
         created_at: users.created_at,
       })
       .from(users)
@@ -76,8 +76,28 @@ export async function exportAccountData(userId: string) {
     db.select().from(measurements).where(eq(measurements.user_id, userId)),
     db.select().from(workspaceFiles).where(eq(workspaceFiles.user_id, userId)),
     db.select().from(policyConsents).where(eq(policyConsents.user_id, userId)),
-    db.select().from(billingSubscriptions).where(eq(billingSubscriptions.user_id, userId)),
-    db.select().from(billingPayments).where(eq(billingPayments.user_id, userId)),
+    db
+      .select({
+        email_verified: authUsers.emailVerified,
+        two_factor_enabled: authUsers.twoFactorEnabled,
+        role: authUsers.role,
+        created_at: authUsers.createdAt,
+        updated_at: authUsers.updatedAt,
+      })
+      .from(authUsers)
+      .where(eq(authUsers.id, userId)),
+    db
+      .select({
+        id: authSessions.id,
+        expires_at: authSessions.expiresAt,
+        ip_address: authSessions.ipAddress,
+        user_agent: authSessions.userAgent,
+        created_at: authSessions.createdAt,
+        updated_at: authSessions.updatedAt,
+      })
+      .from(authSessions)
+      .where(eq(authSessions.userId, userId)),
+    db.select().from(billingSubscriptions).where(eq(billingSubscriptions.referenceId, userId)),
   ]);
 
   const programIds = programRows.map((row) => row.id);
@@ -111,8 +131,16 @@ export async function exportAccountData(userId: string) {
     format_version: 1,
     generated_at: new Date().toISOString(),
     current_policy_bundle: CURRENT_POLICY_BUNDLE_VERSION,
-    account: accountRows[0] ?? null,
+    account: accountRows[0]
+      ? {
+          ...accountRows[0],
+          authentication: authAccountRows[0]
+            ? { provider: "better-auth", ...authAccountRows[0] }
+            : { provider: "local" },
+        }
+      : null,
     profile: profileRows[0] ?? null,
+    authentication_sessions: authSessionRows,
     policy_consents: consentRows,
     chat_messages: messageRows,
     chat_runs: chatRunRows,
@@ -133,7 +161,8 @@ export async function exportAccountData(userId: string) {
     weight_logs: weightRows,
     measurements: measurementRows,
     billing_subscriptions: billingSubscriptionRows,
-    billing_payments: billingPaymentRows,
+    billing_note:
+      "Payment methods, card details, invoices, and tax records are held by Stripe and are not copied into COACH.",
     photo_files: [],
     photo_note:
       "COACH does not retain uploaded photo files. Images are sent to the configured AI provider for the active request only.",

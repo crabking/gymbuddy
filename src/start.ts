@@ -1,8 +1,6 @@
 import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
-import { clerkMiddleware } from "@clerk/tanstack-react-start/server";
 
 import { renderErrorPage } from "./lib/error-page";
-import { authProvider } from "./lib/auth-config.server";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -24,17 +22,5 @@ const serverFunctionCsrfMiddleware = createCsrfMiddleware({
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [
-    errorMiddleware,
-    serverFunctionCsrfMiddleware,
-    ...(authProvider() === "clerk"
-      ? [
-          clerkMiddleware({
-            publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY,
-            secretKey: process.env.CLERK_SECRET_KEY,
-            signInUrl: "/auth",
-          }),
-        ]
-      : []),
-  ],
+  requestMiddleware: [errorMiddleware, serverFunctionCsrfMiddleware],
 }));

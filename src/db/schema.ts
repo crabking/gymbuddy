@@ -3,6 +3,7 @@ import {
   uuid,
   text,
   integer,
+  bigint,
   doublePrecision,
   boolean,
   timestamp,
@@ -29,34 +30,28 @@ const updatedAt = () =>
     .defaultNow()
     .$onUpdate(() => new Date().toISOString());
 
-// --- Auth (replaces Supabase Auth) ---
+// --- Application identity + authentication ---
+//
+// `users` is the stable COACH application identity referenced by all training
+// data. Better Auth owns the separate `auth_*` tables below and deliberately
+// reuses the same UUID, so switching authentication never changes ownership of
+// a person's programs, chat, nutrition, or workout history.
 
-export const users = pgTable(
-  "users",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    email: text("email").notNull().unique(),
-    // Local passwords remain available for a rollback-safe migration. Clerk-only
-    // accounts never receive a local password hash.
-    password_hash: text("password_hash"),
-    auth_provider: text("auth_provider").notNull().default("local"),
-    clerk_user_id: text("clerk_user_id").unique(),
-    policy_bundle_version: text("policy_bundle_version"),
-    policy_accepted_at: timestamp("policy_accepted_at", {
-      withTimezone: true,
-      mode: "string",
-    }),
-    created_at: createdAt(),
-  },
-  (t) => [
-    check("users_auth_provider_check", sql`${t.auth_provider} IN ('local', 'clerk')`),
-    check(
-      "users_clerk_identity_check",
-      sql`(${t.auth_provider} = 'local') OR (${t.clerk_user_id} IS NOT NULL AND length(${t.clerk_user_id}) BETWEEN 5 AND 255)`,
-    ),
-  ],
-);
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  // Retained while the rollback-safe local provider exists. The migration
+  // also copies this hash into auth_accounts for uninterrupted sign-in.
+  password_hash: text("password_hash"),
+  policy_bundle_version: text("policy_bundle_version"),
+  policy_accepted_at: timestamp("policy_accepted_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  created_at: createdAt(),
+});
 
+/** Legacy local sessions kept for rollback and local-only test fixtures. */
 export const sessions = pgTable(
   "sessions",
   {
@@ -71,12 +66,157 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.user_id), index("sessions_expiry_idx").on(t.expires_at)],
 );
 
-/**
- * Minimal, idempotent receipt ledger for Clerk webhooks. We deliberately keep
- * hashes and entity identifiers instead of duplicating full identity payloads.
- */
-export const clerkEvents = pgTable(
-  "clerk_events",
+export const authUsers = pgTable(
+  "auth_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    image: text("image"),
+    role: text("role").notNull().default("user"),
+    banned: boolean("banned").notNull().default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires", { withTimezone: true, mode: "date" }),
+    twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+    stripeCustomerId: text("stripe_customer_id").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("auth_users_role_idx").on(t.role),
+    check("auth_users_role_check", sql`${t.role} IN ('user', 'admin')`),
+  ],
+);
+
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    impersonatedBy: uuid("impersonated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("auth_sessions_user_idx").on(t.userId),
+    index("auth_sessions_expiry_idx").on(t.expiresAt),
+  ],
+);
+
+export const authAccounts = pgTable(
+  "auth_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("auth_accounts_provider_account_idx").on(t.providerId, t.accountId),
+    index("auth_accounts_user_idx").on(t.userId),
+  ],
+);
+
+export const authVerifications = pgTable(
+  "auth_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index("auth_verifications_identifier_idx").on(t.identifier)],
+);
+
+export const authTwoFactors = pgTable(
+  "auth_two_factors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    verified: boolean("verified").notNull().default(true),
+    failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true, mode: "date" }),
+  },
+  (t) => [
+    index("auth_two_factors_secret_idx").on(t.secret),
+    index("auth_two_factors_user_idx").on(t.userId),
+  ],
+);
+
+export const authRateLimits = pgTable(
+  "auth_rate_limits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull().unique(),
+    count: integer("count").notNull(),
+    lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+  },
+  (t) => [index("auth_rate_limits_last_request_idx").on(t.lastRequest)],
+);
+
+/** Better Auth Stripe subscription mirror. Verified webhooks are authoritative. */
+export const billingSubscriptions = pgTable(
+  "billing_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    plan: text("plan").notNull(),
+    referenceId: uuid("reference_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id").unique(),
+    status: text("status").notNull().default("incomplete"),
+    periodStart: timestamp("period_start", { withTimezone: true, mode: "date" }),
+    periodEnd: timestamp("period_end", { withTimezone: true, mode: "date" }),
+    trialStart: timestamp("trial_start", { withTimezone: true, mode: "date" }),
+    trialEnd: timestamp("trial_end", { withTimezone: true, mode: "date" }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    cancelAt: timestamp("cancel_at", { withTimezone: true, mode: "date" }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true, mode: "date" }),
+    endedAt: timestamp("ended_at", { withTimezone: true, mode: "date" }),
+    seats: integer("seats"),
+    billingInterval: text("billing_interval"),
+    stripeScheduleId: text("stripe_schedule_id"),
+  },
+  (t) => [
+    index("billing_subscriptions_reference_status_idx").on(t.referenceId, t.status),
+    index("billing_subscriptions_customer_idx").on(t.stripeCustomerId),
+  ],
+);
+
+/** Privacy-minimal receipt ledger; raw Stripe payloads are never persisted. */
+export const stripeEvents = pgTable(
+  "stripe_events",
   {
     id: text("id").primaryKey(),
     event_type: text("event_type").notNull(),
@@ -90,62 +230,10 @@ export const clerkEvents = pgTable(
       .defaultNow(),
   },
   (t) => [
-    index("clerk_events_type_processed_idx").on(t.event_type, t.processed_at),
-    check("clerk_events_id_check", sql`length(${t.id}) BETWEEN 1 AND 255`),
-    check("clerk_events_type_check", sql`length(${t.event_type}) BETWEEN 1 AND 100`),
-    check("clerk_events_hash_check", sql`${t.payload_sha256} ~ '^[a-f0-9]{64}$'`),
-  ],
-);
-
-/**
- * Local entitlement mirror. Clerk Billing remains optional and feature-gated;
- * this table lets authorization stay deterministic if its UI or webhooks lag.
- */
-export const billingSubscriptions = pgTable(
-  "billing_subscriptions",
-  {
-    clerk_subscription_item_id: text("clerk_subscription_item_id").primaryKey(),
-    clerk_subscription_id: text("clerk_subscription_id"),
-    user_id: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-    clerk_user_id: text("clerk_user_id"),
-    plan_id: text("plan_id"),
-    plan_slug: text("plan_slug"),
-    status: text("status").notNull(),
-    period_start: timestamp("period_start", { withTimezone: true, mode: "string" }),
-    period_end: timestamp("period_end", { withTimezone: true, mode: "string" }),
-    canceled_at: timestamp("canceled_at", { withTimezone: true, mode: "string" }),
-    updated_at: updatedAt(),
-  },
-  (t) => [
-    index("billing_subscriptions_user_status_idx").on(t.user_id, t.status),
-    index("billing_subscriptions_clerk_user_idx").on(t.clerk_user_id),
-    check(
-      "billing_subscriptions_status_check",
-      sql`${t.status} IN ('abandoned', 'active', 'canceled', 'ended', 'expired', 'incomplete', 'past_due', 'upcoming')`,
-    ),
-  ],
-);
-
-/** Privacy-minimal payment lifecycle mirror; no card or bank data is stored. */
-export const billingPayments = pgTable(
-  "billing_payments",
-  {
-    id: text("id").primaryKey(),
-    user_id: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-    clerk_user_id: text("clerk_user_id"),
-    status: text("status").notNull(),
-    amount_minor: integer("amount_minor").notNull(),
-    currency: text("currency").notNull(),
-    charge_type: text("charge_type").notNull(),
-    occurred_at: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
-    updated_at: updatedAt(),
-  },
-  (t) => [
-    index("billing_payments_user_created_idx").on(t.user_id, t.occurred_at),
-    check("billing_payments_status_check", sql`${t.status} IN ('pending', 'paid', 'failed')`),
-    check("billing_payments_amount_check", sql`${t.amount_minor} >= 0`),
-    check("billing_payments_currency_check", sql`${t.currency} ~ '^[A-Z]{3}$'`),
-    check("billing_payments_charge_type_check", sql`${t.charge_type} IN ('checkout', 'recurring')`),
+    index("stripe_events_type_processed_idx").on(t.event_type, t.processed_at),
+    check("stripe_events_id_check", sql`length(${t.id}) BETWEEN 1 AND 255`),
+    check("stripe_events_type_check", sql`length(${t.event_type}) BETWEEN 1 AND 100`),
+    check("stripe_events_hash_check", sql`${t.payload_sha256} ~ '^[a-f0-9]{64}$'`),
   ],
 );
 

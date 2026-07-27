@@ -28,16 +28,16 @@ if ((extraEmail && !extraPassword) || (!extraEmail && extraPassword)) {
 }
 
 const accounts = [
-  { email, password },
-  ...(extraEmail ? [{ email: extraEmail, password: extraPassword }] : []),
+  { email, password, role: "admin" },
+  ...(extraEmail ? [{ email: extraEmail, password: extraPassword, role: "admin" }] : []),
 ];
 
 if (
   email.length > 254 ||
   password.length < 8 ||
-  password.length > 1024 ||
+  password.length > 128 ||
   (extraEmail &&
-    (extraEmail.length > 254 || extraPassword.length < 1 || extraPassword.length > 1024))
+    (extraEmail.length > 254 || extraPassword.length < 8 || extraPassword.length > 128))
 ) {
   console.error("ADMIN_EMAIL or ADMIN_PASSWORD does not meet the login policy");
   process.exit(1);
@@ -83,27 +83,62 @@ try {
     );
     let userId;
     let rotated = false;
+    let passwordHash;
     if (existing.rows[0]) {
       userId = existing.rows[0].id;
       if (!verifyPassword(account.password, existing.rows[0].password_hash)) {
+        passwordHash = hashPassword(account.password);
         await client.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
-          hashPassword(account.password),
+          passwordHash,
           userId,
         ]);
         // Password rotation must revoke stolen sessions atomically.
         await client.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
         rotated = true;
+      } else {
+        passwordHash = existing.rows[0].password_hash;
       }
     } else {
+      passwordHash = hashPassword(account.password);
       const inserted = await client.query(
         "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
-        [account.email, hashPassword(account.password)],
+        [account.email, passwordHash],
       );
       userId = inserted.rows[0].id;
     }
     await client.query("INSERT INTO profiles (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [
       userId,
     ]);
+    const betterAuthTables = await client.query(
+      "SELECT to_regclass('public.auth_users') IS NOT NULL AS available",
+    );
+    if (betterAuthTables.rows[0]?.available) {
+      await client.query(
+        `INSERT INTO auth_users
+          (id, name, email, email_verified, role, banned, two_factor_enabled, created_at, updated_at)
+         VALUES
+          ($1, COALESCE((SELECT display_name FROM profiles WHERE id = $1), split_part($2, '@', 1)),
+           $2, true, $3, false, false, now(), now())
+         ON CONFLICT (id) DO UPDATE SET
+          email = EXCLUDED.email,
+          email_verified = true,
+          role = EXCLUDED.role,
+          updated_at = now()`,
+        [userId, account.email, account.role],
+      );
+      await client.query(
+        `INSERT INTO auth_accounts
+          (account_id, provider_id, user_id, password, created_at, updated_at)
+         VALUES ($1::text, 'credential', $1::uuid, $2, now(), now())
+         ON CONFLICT (provider_id, account_id) DO UPDATE SET
+          password = EXCLUDED.password,
+          updated_at = now()`,
+        [userId, passwordHash],
+      );
+      if (rotated) {
+        await client.query("DELETE FROM auth_sessions WHERE user_id = $1", [userId]);
+      }
+    }
     results.push(
       rotated
         ? `Updated login ${account.email}; existing sessions revoked`

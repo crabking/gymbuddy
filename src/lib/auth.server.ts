@@ -19,6 +19,12 @@ export function hashPassword(password: string): string {
   return `scrypt:${salt}:${hash}`;
 }
 
+export async function hashPasswordAsync(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const hash = (await scryptAsync(password, salt, SCRYPT_KEYLEN)) as Buffer;
+  return `scrypt:${salt}:${hash.toString("hex")}`;
+}
+
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, salt, hashHex] = stored.split(":");
   if (

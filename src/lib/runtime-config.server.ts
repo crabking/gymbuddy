@@ -15,8 +15,10 @@ export function readinessConfiguration() {
   const auth = process.env.AUTH_PROVIDER?.trim().toLowerCase() || "local";
   const frontendAuth = process.env.VITE_AUTH_PROVIDER?.trim().toLowerCase() || "local";
   const billing = process.env.BILLING_PROVIDER?.trim().toLowerCase() || "disabled";
-  const clerkAuth = auth === "clerk";
-  const clerkBilling = billing === "clerk";
+  const betterAuth = auth === "better-auth";
+  const stripeBilling = billing === "stripe";
+  const publicSignups = process.env.PUBLIC_SIGNUPS_ENABLED === "true";
+  const frontendPublicSignups = process.env.VITE_PUBLIC_SIGNUPS_ENABLED === "true";
   const checks = {
     environment: environment !== "invalid",
     database: Boolean(process.env.DATABASE_URL?.trim()),
@@ -26,20 +28,38 @@ export function readinessConfiguration() {
     legal_identity:
       environment !== "production" ||
       Boolean(process.env.LEGAL_OPERATOR_NAME?.trim() && process.env.LEGAL_CONTACT_EMAIL?.trim()),
-    public_signup_disabled: process.env.PUBLIC_SIGNUPS_ENABLED !== "true",
-    auth_provider: auth === "local" || auth === "clerk",
+    auth_provider: auth === "local" || betterAuth,
     auth_frontend_match: frontendAuth === auth,
-    clerk_keys:
-      !clerkAuth ||
+    managed_auth: !productionLike || betterAuth,
+    better_auth_secret:
+      !betterAuth || Boolean((process.env.BETTER_AUTH_SECRET?.trim().length || 0) >= 32),
+    auth_email:
+      !betterAuth || Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_FROM?.trim()),
+    signup_mode_match: publicSignups === frontendPublicSignups,
+    public_signup_prerequisites:
+      !publicSignups ||
       Boolean(
-        process.env.CLERK_SECRET_KEY?.trim() &&
-        process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() &&
-        process.env.CLERK_WEBHOOK_SIGNING_SECRET?.trim(),
+        betterAuth &&
+        process.env.SMTP_HOST?.trim() &&
+        process.env.SMTP_FROM?.trim() &&
+        (!productionLike ||
+          (process.env.LEGAL_OPERATOR_NAME?.trim() && process.env.LEGAL_CONTACT_EMAIL?.trim())),
       ),
-    billing_provider: billing === "disabled" || billing === "clerk",
-    billing_auth_match: !clerkBilling || clerkAuth,
-    billing_live_acknowledged:
-      !clerkBilling || process.env.CLERK_BILLING_LIMITATIONS_ACKNOWLEDGED === "true",
+    billing_provider: billing === "disabled" || stripeBilling,
+    billing_auth_match: !stripeBilling || betterAuth,
+    stripe_configuration:
+      !stripeBilling ||
+      Boolean(
+        process.env.STRIPE_SECRET_KEY?.trim() &&
+        process.env.STRIPE_WEBHOOK_SECRET?.trim() &&
+        process.env.STRIPE_MONTHLY_PRICE_ID?.trim() &&
+        process.env.STRIPE_ANNUAL_PRICE_ID?.trim(),
+      ),
+    stripe_tax:
+      !stripeBilling ||
+      (process.env.STRIPE_AUTOMATIC_TAX === "true" &&
+        process.env.STRIPE_EU_TAX_CONFIGURED === "true"),
+    stripe_portal: !stripeBilling || process.env.STRIPE_CUSTOMER_PORTAL_CONFIGURED === "true",
   };
   return {
     environment,

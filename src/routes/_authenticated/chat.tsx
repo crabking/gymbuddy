@@ -86,7 +86,6 @@ import { NextWorkoutActions } from "@/components/NextWorkoutActions";
 import { SkipWorkoutModal } from "@/components/SkipWorkoutModal";
 import { workoutSkipUiEvent } from "@/lib/chat-ui-events";
 import { setupStatus, type SetupKey } from "@/lib/setup-progress";
-import { clerkFrontendEnabled } from "@/lib/auth-config";
 
 function getCoachPortrait(id: string | null | undefined) {
   const coach = getCoach(id);
@@ -3554,7 +3553,7 @@ function SettingsDrawer({
       <DeleteAccountModal
         open={deleteOpen}
         language={language}
-        passwordRequired={!clerkFrontendEnabled}
+        passwordRequired
         onCancel={() => setDeleteOpen(false)}
         onDelete={async (password) => {
           await deleteAccountFn({

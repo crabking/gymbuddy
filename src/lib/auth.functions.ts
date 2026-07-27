@@ -20,8 +20,8 @@ export const login = createServerFn({ method: "POST" })
   .validator((input: unknown) => LoginSchema.parse(input))
   .handler(async ({ data }) => {
     const { authProvider } = await import("./auth-config.server");
-    if (authProvider() === "clerk") {
-      throw new Error("Use the secure Clerk sign-in form");
+    if (authProvider() === "better-auth") {
+      throw new Error("Use the secure Better Auth sign-in form");
     }
     const request = getRequest();
     const {
@@ -87,10 +87,9 @@ export const login = createServerFn({ method: "POST" })
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {
   const { authProvider } = await import("./auth-config.server");
-  if (authProvider() === "clerk") {
-    const { auth, clerkClient } = await import("@clerk/tanstack-react-start/server");
-    const { sessionId } = await auth();
-    if (sessionId) await clerkClient().sessions.revokeSession(sessionId);
+  if (authProvider() === "better-auth") {
+    const { auth } = await import("./better-auth.server");
+    await auth.api.signOut({ headers: getRequest().headers });
     return { ok: true };
   }
   const { invalidateSession, SESSION_COOKIE, sessionCookieOptions } = await import("./auth.server");
@@ -113,7 +112,7 @@ const AuthPreferencesSchema = z
   })
   .strict();
 
-/** Apply landing-page choices after Clerk has completed its redirect flow. */
+/** Apply landing-page choices after the managed auth flow completes. */
 export const applyAuthPreferences = createServerFn({ method: "POST" })
   .middleware([requireIdentity])
   .validator((input: unknown) => AuthPreferencesSchema.parse(input))

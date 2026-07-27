@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { deleteCookie, getCookie } from "@tanstack/react-start/server";
+import { deleteCookie, getCookie, getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireIdentity } from "@/lib/auth-middleware";
 
@@ -20,12 +20,14 @@ export const deleteMyAccount = createServerFn({ method: "POST" })
     const { users } = await import("@/db/schema");
     const { SESSION_COOKIE, invalidateSession, sessionCookieOptions, verifyPassword } =
       await import("@/lib/auth.server");
-    if (authProvider() === "clerk") {
-      if (!context.user.clerk_user_id) throw new Error("Clerk account is not linked");
-      const { clerkClient } = await import("@clerk/tanstack-react-start/server");
-      // Clerk revokes the external identity first. If the local delete fails,
-      // the verified user.deleted webhook completes the same cascading delete.
-      await clerkClient().users.deleteUser(context.user.clerk_user_id);
+    if (authProvider() === "better-auth") {
+      if (!data.password) throw new Error("Password is required");
+      const { auth } = await import("@/lib/better-auth.server");
+      await auth.api.deleteUser({
+        body: { password: data.password },
+        headers: getRequest().headers,
+      });
+      return { ok: true };
     } else {
       const valid =
         Boolean(data.password) &&

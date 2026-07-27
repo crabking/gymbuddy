@@ -1,195 +1,153 @@
 # COACH
 
-A mobile-first AI personal trainer. An agentic coach that writes workout plans,
-builds training schedules, tracks meals and macros, and remembers your progress.
+A mobile-first AI personal trainer that builds programs, coaches live workouts,
+tracks nutrition and progress, and keeps account-scoped long-term memory.
 
-**Stack:** TanStack Start (React 19, SSR) · Vite · Tailwind v4 · shadcn/ui ·
-**Postgres + Drizzle ORM** · provider-selectable local or Clerk authentication ·
-Vercel AI SDK (OpenAI-compatible **or** Anthropic) · Nitro (`node-server`) for
-self-hosting.
-
-Fully self-contained — no Supabase or Lovable. Local development defaults to
-invite-only cookie authentication. Clerk can provide email verification,
-password reset, social login, MFA, account management, and optional public
-registration without changing the UUIDs that own training data.
+**Stack:** TanStack Start, React 19, Vite, Tailwind, Postgres, Drizzle ORM,
+Better Auth, Stripe Billing, Vercel AI SDK, and Nitro's Node server preset.
+The application is self-hosted; Better Auth runs inside the COACH server and
+does not introduce a hosted identity database.
 
 ## Local development
 
-Requires Node 20.19+ / 22.12+ and Docker (for local Postgres).
+Requires Node 22+ and Docker.
 
 ```sh
 npm install
-cp .env.example .env          # fill in the values
-docker compose up -d          # local Postgres on localhost:5433
-npm run db:migrate            # create tables
-npm run db:seed               # create your login (uses ADMIN_EMAIL / ADMIN_PASSWORD)
-npm run dev                   # http://localhost:8080
+cp .env.example .env
+docker compose up -d
+npm run db:migrate
+npm run db:seed
+npm run dev
 ```
 
-### Install on a phone
+The local app is served at `http://localhost:8080`. The production site is an
+installable PWA over HTTPS.
 
-The production site is an installable web app. It must be served over HTTPS.
+## Authentication
 
-- **Android:** open the site in Chrome, then choose **Install app**.
-- **iPhone:** open the site in Safari, tap **Share**, then **Add to Home Screen**.
+`AUTH_PROVIDER=local` is the invite-only development and rollback provider.
+Public production uses `AUTH_PROVIDER=better-auth` and
+`VITE_AUTH_PROVIDER=better-auth`.
 
-### Environment variables
+Better Auth provides:
 
-See [`.env.example`](.env.example).
+- verified email/password registration and password recovery;
+- seven-day, revocable sessions in Postgres;
+- optional authenticator-app two-factor authentication;
+- account profile and security management;
+- database-backed rate limiting and admin roles.
 
-| Variable                         | Purpose                                                                 |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| `DATABASE_URL`                   | Postgres connection string                                              |
-| `DB_POOL_MAX`                    | Maximum database connections used by an app replica (default `10`)      |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | The login created/refreshed by `db:seed` (and on container start)       |
-| `AI_PROVIDER`                    | `openai` (default, any OpenAI-compatible endpoint) or `anthropic`       |
-| `AI_API_KEY`                     | Key for the chosen provider                                             |
-| `PUBLIC_ORIGIN`                  | Canonical production HTTPS origin used for origin checks                |
-| `TRUST_PROXY_HEADERS`            | Enable only behind a trusted proxy that overwrites forwarded IP headers |
-| `AI_MODEL`                       | Model id (e.g. `gpt-5.5`, or `claude-sonnet-5`)                         |
-| `AI_BASE_URL`                    | OpenAI mode only — override the base URL (OpenAI, OpenRouter, Groq, …)  |
-| `AUTH_PROVIDER`                  | `local` (default) or `clerk` on the server                              |
-| `VITE_AUTH_PROVIDER`             | Must match `AUTH_PROVIDER`; embedded in the browser build               |
-| `VITE_CLERK_PUBLISHABLE_KEY`     | Clerk public key; required at build time when Clerk is enabled          |
-| `CLERK_SECRET_KEY`               | Clerk Backend API secret; runtime only                                  |
-| `CLERK_WEBHOOK_SIGNING_SECRET`   | Verifies `/api/clerk/webhooks`; runtime only                            |
-| `BILLING_PROVIDER`               | `disabled` (default) or `clerk`                                         |
+The migration copies each existing user's UUID and compatible scrypt password
+hash into the Better Auth tables, so workout ownership and login credentials
+survive the transition. Existing browser sessions must sign in once again.
 
-### Database workflow (Drizzle)
+Configure generic SMTP through `SMTP_*`. Never put `BETTER_AUTH_SECRET`, SMTP
+credentials, Stripe keys, or AI keys in a `VITE_*` variable.
 
-- Edit the schema in [`src/db/schema.ts`](src/db/schema.ts).
-- `npm run db:generate` — generate a new SQL migration from schema changes.
-- `npm run db:migrate` — apply pending migrations.
-- `npm run db:studio` — browse data in Drizzle Studio.
-
-### Managing logins
-
-With `AUTH_PROVIDER=local`, there is no sign-up UI. To add or update a person,
-run the seed with their credentials (an existing email resets its password):
+Seeded operator accounts remain available:
 
 ```sh
-ADMIN_EMAIL="friend@example.com" ADMIN_PASSWORD="their-password" npm run db:seed
+ADMIN_EMAIL="operator@example.com" \
+ADMIN_PASSWORD="a-long-unique-password" \
+npm run db:seed
 ```
 
-### Clerk setup
+The primary seeded account receives the Better Auth `admin` role when those
+tables are present. Password rotation revokes both legacy and Better Auth
+sessions.
 
-1. Create separate Clerk development and production instances.
-2. Set `AUTH_PROVIDER=clerk` and `VITE_AUTH_PROVIDER=clerk`.
-3. Set the publishable and secret keys for the matching instance.
-4. Register `https://<origin>/api/clerk/webhooks` and subscribe to
-   `user.created`, `user.updated`, `user.deleted`, plus billing events only if
-   billing is enabled.
-5. Set the webhook signing secret and verify `/api/readiness`.
-6. Keep public sign-up off until the legal/operator launch gate is complete.
+## Stripe subscriptions
 
-The first authenticated request provisions a local UUID immediately; webhooks
-then keep identity changes synchronized. A verified Clerk email claims a
-matching invited account so programs and history survive the migration.
-Existing local `scrypt` hashes use a format Clerk cannot import. Existing users
-must use Clerk's password-reset flow (or be migrated as they enter a plaintext
-password during a controlled migration). Never copy hashes into Clerk as if
-they were a supported digest.
+Stripe is optional and off by default. To enable it:
 
-Clerk Billing is intentionally off by default. It is not free (Clerk charges a
-percentage in addition to Stripe), is currently USD-only, and Clerk documents
-no tax/VAT handling or 3-D Secure. Those limitations are material for Sweden
-and the EU. Enabling it requires `BILLING_PROVIDER=clerk` and
-`CLERK_BILLING_LIMITATIONS_ACKNOWLEDGED=true`; obtain legal/tax review first.
+1. Create one recurring monthly price and one recurring annual price.
+2. Configure EU tax registrations and Stripe Tax.
+3. Configure the Stripe customer portal and cancellation behavior.
+4. Register `https://<origin>/api/auth/stripe/webhook`.
+5. Set `BILLING_PROVIDER=stripe`, all `STRIPE_*` values from `.env.example`,
+   and the three explicit tax/portal acknowledgements to `true`.
+6. Verify `/api/readiness` before accepting traffic.
 
-## Production build
+Checkout and the billing portal are hosted by Stripe. COACH stores the
+subscription mirror and a hashed, privacy-minimal webhook receipt ledger; card
+details, invoices, and tax records stay in Stripe. Account deletion first
+cancels active subscriptions and deletes the Stripe customer. If Stripe is not
+reachable/configured, deletion is blocked rather than orphaning a paid account.
+
+## Environment and readiness
+
+See [`.env.example`](.env.example) for the complete variable list.
+
+Important rules:
+
+- `APP_ENV` is exactly `local`, `staging`, or `production`.
+- every environment has its own database, Better Auth secret, SMTP credentials,
+  Stripe mode/resources, AI key, and canonical origin;
+- `PUBLIC_ORIGIN` is canonical HTTPS outside local development;
+- `TRUST_PROXY_HEADERS=true` only when Coolify is the exclusive trusted proxy;
+- server/browser auth and signup switches must match;
+- public signup requires email delivery and published legal operator details;
+- production readiness refuses the legacy local auth provider;
+- Stripe readiness requires both prices, webhook verification, tax setup, and
+  the customer portal.
+
+`/api/health` verifies the process and database. `/api/readiness` additionally
+verifies configuration and database environment ownership.
+
+## Database workflow
 
 ```sh
-npm run build     # → .output/ (Nitro node-server bundle)
-npm run start     # node .output/server/index.mjs (listens on $PORT, default 3000)
+npm run db:generate
+npm run db:migrate
+npm run db:studio
 ```
 
-## Deploying on Coolify (Hetzner)
+Never use `db:push` against staging or production. Committed SQL migrations run
+at container startup under a Postgres advisory lock. The startup guard records
+database ownership and refuses cross-environment connections.
 
-The [`Dockerfile`](Dockerfile) builds the app and, on every container start,
-**runs DB migrations and re-seeds the invite login**, then boots the server. So
-a normal deploy keeps the schema and your login up to date automatically.
-
-### One-time setup
-
-1. **Add a Postgres database** in Coolify (New Resource → Database → PostgreSQL).
-   Coolify gives it an internal connection URL — copy it.
-2. **Add the app** (New Resource → Application → your GitHub repo
-   `crabking/gymbuddy`). Build Pack: **Dockerfile**.
-3. **Environment variables** on the app:
-   - `DATABASE_URL` = the Postgres internal URL from step 1
-     (e.g. `postgres://postgres:PASS@<db-service>:5432/postgres`)
-   - `ADMIN_EMAIL` / `ADMIN_PASSWORD` = your login
-   - `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` (and `AI_BASE_URL` if OpenAI mode)
-   - `PUBLIC_ORIGIN` = the app's one canonical HTTPS URL
-   - `TRUST_PROXY_HEADERS=true` when Coolify is the only route to the container
-   - `APP_ENV=production`
-   - `LEGAL_OPERATOR_NAME`, `LEGAL_CONTACT_EMAIL`, and
-     `LEGAL_OPERATOR_COUNTRY` = the real public operator/controller details
-   - `PUBLIC_SIGNUPS_ENABLED=false` while the service remains invite-only
-   - `VITE_PUBLIC_SIGNUPS_ENABLED=false` at build time
-   - Local auth: `AUTH_PROVIDER=local`, `VITE_AUTH_PROVIDER=local`
-   - Clerk auth: the Clerk variables listed above; secret and webhook values
-     remain runtime-only
-   - `NODE_ENV=production`
-4. **Port / domain:** the container listens on **3000**. Set the port to `3000`,
-   attach your domain under _Domains_, and Coolify terminates TLS for you — that's
-   what makes it reachable from the outside.
-5. **Deploy.**
-
-Set the Coolify application health check path to `/api/health`. This checks both
-the web process and its Postgres connection; the container uses the same check.
-`/api/readiness` additionally checks production configuration and the database's
-environment marker.
-
-### Staging
-
-Staging is a separate Coolify application and PostgreSQL database. It runs
-`APP_ENV=staging`, uses the `codex/staging` branch, and never contains production
-user data. The startup environment guard permanently marks a database on first
-boot and refuses to start if a staging app is accidentally given a production
-database URL (or vice versa).
-
-Non-secret resource IDs, branches, and URLs live in
-[`ops/environments.json`](ops/environments.json). Runtime keys remain in
-Coolify. The local `coach-operations` Codex skill documents the full build,
-deploy, verification, and rollback workflow without storing credentials.
-
-### Privacy and launch gate
-
-COACH provides versioned terms/privacy/health consent, account export, and
-in-app account deletion. Public registration must stay disabled until the legal
-operator name and monitored contact address are configured, actual subprocessors
-and international transfers are documented, backup retention is published and
-a restore has been tested. These technical controls are not a substitute for
-qualified legal review.
-
-### Backups
-
-Enable scheduled PostgreSQL backups in Coolify and retain multiple daily
-snapshots. For recovery if the server itself is lost, also connect an
-S3-compatible off-server destination. Test a restore periodically.
-
-### Auto-deploy on git push
-
-In the app's **Webhooks** tab, Coolify shows a GitHub webhook URL and secret.
-Add them to the repo (GitHub → Settings → Webhooks), or connect the GitHub App
-from Coolify's _Sources_. After that, every push to `main` triggers a clean
-rebuild + redeploy. (You can also hit the **Deploy Webhook** URL from CI.)
-
-### Adding more people later
-
-Change `ADMIN_EMAIL` / `ADMIN_PASSWORD` and redeploy, or open the app's Coolify
-**Terminal** and run:
+## Quality gates
 
 ```sh
-ADMIN_EMAIL="friend@example.com" ADMIN_PASSWORD="a-long-password" node seed.mjs
+npm test
+npm run lint
+npm run build
+npm audit --omit=dev
 ```
 
-## Notes
+Before release, also run the local browser regression flow at 384x824 and verify
+sign-up, verification, recovery, sign-in, 2FA, session revocation, account
+deletion, checkout in Stripe test mode, webhook replay idempotency, and the
+existing onboarding/workout/nutrition/reset/PWA smoke suite.
 
-- Local auth uses email/password with HTTP-only cookie sessions and Node
-  `scrypt`. Clerk mode adds managed verification, recovery, MFA, user profile,
-  and session handling while the app database remains authoritative for fitness
-  data.
-- Access control is enforced in the query layer — every query filters by the
-  session user id.
+## Coolify
+
+Use three isolated resources:
+
+- local development outside Coolify;
+- staging app + staging Postgres, tracking `codex/staging` and auto-deploying
+  from GitHub;
+- production app + production Postgres, deployed explicitly only.
+
+The Docker image builds the Nitro server, runs migrations, verifies database
+ownership, optionally refreshes seeded operator credentials, and then starts on
+port `3000`. Configure Coolify's health check as `/api/health`.
+
+Non-secret IDs and URLs live in [ops/environments.json](ops/environments.json).
+The deployment workflow is documented in
+[docs/deployment-runbook.md](docs/deployment-runbook.md). Secrets remain in
+local `.env` files or the matching Coolify environment only.
+
+## Privacy and launch gate
+
+COACH includes versioned terms, privacy and explicit health-data consent,
+adult attestation, account export, memory controls, and account deletion. It
+also clearly states that AI coaching and nutrition estimates are not medical
+advice.
+
+Before opening registration, publish the real controller identity and contact,
+list actual processors and transfer safeguards, complete DPAs, define backup
+retention, test restoration and deletion from backups, configure incident
+response/monitoring, and obtain qualified EU consumer/privacy review. The
+repository controls are a strong technical baseline, not legal certification.

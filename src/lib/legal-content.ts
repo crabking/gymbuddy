@@ -33,7 +33,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
         {
           title: "Uppgifter vi behandlar",
           bullets: [
-            "Konto: e-postadress, inloggningsidentitet, sessioner och samtyckeshistorik. Vid lokal inloggning lagras en lösenordshash; vid Clerk-inloggning lagras en Clerk-identitet.",
+            "Konto: e-postadress, namn, verifieringsstatus, sessioner, säkerhetsinställningar och samtyckeshistorik. Lösenord lagras endast som saltade hashvärden.",
             "Profil: namn, ålder, kön, längd, vikt, språk, mål, erfarenhet, utrustning, kost och eventuella skador eller begränsningar.",
             "Träning: program, genomförda och överhoppade pass, vikter, repetitioner, återhämtningssvar och progression.",
             "Kost och mätningar: måltidsbeskrivningar, uppskattade kalorier, näringsämnen, kroppsvikt och andra mått som du väljer att logga.",
@@ -60,7 +60,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
         {
           title: "AI och personuppgiftsbiträden",
           paragraphs: [
-            "Chatttext, relevant profil- och träningskontext samt bilder du aktivt bifogar kan skickas till den AI-leverantör som operatören har konfigurerat. När Clerk är aktiverat behandlar Clerk konto- och inloggningsuppgifter. Om betalningar aktiveras behandlar Clerk och Stripe betalningsuppgifter. Databas-, server- och infrastrukturföretag behandlar uppgifter endast för att driva tjänsten. Leverantörer, personuppgiftsbiträdesavtal och internationella överföringar ska dokumenteras innan offentlig lansering.",
+            "Chatttext, relevant profil- och träningskontext samt bilder du aktivt bifogar kan skickas till den AI-leverantör som operatören har konfigurerat. Better Auth körs i COACH egen servermiljö och skickar inte kontodata till en separat identitetsleverantör. E-postleverantören behandlar adresser och säkerhetsmeddelanden. Om betalningar aktiveras behandlar Stripe betalnings-, faktura- och skatteuppgifter. Databas-, server- och infrastrukturföretag behandlar uppgifter endast för att driva tjänsten. Aktuella leverantörer, personuppgiftsbiträdesavtal och internationella överföringar ska dokumenteras före offentlig lansering.",
           ],
         },
         {
@@ -97,7 +97,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
       {
         title: "Data we process",
         bullets: [
-          "Account data: email address, sign-in identity, sessions, and consent history. Local sign-in stores a password hash; Clerk sign-in stores a Clerk identity.",
+          "Account data: email address, name, verification status, sessions, security settings, and consent history. Passwords are stored only as salted hashes.",
           "Profile data: name, age, sex, height, weight, language, goals, experience, equipment, diet, and injuries or limitations.",
           "Training data: programs, completed and skipped sessions, weights, repetitions, recovery feedback, and progression.",
           "Nutrition and measurements: meal descriptions, estimated calories and nutrients, bodyweight, and other measurements you choose to log.",
@@ -124,7 +124,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
       {
         title: "AI and processors",
         paragraphs: [
-          "Chat text, relevant profile and training context, and images you actively attach may be sent to the AI provider configured by the operator. When enabled, Clerk processes account and authentication data. If payments are enabled, Clerk and Stripe process payment data. Database, server, and infrastructure providers process data only to operate the service. Providers, processor agreements, and international transfer safeguards must be documented before public launch.",
+          "Chat text, relevant profile and training context, and images you actively attach may be sent to the AI provider configured by the operator. Better Auth runs inside COACH infrastructure and does not send account data to a separate identity provider. The email provider processes addresses and security messages. When payments are enabled, Stripe processes payment, invoice, and tax data. Database, server, and infrastructure providers process data only to operate the service. Current providers, processor agreements, and international transfer safeguards must be documented before public launch.",
         ],
       },
       {
@@ -355,8 +355,8 @@ export function trustContent(config: PublicLegalConfig, language: Language) {
             title: "Kontogränser",
             bullets: [
               "Alla produktfrågor filtreras på det autentiserade konto-ID:t.",
-              "Vid lokal inloggning lagras lösenord som saltade scrypt-hashar, inte i klartext. När Clerk är aktiverat hanterar Clerk inloggningsuppgifterna.",
-              "Lokala råa sessionstokens lagras endast i säkra HTTP-only-cookies och hashade på servern. Clerk-sessioner verifieras av Clerk SDK.",
+              "Lösenord lagras som saltade scrypt-hashar, aldrig i klartext. Better Auth körs i COACH egen servermiljö.",
+              "Råa sessionstokens ligger endast i säkra HTTP-only-cookies. Sessioner är tidsbegränsade, kan återkallas och lagras i den egna databasen.",
               "Känsliga ändringar har ursprungskontroll, storleksgränser och hastighetsbegränsning.",
             ],
           },
@@ -392,8 +392,8 @@ export function trustContent(config: PublicLegalConfig, language: Language) {
             title: "Account boundaries",
             bullets: [
               "Every product query is scoped to the authenticated account ID.",
-              "Local passwords are stored as salted scrypt hashes, never plaintext. When Clerk is enabled, Clerk manages sign-in credentials.",
-              "Raw local session tokens exist only in secure HTTP-only cookies and are hashed server-side. Clerk sessions are verified by the Clerk SDK.",
+              "Passwords are stored as salted scrypt hashes, never plaintext. Better Auth runs inside COACH infrastructure.",
+              "Raw session tokens exist only in secure HTTP-only cookies. Sessions expire, can be revoked, and are stored in the app database.",
               "Sensitive mutations use origin checks, body limits, and rate limiting.",
             ],
           },

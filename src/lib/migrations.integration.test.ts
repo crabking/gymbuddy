@@ -190,6 +190,50 @@ describe.runIf(databaseAvailable).sequential("fresh legacy migration chain", () 
 
       for (const migration of hardeningMigrations) await applyMigration(client, migration);
 
+      const [migratedIdentity] = (
+        await client.query<{
+          id: string;
+          email_verified: boolean;
+          provider_id: string;
+          password: string;
+        }>(
+          `SELECT au.id, au.email_verified, aa.provider_id, aa.password
+           FROM auth_users au
+           JOIN auth_accounts aa ON aa.user_id = au.id
+           WHERE au.id = $1`,
+          [userId],
+        )
+      ).rows;
+      expect(migratedIdentity).toEqual({
+        id: userId,
+        email_verified: true,
+        provider_id: "credential",
+        password: "migration-test-only",
+      });
+      const [removedPrototype] = (
+        await client.query<{
+          event_table: string | null;
+          payment_table: string | null;
+          auth_provider_column: string | null;
+        }>(
+          `SELECT
+             to_regclass('public.clerk_events')::text AS event_table,
+             to_regclass('public.billing_payments')::text AS payment_table,
+             (
+               SELECT column_name
+               FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name = 'users'
+                 AND column_name = 'auth_provider'
+             ) AS auth_provider_column`,
+        )
+      ).rows;
+      expect(removedPrototype).toEqual({
+        event_table: null,
+        payment_table: null,
+        auth_provider_column: null,
+      });
+
       const [catalog] = (
         await client.query<{
           exercises: number;
