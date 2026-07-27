@@ -25,6 +25,10 @@ ENV NODE_ENV=production
 # Nitro's node-server listens on 0.0.0.0:$PORT (default 3000).
 ENV PORT=3000
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

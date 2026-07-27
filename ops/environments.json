@@ -7,16 +7,17 @@
       "healthPath": "/api/health"
     },
     "staging": {
-      "applicationUuid": null,
-      "databaseUuid": null,
-      "projectUuid": null,
+      "applicationUuid": "cx547uc9ercvvh0800jxzono",
+      "databaseUuid": "kkc1du4iilhajz4od3n5vpyh",
+      "projectUuid": "xuk31k0jzbkhjw3lke4edb0b",
+      "coolifyEnvironmentUuid": "huaaflaegqpgqkbsnuvsqf1y",
       "url": "https://staging.coach.178.104.35.161.nip.io",
       "branch": "codex/staging",
       "healthPath": "/api/health"
     },
     "production": {
       "applicationUuid": "ocgsksc80gc0cks8kgwcgkck",
-      "databaseUuid": null,
+      "databaseUuid": "f0wkk4w0kgsswg0s4c4gcsgs",
       "projectUuid": "xw0w0g448kc00gc4kocogwww",
       "url": "https://gymbuddy.178.104.35.161.nip.io",
       "branch": "main",
