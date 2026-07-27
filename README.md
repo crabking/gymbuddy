@@ -88,6 +88,10 @@ a normal deploy keeps the schema and your login up to date automatically.
    - `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` (and `AI_BASE_URL` if OpenAI mode)
    - `PUBLIC_ORIGIN` = the app's one canonical HTTPS URL
    - `TRUST_PROXY_HEADERS=true` when Coolify is the only route to the container
+   - `APP_ENV=production`
+   - `LEGAL_OPERATOR_NAME`, `LEGAL_CONTACT_EMAIL`, and
+     `LEGAL_OPERATOR_COUNTRY` = the real public operator/controller details
+   - `PUBLIC_SIGNUPS_ENABLED=false` while the service remains invite-only
    - `NODE_ENV=production`
 4. **Port / domain:** the container listens on **3000**. Set the port to `3000`,
    attach your domain under _Domains_, and Coolify terminates TLS for you — that's
@@ -96,6 +100,30 @@ a normal deploy keeps the schema and your login up to date automatically.
 
 Set the Coolify application health check path to `/api/health`. This checks both
 the web process and its Postgres connection; the container uses the same check.
+`/api/readiness` additionally checks production configuration and the database's
+environment marker.
+
+### Staging
+
+Staging is a separate Coolify application and PostgreSQL database. It runs
+`APP_ENV=staging`, uses the `codex/staging` branch, and never contains production
+user data. The startup environment guard permanently marks a database on first
+boot and refuses to start if a staging app is accidentally given a production
+database URL (or vice versa).
+
+Non-secret resource IDs, branches, and URLs live in
+[`ops/environments.json`](ops/environments.json). Runtime keys remain in
+Coolify. The local `coach-operations` Codex skill documents the full build,
+deploy, verification, and rollback workflow without storing credentials.
+
+### Privacy and launch gate
+
+COACH provides versioned terms/privacy/health consent, account export, and
+in-app account deletion. Public registration must stay disabled until the legal
+operator name and monitored contact address are configured, actual subprocessors
+and international transfers are documented, backup retention is published and
+a restore has been tested. These technical controls are not a substitute for
+qualified legal review.
 
 ### Backups
 

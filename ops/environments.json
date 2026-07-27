@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "environments": {
+    "local": {
+      "url": "http://localhost:8080",
+      "branch": "codex/staging",
+      "healthPath": "/api/health"
+    },
+    "staging": {
+      "applicationUuid": null,
+      "databaseUuid": null,
+      "projectUuid": null,
+      "url": "https://staging.coach.178.104.35.161.nip.io",
+      "branch": "codex/staging",
+      "healthPath": "/api/health"
+    },
+    "production": {
+      "applicationUuid": "ocgsksc80gc0cks8kgwcgkck",
+      "databaseUuid": null,
+      "projectUuid": "xw0w0g448kc00gc4kocogwww",
+      "url": "https://gymbuddy.178.104.35.161.nip.io",
+      "branch": "main",
+      "healthPath": "/api/health"
+    }
+  }
+}

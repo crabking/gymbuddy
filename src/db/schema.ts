@@ -35,6 +35,11 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   password_hash: text("password_hash").notNull(),
+  policy_bundle_version: text("policy_bundle_version"),
+  policy_accepted_at: timestamp("policy_accepted_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
   created_at: createdAt(),
 });
 
@@ -50,6 +55,63 @@ export const sessions = pgTable(
     created_at: createdAt(),
   },
   (t) => [index("sessions_user_idx").on(t.user_id), index("sessions_expiry_idx").on(t.expires_at)],
+);
+
+/**
+ * Append-only evidence of each policy acknowledgement. The bundle marker on
+ * users is the fast authorization check; these rows preserve the exact
+ * document/version/language the account accepted.
+ */
+export const policyConsents = pgTable(
+  "policy_consents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    document: text("document").notNull(),
+    version: text("version").notNull(),
+    locale: text("locale").notNull(),
+    source: text("source").notNull().default("web"),
+    user_agent_hash: text("user_agent_hash"),
+    granted_at: timestamp("granted_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("policy_consents_user_document_version_idx").on(t.user_id, t.document, t.version),
+    index("policy_consents_user_granted_idx").on(t.user_id, t.granted_at),
+    check(
+      "policy_consents_document_check",
+      sql`${t.document} IN ('terms', 'privacy_notice', 'health_data', 'health_safety', 'adult_attestation')`,
+    ),
+    check("policy_consents_locale_check", sql`${t.locale} IN ('en', 'sv')`),
+    check("policy_consents_source_check", sql`${t.source} IN ('web', 'android')`),
+    check("policy_consents_version_check", sql`length(${t.version}) BETWEEN 1 AND 64`),
+    check(
+      "policy_consents_user_agent_hash_check",
+      sql`${t.user_agent_hash} IS NULL OR ${t.user_agent_hash} ~ '^[a-f0-9]{64}$'`,
+    ),
+  ],
+);
+
+/**
+ * One database may belong to exactly one runtime environment. Startup refuses
+ * to continue if a deployment is accidentally pointed at another
+ * environment's database.
+ */
+export const deploymentMetadata = pgTable(
+  "deployment_metadata",
+  {
+    key: text("key").primaryKey(),
+    value: text("value").notNull(),
+    created_at: createdAt(),
+    updated_at: updatedAt(),
+  },
+  (t) => [
+    check("deployment_metadata_key_check", sql`length(${t.key}) BETWEEN 1 AND 64`),
+    check("deployment_metadata_value_check", sql`length(${t.value}) BETWEEN 1 AND 256`),
+  ],
 );
 
 /** Cross-replica fixed-window buckets for login/chat abuse protection. */
@@ -128,7 +190,7 @@ export const profiles = pgTable(
       "profiles_weight_check",
       sql`${t.weight_kg} IS NULL OR ${t.weight_kg} BETWEEN 25 AND 400`,
     ),
-    check("profiles_age_check", sql`${t.age} IS NULL OR ${t.age} BETWEEN 13 AND 120`),
+    check("profiles_age_check", sql`${t.age} IS NULL OR ${t.age} BETWEEN 18 AND 120`),
     check(
       "profiles_calorie_target_check",
       sql`${t.daily_calorie_target} IS NULL OR ${t.daily_calorie_target} BETWEEN 800 AND 10000`,

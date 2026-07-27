@@ -1,12 +1,28 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 
-// Guards server functions: resolves the session cookie to a user and puts
-// { userId, user } on the context. Throws Unauthorized if there's no valid
-// session. Replaces per-request RLS — every query must filter by context.userId.
-export const requireAuth = createMiddleware({ type: "function" }).server(async ({ next }) => {
+async function authenticatedContext() {
   const { getUserFromRequest } = await import("./auth.server");
   const user = await getUserFromRequest(getRequest());
   if (!user) throw new Error("Unauthorized");
-  return next({ context: { userId: user.id, user } });
+  return { userId: user.id, user };
+}
+
+/**
+ * Identity-only middleware for the consent screen and account privacy tools.
+ * Do not use this for ordinary product features.
+ */
+export const requireIdentity = createMiddleware({ type: "function" }).server(async ({ next }) => {
+  return next({ context: await authenticatedContext() });
+});
+
+/**
+ * Normal product guard. A valid login is insufficient until the account has
+ * accepted the current versioned privacy, terms, and health disclosures.
+ */
+export const requireAuth = createMiddleware({ type: "function" }).server(async ({ next }) => {
+  const context = await authenticatedContext();
+  const { hasCurrentPolicyBundle } = await import("./policies");
+  if (!hasCurrentPolicyBundle(context.user)) throw new Error("Consent required");
+  return next({ context });
 });

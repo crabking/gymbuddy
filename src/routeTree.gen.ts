@@ -11,13 +11,21 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AccountDeletionRouteImport } from './routes/account-deletion'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CoachesRouteImport } from './routes/coaches'
+import { Route as HealthAndSafetyRouteImport } from './routes/health-and-safety'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as TermsRouteImport } from './routes/terms'
+import { Route as TrustRouteImport } from './routes/trust'
 import { Route as AuthenticatedChatRouteImport } from './routes/_authenticated/chat'
+import { Route as AuthenticatedConsentRouteImport } from './routes/_authenticated/consent'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedProgramRouteImport } from './routes/_authenticated/program'
+import { Route as ApiAccountExportRouteImport } from './routes/api/account-export'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiReadinessRouteImport } from './routes/api/readiness'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -26,6 +34,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountDeletionRoute = AccountDeletionRouteImport.update({
+  id: '/account-deletion',
+  path: '/account-deletion',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -38,9 +51,34 @@ const CoachesRoute = CoachesRouteImport.update({
   path: '/coaches',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HealthAndSafetyRoute = HealthAndSafetyRouteImport.update({
+  id: '/health-and-safety',
+  path: '/health-and-safety',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrustRoute = TrustRouteImport.update({
+  id: '/trust',
+  path: '/trust',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedChatRoute = AuthenticatedChatRouteImport.update({
   id: '/chat',
   path: '/chat',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedConsentRoute = AuthenticatedConsentRouteImport.update({
+  id: '/consent',
+  path: '/consent',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -53,6 +91,11 @@ const AuthenticatedProgramRoute = AuthenticatedProgramRouteImport.update({
   path: '/program',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiAccountExportRoute = ApiAccountExportRouteImport.update({
+  id: '/api/account-export',
+  path: '/api/account-export',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiChatRoute = ApiChatRouteImport.update({
   id: '/api/chat',
   path: '/api/chat',
@@ -63,80 +106,140 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiReadinessRoute = ApiReadinessRouteImport.update({
+  id: '/api/readiness',
+  path: '/api/readiness',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/account-deletion': typeof AccountDeletionRoute
   '/auth': typeof AuthRoute
   '/coaches': typeof CoachesRoute
+  '/health-and-safety': typeof HealthAndSafetyRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
+  '/trust': typeof TrustRoute
   '/chat': typeof AuthenticatedChatRoute
+  '/consent': typeof AuthenticatedConsentRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/program': typeof AuthenticatedProgramRoute
+  '/api/account-export': typeof ApiAccountExportRoute
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/readiness': typeof ApiReadinessRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account-deletion': typeof AccountDeletionRoute
   '/auth': typeof AuthRoute
   '/coaches': typeof CoachesRoute
+  '/health-and-safety': typeof HealthAndSafetyRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
+  '/trust': typeof TrustRoute
   '/chat': typeof AuthenticatedChatRoute
+  '/consent': typeof AuthenticatedConsentRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/program': typeof AuthenticatedProgramRoute
+  '/api/account-export': typeof ApiAccountExportRoute
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/readiness': typeof ApiReadinessRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/account-deletion': typeof AccountDeletionRoute
   '/auth': typeof AuthRoute
   '/coaches': typeof CoachesRoute
+  '/health-and-safety': typeof HealthAndSafetyRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
+  '/trust': typeof TrustRoute
   '/_authenticated/chat': typeof AuthenticatedChatRoute
+  '/_authenticated/consent': typeof AuthenticatedConsentRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/program': typeof AuthenticatedProgramRoute
+  '/api/account-export': typeof ApiAccountExportRoute
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/readiness': typeof ApiReadinessRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/account-deletion'
     | '/auth'
     | '/coaches'
+    | '/health-and-safety'
+    | '/privacy'
+    | '/terms'
+    | '/trust'
     | '/chat'
+    | '/consent'
     | '/dashboard'
     | '/program'
+    | '/api/account-export'
     | '/api/chat'
     | '/api/health'
+    | '/api/readiness'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/account-deletion'
     | '/auth'
     | '/coaches'
+    | '/health-and-safety'
+    | '/privacy'
+    | '/terms'
+    | '/trust'
     | '/chat'
+    | '/consent'
     | '/dashboard'
     | '/program'
+    | '/api/account-export'
     | '/api/chat'
     | '/api/health'
+    | '/api/readiness'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/account-deletion'
     | '/auth'
     | '/coaches'
+    | '/health-and-safety'
+    | '/privacy'
+    | '/terms'
+    | '/trust'
     | '/_authenticated/chat'
+    | '/_authenticated/consent'
     | '/_authenticated/dashboard'
     | '/_authenticated/program'
+    | '/api/account-export'
     | '/api/chat'
     | '/api/health'
+    | '/api/readiness'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AccountDeletionRoute: typeof AccountDeletionRoute
   AuthRoute: typeof AuthRoute
   CoachesRoute: typeof CoachesRoute
+  HealthAndSafetyRoute: typeof HealthAndSafetyRoute
+  PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
+  TrustRoute: typeof TrustRoute
+  ApiAccountExportRoute: typeof ApiAccountExportRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiReadinessRoute: typeof ApiReadinessRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -155,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/account-deletion': {
+      id: '/account-deletion'
+      path: '/account-deletion'
+      fullPath: '/account-deletion'
+      preLoaderRoute: typeof AccountDeletionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -169,11 +279,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CoachesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/health-and-safety': {
+      id: '/health-and-safety'
+      path: '/health-and-safety'
+      fullPath: '/health-and-safety'
+      preLoaderRoute: typeof HealthAndSafetyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trust': {
+      id: '/trust'
+      path: '/trust'
+      fullPath: '/trust'
+      preLoaderRoute: typeof TrustRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/chat': {
       id: '/_authenticated/chat'
       path: '/chat'
       fullPath: '/chat'
       preLoaderRoute: typeof AuthenticatedChatRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/consent': {
+      id: '/_authenticated/consent'
+      path: '/consent'
+      fullPath: '/consent'
+      preLoaderRoute: typeof AuthenticatedConsentRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -190,6 +335,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProgramRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/account-export': {
+      id: '/api/account-export'
+      path: '/api/account-export'
+      fullPath: '/api/account-export'
+      preLoaderRoute: typeof ApiAccountExportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat': {
       id: '/api/chat'
       path: '/api/chat'
@@ -204,17 +356,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/readiness': {
+      id: '/api/readiness'
+      path: '/api/readiness'
+      fullPath: '/api/readiness'
+      preLoaderRoute: typeof ApiReadinessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedChatRoute: typeof AuthenticatedChatRoute
+  AuthenticatedConsentRoute: typeof AuthenticatedConsentRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedProgramRoute: typeof AuthenticatedProgramRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChatRoute: AuthenticatedChatRoute,
+  AuthenticatedConsentRoute: AuthenticatedConsentRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedProgramRoute: AuthenticatedProgramRoute,
 }
@@ -225,10 +386,17 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AccountDeletionRoute: AccountDeletionRoute,
   AuthRoute: AuthRoute,
   CoachesRoute: CoachesRoute,
+  HealthAndSafetyRoute: HealthAndSafetyRoute,
+  PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
+  TrustRoute: TrustRoute,
+  ApiAccountExportRoute: ApiAccountExportRoute,
   ApiChatRoute: ApiChatRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiReadinessRoute: ApiReadinessRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

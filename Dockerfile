@@ -32,6 +32,7 @@ COPY --chown=node:node --from=build /app/.output ./.output
 COPY --chown=node:node --from=build /app/drizzle ./drizzle
 COPY --chown=node:node --from=build /app/src/db/seed.mjs ./seed.mjs
 COPY --chown=node:node docker/migrate.mjs ./migrate.mjs
+COPY --chown=node:node docker/verify-environment.mjs ./verify-environment.mjs
 COPY --chown=node:node docker/start.sh ./start.sh
 RUN chmod +x ./start.sh
 

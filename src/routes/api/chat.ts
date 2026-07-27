@@ -399,6 +399,10 @@ export const Route = createFileRoute("/api/chat")({
 
         const user = await getUserFromRequest(request);
         if (!user) return new Response("Unauthorized", { status: 401 });
+        const { hasCurrentPolicyBundle } = await import("@/lib/policies");
+        if (!hasCurrentPolicyBundle(user)) {
+          return new Response("Consent required", { status: 428 });
+        }
         const userId = user.id;
 
         const chatLimit = await takeDistributedRateLimit(`chat:${userId}`, 30, 10 * 60_000);
@@ -1244,7 +1248,7 @@ ${input.notes}
                 injuries: z.string().trim().max(2_000).nullable(),
                 height_cm: z.number().min(100).max(260).nullable(),
                 weight_kg: z.number().min(25).max(400).nullable(),
-                age: z.number().int().min(13).max(120).nullable(),
+                age: z.number().int().min(18).max(120).nullable(),
                 sex: z.enum(["male", "female", "other"]).nullable(),
                 activity_level: z.enum(["sedentary", "moderate", "high"]).nullable(),
                 recent_training_baseline: z.string().trim().max(4_000).nullable(),
@@ -2122,7 +2126,7 @@ ${programInput.why}
               "Calculate a grounded starting calorie and macro target with Mifflin-St Jeor using age, sex, height, bodyweight and daily movement. Always use this before save_nutrition_targets; never invent calorie targets.",
             inputSchema: z
               .object({
-                age: z.number().int().min(13).max(100),
+                age: z.number().int().min(18).max(100),
                 sex: z.enum(["male", "female", "other"]),
                 height_cm: z.number().min(100).max(260),
                 weight_kg: z.number().min(30).max(300),

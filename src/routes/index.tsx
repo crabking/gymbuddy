@@ -167,6 +167,20 @@ function LandingContent({ language }: { language: Language }) {
             {t("landing.start")}
             <ArrowUpRight className="h-4 w-4" strokeWidth={2.5} />
           </Link>
+          <nav className="mt-1 flex h-5 shrink-0 items-center justify-center gap-3 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+            <Link to="/trust" search={{ lang: language }}>
+              {language === "sv" ? "Trygghet" : "Trust"}
+            </Link>
+            <Link to="/privacy" search={{ lang: language }}>
+              {language === "sv" ? "Integritet" : "Privacy"}
+            </Link>
+            <Link to="/terms" search={{ lang: language }}>
+              {language === "sv" ? "Villkor" : "Terms"}
+            </Link>
+            <Link to="/health-and-safety" search={{ lang: language }}>
+              {language === "sv" ? "Hälsa" : "Health"}
+            </Link>
+          </nav>
         </section>
       </main>
     </div>

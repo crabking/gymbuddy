@@ -29,6 +29,7 @@ import {
   getTodayTrainingInfo,
 } from "@/lib/gym-buddy.functions";
 import { getCurrentUser, logout } from "@/lib/auth.functions";
+import { deleteMyAccount } from "@/lib/account.functions";
 import { TabBar } from "@/components/TabBar";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { InstallAppButton } from "@/components/InstallAppButton";
@@ -54,6 +55,10 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  Download,
+  FileText,
+  ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { COACH_IMAGES } from "@/lib/coach-assets";
 import { getCoach } from "@/lib/coaches";
@@ -2991,6 +2996,7 @@ function SettingsDrawer({
   const updateFn = useServerFn(updateProfile);
   const resetWsFn = useServerFn(resetWorkspace);
   const removeMemoryFn = useServerFn(removeMemory);
+  const deleteAccountFn = useServerFn(deleteMyAccount);
   const memoryQuery = useQuery({
     queryKey: ["memories"],
     queryFn: () => getMemories({ data: undefined }),
@@ -2999,6 +3005,7 @@ function SettingsDrawer({
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "workspace" | "everything">(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -3402,6 +3409,60 @@ function SettingsDrawer({
               </SettingsGroup>
             )}
 
+            <SettingsGroup label={language === "sv" ? "Integritet och data" : "Privacy & data"}>
+              <a
+                href="/api/account-export"
+                download
+                className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3"
+              >
+                <Download className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    {language === "sv" ? "Exportera mina data" : "Export my data"}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {language === "sv"
+                      ? "Hämta en komplett JSON-kopia."
+                      : "Download a complete JSON copy."}
+                  </span>
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </a>
+              <Link
+                to="/privacy"
+                search={{ lang: language }}
+                className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3"
+              >
+                <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
+                  {language === "sv" ? "Integritet och trygghet" : "Privacy and trust"}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </Link>
+              <Link
+                to="/terms"
+                search={{ lang: language }}
+                className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3"
+              >
+                <FileText className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
+                  {language === "sv" ? "Villkor och hälsosäkerhet" : "Terms and health safety"}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </Link>
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(true)}
+                className="flex min-h-11 w-full items-center gap-3 px-3.5 py-3 text-left"
+              >
+                <Trash2 className="h-4 w-4 shrink-0 text-red-400" />
+                <span className="min-w-0 flex-1 text-sm font-medium text-red-400">
+                  {language === "sv" ? "Radera mitt konto" : "Delete my account"}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
+            </SettingsGroup>
+
             <SettingsGroup label={t("settings.danger")}>
               <button
                 type="button"
@@ -3458,6 +3519,109 @@ function SettingsDrawer({
           onAdminReset?.();
         }}
       />
+      <DeleteAccountModal
+        open={deleteOpen}
+        language={language}
+        onCancel={() => setDeleteOpen(false)}
+        onDelete={async (password) => {
+          await deleteAccountFn({ data: { password, confirmation: "DELETE" } });
+          await clearAccountCache(qc);
+          window.location.replace("/");
+        }}
+      />
+    </div>
+  );
+}
+
+function DeleteAccountModal({
+  open,
+  language,
+  onCancel,
+  onDelete,
+}: {
+  open: boolean;
+  language: "en" | "sv";
+  onCancel: () => void;
+  onDelete: (password: string) => Promise<void>;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  if (!open) return null;
+  const sv = language === "sv";
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-black/80 px-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-account-title"
+        className="w-full max-w-sm border border-red-500/50 bg-card p-5 shadow-2xl"
+      >
+        <h2
+          id="delete-account-title"
+          className="font-display text-xl font-black uppercase text-red-400"
+        >
+          {sv ? "Radera konto permanent?" : "Delete account permanently?"}
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {sv
+            ? "Detta raderar chatt, minnen, program, träningspass, kost och mätningar. Åtgärden kan inte ångras."
+            : "This deletes chat, memories, programs, workouts, nutrition, and measurements. It cannot be undone."}
+        </p>
+        <label className="mt-4 block text-xs font-bold uppercase tracking-wide text-foreground">
+          {sv ? "Lösenord" : "Password"}
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mt-1 h-11 w-full border border-border bg-background px-3 text-base normal-case tracking-normal outline-none focus:border-red-400"
+          />
+        </label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-foreground">
+          {sv ? "Skriv DELETE" : "Type DELETE"}
+          <input
+            type="text"
+            autoComplete="off"
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            className="mt-1 h-11 w-full border border-border bg-background px-3 text-base normal-case tracking-normal outline-none focus:border-red-400"
+          />
+        </label>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onCancel}
+            className="h-11 border border-border font-bold text-muted-foreground"
+          >
+            {sv ? "Avbryt" : "Cancel"}
+          </button>
+          <button
+            type="button"
+            disabled={deleting || !password || confirmation !== "DELETE"}
+            onClick={async () => {
+              setDeleting(true);
+              try {
+                await onDelete(password);
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : sv
+                      ? "Kontot kunde inte raderas."
+                      : "The account could not be deleted.",
+                );
+                setDeleting(false);
+              }
+            }}
+            className="h-11 bg-red-600 font-bold text-white disabled:opacity-35"
+          >
+            {deleting ? "…" : sv ? "Radera" : "Delete"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

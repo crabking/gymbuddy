@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db/db.server";
+import { runtimeEnvironment } from "@/lib/runtime-config.server";
 
 export const Route = createFileRoute("/api/health")({
   server: {
@@ -9,7 +10,7 @@ export const Route = createFileRoute("/api/health")({
         try {
           await getDb().execute(sql`select 1`);
           return Response.json(
-            { ok: true },
+            { ok: true, environment: runtimeEnvironment() },
             {
               headers: {
                 "Cache-Control": "no-store",

@@ -189,6 +189,20 @@ function AuthPage({ language }: { language: Language }) {
             </form>
           </div>
         </main>
+        <footer className="flex min-h-11 shrink-0 items-center justify-center gap-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+          <Link to="/privacy" search={{ lang: language }}>
+            {language === "sv" ? "Integritet" : "Privacy"}
+          </Link>
+          <Link to="/terms" search={{ lang: language }}>
+            {language === "sv" ? "Villkor" : "Terms"}
+          </Link>
+          <Link to="/health-and-safety" search={{ lang: language }}>
+            {language === "sv" ? "Hälsa" : "Health"}
+          </Link>
+          <Link to="/account-deletion" search={{ lang: language }}>
+            {language === "sv" ? "Radera konto" : "Delete account"}
+          </Link>
+        </footer>
       </div>
     </div>
   );

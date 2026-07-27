@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireAuth } from "@/lib/auth-middleware";
+import { requireAuth, requireIdentity } from "@/lib/auth-middleware";
 import { COACH_IDS } from "@/lib/coaches";
 import { z } from "zod";
 
@@ -10,7 +10,7 @@ import { z } from "zod";
 /* -------------------- profile & messages -------------------- */
 
 export const getProfile = createServerFn({ method: "GET" })
-  .middleware([requireAuth])
+  .middleware([requireIdentity])
   .handler(async ({ context }) => {
     const { eq } = await import("drizzle-orm");
     const { getDb } = await import("@/db/db.server");
@@ -104,7 +104,7 @@ const OnboardingSchema = z
     injuries: z.string().max(500).optional().default(""),
     height_cm: z.number().min(100).max(260),
     weight_kg: z.number().min(30).max(300),
-    age: z.number().int().min(13).max(100),
+    age: z.number().int().min(18).max(100),
     sex: z.enum(["male", "female", "other"]),
     preferred_language: z.enum(["en", "sv"]),
     activity_level: z.enum(["sedentary", "moderate", "high"]),
@@ -162,7 +162,7 @@ const ProfilePatchSchema = z
     injuries: z.string().max(500).nullable().optional(),
     height_cm: z.number().min(100).max(260).nullable().optional(),
     weight_kg: z.number().min(25).max(400).nullable().optional(),
-    age: z.number().int().min(13).max(120).nullable().optional(),
+    age: z.number().int().min(18).max(120).nullable().optional(),
     sex: z.enum(["male", "female", "other"]).optional(),
     preferred_language: z.enum(["en", "sv"]).nullable().optional(),
     activity_level: z.enum(["sedentary", "moderate", "high"]).nullable().optional(),
