@@ -2,8 +2,12 @@ import { Pool } from "pg";
 
 const connectionString = process.env.DATABASE_URL;
 const email = (process.env.DEV_USER_EMAIL ?? "").trim().toLowerCase();
-const days = Number.parseInt(process.env.DEV_ADVANCE_DAYS ?? "1", 10);
 const activeSessionMinutes = Number.parseInt(process.env.DEV_ADVANCE_SESSION_MINUTES ?? "0", 10);
+const days = Number.parseInt(
+  process.env.DEV_ADVANCE_DAYS ??
+    (process.env.DEV_ADVANCE_SESSION_MINUTES === undefined ? "1" : "0"),
+  10,
+);
 
 if (!connectionString || !email) {
   throw new Error("Set DATABASE_URL and DEV_USER_EMAIL");
