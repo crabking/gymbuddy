@@ -15,6 +15,7 @@ import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
 import { isLanguage, type Language } from "@/lib/i18n";
 import { betterAuthFrontendEnabled, publicSignupsEnabled } from "@/lib/auth-config";
 import { authClient } from "@/lib/better-auth-client";
+import { trackClientAnalytics } from "@/lib/analytics-client";
 
 type AuthMode = "sign-in" | "sign-up" | "forgot" | "reset" | "two-factor";
 
@@ -99,6 +100,7 @@ function AuthPage({ language }: { language: Language }) {
       if (betterAuthFrontendEnabled) {
         const callbackURL = `/auth?lang=${language}${selectedCoach ? `&coach=${selectedCoach}` : ""}`;
         if (mode === "sign-up") {
+          void trackClientAnalytics("signup_started", { locale: language });
           const result = await authClient.signUp.email({
             email,
             name: name.trim(),

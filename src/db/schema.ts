@@ -238,6 +238,142 @@ export const stripeEvents = pgTable(
 );
 
 /**
+ * Privacy-minimal product and acquisition events. This deliberately stores no
+ * chat text, meal descriptions, measurements, IP addresses, or user agents.
+ * visitor_hash is an HMAC generated on the server from request metadata.
+ */
+export const analyticsEvents = pgTable(
+  "analytics_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    event_name: text("event_name").notNull(),
+    actor_user_id: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    visitor_hash: text("visitor_hash"),
+    route: text("route"),
+    source: text("source").notNull(),
+    properties: jsonb("properties").notNull().default({}),
+    idempotency_key: text("idempotency_key"),
+    occurred_at: timestamp("occurred_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("analytics_events_name_time_idx").on(t.event_name, t.occurred_at),
+    index("analytics_events_actor_time_idx").on(t.actor_user_id, t.occurred_at),
+    index("analytics_events_visitor_time_idx").on(t.visitor_hash, t.occurred_at),
+    uniqueIndex("analytics_events_idempotency_idx")
+      .on(t.idempotency_key)
+      .where(sql`${t.idempotency_key} IS NOT NULL`),
+    check(
+      "analytics_events_name_check",
+      sql`${t.event_name} IN ('page_view', 'signup_started', 'signup_completed', 'login_completed', 'onboarding_completed', 'checkout_started', 'checkout_completed', 'subscription_activated', 'subscription_cancelled', 'payment_succeeded', 'payment_failed', 'payment_refunded', 'chat_user_message', 'chat_assistant_message')`,
+    ),
+    check("analytics_events_source_check", sql`${t.source} IN ('web', 'server', 'stripe')`),
+    check(
+      "analytics_events_visitor_hash_check",
+      sql`${t.visitor_hash} IS NULL OR ${t.visitor_hash} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "analytics_events_route_check",
+      sql`${t.route} IS NULL OR (length(${t.route}) BETWEEN 1 AND 160 AND ${t.route} ~ '^/[a-zA-Z0-9_./-]*$')`,
+    ),
+    check(
+      "analytics_events_properties_check",
+      sql`jsonb_typeof(${t.properties}) = 'object' AND pg_column_size(${t.properties}) <= 4096`,
+    ),
+    check(
+      "analytics_events_idempotency_length_check",
+      sql`${t.idempotency_key} IS NULL OR length(${t.idempotency_key}) BETWEEN 1 AND 200`,
+    ),
+  ],
+);
+
+/**
+ * One row per model request. Token counts and configured price estimates are
+ * retained; prompts, responses, tool inputs, and provider secrets never are.
+ */
+export const aiUsageEvents = pgTable(
+  "ai_usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    request_id: uuid("request_id").notNull().unique(),
+    user_id: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    purpose: text("purpose").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    status: text("status").notNull(),
+    input_tokens: integer("input_tokens").notNull().default(0),
+    cache_read_tokens: integer("cache_read_tokens").notNull().default(0),
+    cache_write_tokens: integer("cache_write_tokens").notNull().default(0),
+    output_tokens: integer("output_tokens").notNull().default(0),
+    reasoning_tokens: integer("reasoning_tokens").notNull().default(0),
+    total_tokens: integer("total_tokens").notNull().default(0),
+    estimated_cost_microusd: bigint("estimated_cost_microusd", { mode: "number" }),
+    duration_ms: integer("duration_ms").notNull(),
+    error_code: text("error_code"),
+    started_at: timestamp("started_at", { withTimezone: true, mode: "string" }).notNull(),
+    completed_at: timestamp("completed_at", { withTimezone: true, mode: "string" }).notNull(),
+  },
+  (t) => [
+    index("ai_usage_events_completed_idx").on(t.completed_at),
+    index("ai_usage_events_user_completed_idx").on(t.user_id, t.completed_at),
+    index("ai_usage_events_model_completed_idx").on(t.model, t.completed_at),
+    check(
+      "ai_usage_events_purpose_check",
+      sql`${t.purpose} IN ('coach_chat', 'chat_compaction', 'memory_extraction')`,
+    ),
+    check("ai_usage_events_status_check", sql`${t.status} IN ('succeeded', 'failed')`),
+    check("ai_usage_events_provider_length_check", sql`length(${t.provider}) BETWEEN 1 AND 40`),
+    check("ai_usage_events_model_length_check", sql`length(${t.model}) BETWEEN 1 AND 160`),
+    check(
+      "ai_usage_events_token_check",
+      sql`${t.input_tokens} >= 0 AND ${t.cache_read_tokens} >= 0 AND ${t.cache_write_tokens} >= 0 AND ${t.output_tokens} >= 0 AND ${t.reasoning_tokens} >= 0 AND ${t.total_tokens} >= 0`,
+    ),
+    check(
+      "ai_usage_events_cost_check",
+      sql`${t.estimated_cost_microusd} IS NULL OR ${t.estimated_cost_microusd} >= 0`,
+    ),
+    check("ai_usage_events_duration_check", sql`${t.duration_ms} BETWEEN 0 AND 3600000`),
+    check(
+      "ai_usage_events_error_check",
+      sql`${t.error_code} IS NULL OR length(${t.error_code}) BETWEEN 1 AND 80`,
+    ),
+  ],
+);
+
+/**
+ * Verified Stripe financial events, sufficient for revenue/refund reporting
+ * without copying card, invoice-address, tax-ID, or customer email data.
+ */
+export const billingLedger = pgTable(
+  "billing_ledger",
+  {
+    event_id: text("event_id").primaryKey(),
+    user_id: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    amount_minor: bigint("amount_minor", { mode: "number" }).notNull(),
+    currency: text("currency").notNull(),
+    occurred_at: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
+    received_at: timestamp("received_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("billing_ledger_occurred_idx").on(t.occurred_at),
+    index("billing_ledger_user_occurred_idx").on(t.user_id, t.occurred_at),
+    check(
+      "billing_ledger_kind_check",
+      sql`${t.kind} IN ('payment_succeeded', 'payment_failed', 'payment_refunded')`,
+    ),
+    check("billing_ledger_amount_check", sql`${t.amount_minor} >= 0`),
+    check("billing_ledger_currency_check", sql`${t.currency} ~ '^[a-z]{3}$'`),
+    check("billing_ledger_event_id_check", sql`length(${t.event_id}) BETWEEN 1 AND 255`),
+  ],
+);
+
+/**
  * Append-only evidence of each policy acknowledgement. The bundle marker on
  * users is the fast authorization check; these rows preserve the exact
  * document/version/language the account accepted.
@@ -712,6 +848,7 @@ export const programDays = pgTable(
     status: text("status").notNull().default("planned"), // planned | completed | skipped
     session_id: uuid("session_id"), // linked live session when run
     resolution_note: text("resolution_note"),
+    resolved_at: timestamp("resolved_at", { withTimezone: true, mode: "string" }),
   },
   (t) => [
     uniqueIndex("program_days_program_date_idx").on(t.program_id, t.date),
@@ -727,6 +864,10 @@ export const programDays = pgTable(
     check(
       "program_days_completed_session_check",
       sql`${t.status} <> 'completed' OR ${t.session_id} IS NOT NULL`,
+    ),
+    check(
+      "program_days_resolution_time_check",
+      sql`(${t.status} = 'planned' AND ${t.resolved_at} IS NULL) OR (${t.status} IN ('completed', 'skipped') AND ${t.resolved_at} IS NOT NULL)`,
     ),
   ],
 );

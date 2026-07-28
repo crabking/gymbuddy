@@ -147,6 +147,13 @@ export const saveOnboarding = createServerFn({ method: "POST" })
         })
         .where(eq(profiles.id, context.userId));
     });
+    const { recordAnalyticsEventSafe } = await import("@/lib/analytics.server");
+    await recordAnalyticsEventSafe({
+      eventName: "onboarding_completed",
+      actorUserId: context.userId,
+      source: "server",
+      idempotencyKey: `onboarding:${context.userId}:${data.expected_data_epoch}`,
+    });
     return { ok: true };
   });
 

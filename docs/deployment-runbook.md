@@ -45,6 +45,24 @@ Use Stripe test mode in staging and live mode only in production. Verify
 checkout, success/cancel returns, webhook replay, portal access, cancellation,
 and subscribed-account deletion. Never store card data in COACH.
 
+## Private analytics
+
+Configure a unique runtime-only `ANALYTICS_HASH_SECRET`, at least one email in
+`ANALYTICS_ADMIN_EMAILS`, `ANALYTICS_TIMEZONE`,
+`ANALYTICS_RETENTION_DAYS`, and the current AI input/output token rates.
+Production dashboard access requires an allowlisted Better Auth administrator
+with MFA. The dashboard is read-only and queries server-side aggregates; never
+put a production database URL in browser code or connect a localhost browser
+directly to the live database.
+
+After deployment, verify that an allowlisted admin can load
+`/admin-analytics`, a regular account gets no data, funnel events are
+idempotent, Stripe webhook replay does not duplicate revenue, AI failures are
+counted without prompts/responses, and expired analytics records are removed.
+Keep payment-accounting retention separate from product analytics retention.
+Cloudflare Access can be added as a second perimeter control, but must not
+replace app authorization.
+
 ## Deployment
 
 Staging tracks `codex/staging` and auto-deploys on GitHub push. Production

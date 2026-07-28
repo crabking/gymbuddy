@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { generateObject, type UIMessage } from "ai";
 import { z } from "zod";
 import { getDb } from "@/db/db.server";
 import { memories, memoryJobs, profiles, workspaceFiles } from "@/db/schema";
 import { getChatModel } from "@/lib/ai-provider.server";
+import { recordAiUsageSafe } from "@/lib/analytics.server";
 
 const MAX_MEMORIES = 500;
 const MAX_NEW_MEMORIES_PER_TURN = 3;
@@ -258,6 +260,9 @@ export async function processPendingMemoryJob(userId: string): Promise<{ process
   });
   if (!job) return { processed: false };
 
+  const usageRequestId = randomUUID();
+  const usageStartedAt = Date.now();
+  let usageRecorded = false;
   try {
     const existing = await formatPermanentMemory(userId);
     const result = await generateObject({
@@ -277,6 +282,22 @@ ${existing}
 Latest conversation turn:
 ${job.transcript}`,
     });
+    await recordAiUsageSafe({
+      requestId: usageRequestId,
+      userId,
+      purpose: "memory_extraction",
+      succeeded: true,
+      startedAt: usageStartedAt,
+      usage: {
+        inputTokens: result.usage.inputTokens,
+        cacheReadTokens: result.usage.inputTokenDetails.cacheReadTokens,
+        cacheWriteTokens: result.usage.inputTokenDetails.cacheWriteTokens,
+        outputTokens: result.usage.outputTokens,
+        reasoningTokens: result.usage.outputTokenDetails.reasoningTokens,
+        totalTokens: result.usage.totalTokens,
+      },
+    });
+    usageRecorded = true;
     await db.transaction(async (tx) => {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${"memory:" + userId}, 0))`,
@@ -347,6 +368,16 @@ ${job.transcript}`,
         .where(eq(memoryJobs.id, job.id));
     });
   } catch (error) {
+    if (!usageRecorded) {
+      await recordAiUsageSafe({
+        requestId: usageRequestId,
+        userId,
+        purpose: "memory_extraction",
+        succeeded: false,
+        startedAt: usageStartedAt,
+        errorCode: error instanceof Error ? error.message : "unknown",
+      });
+    }
     console.error("Permanent-memory extraction failed", error);
     const retry = job.attempts < MAX_MEMORY_JOB_ATTEMPTS;
     await db

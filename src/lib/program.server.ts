@@ -493,7 +493,9 @@ export async function reconcileProgramLifecycle(userId: string, today: string) {
     // the program day.
     await tx.execute(sql`
       UPDATE program_days pd
-      SET status = 'completed', session_id = ws.id
+      SET status = 'completed',
+          session_id = ws.id,
+          resolved_at = coalesce(ws.completed_at, now())
       FROM workout_sessions ws
       WHERE pd.program_id = ${active.id}
         AND ws.program_day_id = pd.id
@@ -767,6 +769,7 @@ export async function markProgramDay(
       .set({
         status,
         ...(sessionId !== undefined ? { session_id: sessionId } : {}),
+        resolved_at: status === "planned" ? null : new Date().toISOString(),
         resolution_note:
           status === "completed"
             ? null
@@ -944,7 +947,12 @@ export async function resolveProgramDay(
     }
     await tx
       .update(programDays)
-      .set({ status: opts.status, session_id: null, resolution_note: reason })
+      .set({
+        status: opts.status,
+        session_id: null,
+        resolution_note: reason,
+        resolved_at: opts.status === "planned" ? null : new Date().toISOString(),
+      })
       .where(eq(programDays.id, day.id));
 
     const recoveryChanges: Array<{

@@ -1,3 +1,5 @@
+import { aiCostRatesFromEnvironment } from "@/lib/analytics";
+
 export type RuntimeEnvironment = "local" | "staging" | "production";
 
 export function runtimeEnvironment(): RuntimeEnvironment | "invalid" {
@@ -19,6 +21,18 @@ export function readinessConfiguration() {
   const stripeBilling = billing === "stripe";
   const publicSignups = process.env.PUBLIC_SIGNUPS_ENABLED === "true";
   const frontendPublicSignups = process.env.VITE_PUBLIC_SIGNUPS_ENABLED === "true";
+  const analyticsEmails = (process.env.ANALYTICS_ADMIN_EMAILS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const analyticsRetention = Number(process.env.ANALYTICS_RETENTION_DAYS || "760");
+  const analyticsTimezone = process.env.ANALYTICS_TIMEZONE?.trim() || "Europe/Stockholm";
+  let validAnalyticsTimezone = true;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: analyticsTimezone }).format(new Date());
+  } catch {
+    validAnalyticsTimezone = false;
+  }
   const checks = {
     environment: environment !== "invalid",
     database: Boolean(process.env.DATABASE_URL?.trim()),
@@ -60,6 +74,20 @@ export function readinessConfiguration() {
       (process.env.STRIPE_AUTOMATIC_TAX === "true" &&
         process.env.STRIPE_EU_TAX_CONFIGURED === "true"),
     stripe_portal: !stripeBilling || process.env.STRIPE_CUSTOMER_PORTAL_CONFIGURED === "true",
+    analytics_hash_secret:
+      !productionLike || Boolean((process.env.ANALYTICS_HASH_SECRET?.trim().length || 0) >= 32),
+    analytics_admin_allowlist:
+      !productionLike ||
+      Boolean(
+        analyticsEmails.length > 0 &&
+        analyticsEmails.every((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)),
+      ),
+    analytics_ai_costs: !productionLike || Boolean(aiCostRatesFromEnvironment(process.env)),
+    analytics_retention:
+      Number.isInteger(analyticsRetention) &&
+      analyticsRetention >= 30 &&
+      analyticsRetention <= 3650,
+    analytics_timezone: validAnalyticsTimezone,
   };
   return {
     environment,

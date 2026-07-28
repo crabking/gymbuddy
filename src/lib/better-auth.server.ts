@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { stripe } from "@better-auth/stripe";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -7,7 +6,8 @@ import { admin, twoFactor } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db/db.server";
-import { profiles, stripeEvents, users } from "@/db/schema";
+import { profiles, users } from "@/db/schema";
+import { recordAnalyticsEventSafe, recordStripeBusinessEvent } from "@/lib/analytics.server";
 import { authLinkEmail } from "@/lib/email.server";
 import { hashPasswordAsync, verifyPassword } from "@/lib/auth.server";
 import { getStripe, stripeCheckoutEnabled, stripePriceId } from "@/lib/stripe.server";
@@ -130,16 +130,7 @@ function stripePlugin() {
       subscription: { modelName: "billingSubscriptions" },
     },
     onEvent: async (event) => {
-      const object = event.data.object as { id?: string };
-      await getDb()
-        .insert(stripeEvents)
-        .values({
-          id: event.id,
-          event_type: event.type,
-          entity_id: object.id ?? null,
-          payload_sha256: createHash("sha256").update(JSON.stringify(event)).digest("hex"),
-        })
-        .onConflictDoNothing({ target: stripeEvents.id });
+      await recordStripeBusinessEvent(event);
     },
   });
 }
@@ -265,7 +256,18 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        after: ensureAppUser,
+        after: async (authUser, context) => {
+          await ensureAppUser(authUser);
+          if (context?.path === "/sign-up/email") {
+            await recordAnalyticsEventSafe({
+              eventName: "signup_completed",
+              actorUserId: authUser.id,
+              source: "server",
+              properties: { method: "email" },
+              idempotencyKey: `signup:${authUser.id}`,
+            });
+          }
+        },
       },
       update: {
         after: ensureAppUser,
@@ -273,6 +275,21 @@ export const auth = betterAuth({
       delete: {
         after: async (authUser) => {
           await getDb().delete(users).where(eq(users.id, authUser.id));
+        },
+      },
+    },
+    session: {
+      create: {
+        after: async (session, context) => {
+          await recordAnalyticsEventSafe({
+            eventName: "login_completed",
+            actorUserId: session.userId,
+            source: "server",
+            properties: {
+              flow: context?.path === "/sign-up/email" ? "signup" : "signin",
+            },
+            idempotencyKey: `login:${session.id}`,
+          });
         },
       },
     },

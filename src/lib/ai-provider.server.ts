@@ -16,6 +16,16 @@ const DEFAULTS = {
   anthropic: { model: "claude-sonnet-5" },
 };
 
+export function getAiProviderMetadata() {
+  const provider = (process.env.AI_PROVIDER || "openai").trim().toLowerCase();
+  return {
+    provider: provider === "anthropic" ? "anthropic" : "openai-compatible",
+    model:
+      process.env.AI_MODEL?.trim() ||
+      (provider === "anthropic" ? DEFAULTS.anthropic.model : DEFAULTS.openai.model),
+  };
+}
+
 /** Build the chat model from env config. Throws if AI_API_KEY is missing. */
 export function getChatModel() {
   const provider = (process.env.AI_PROVIDER || "openai").trim().toLowerCase();

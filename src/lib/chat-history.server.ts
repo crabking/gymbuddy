@@ -3,7 +3,9 @@ import { isDeepStrictEqual } from "node:util";
 import { and, asc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { generateText, type UIMessage } from "ai";
 import { getDb } from "@/db/db.server";
-import { chatMessages, chatRuns, memoryJobs } from "@/db/schema";
+import { analyticsEvents, chatMessages, chatRuns, memoryJobs } from "@/db/schema";
+import { recordAnalyticsEventSafe } from "@/lib/analytics.server";
+import { recordAiUsageSafe } from "@/lib/analytics.server";
 import { getChatModel } from "@/lib/ai-provider.server";
 import { captureAndRenewChatLease, renewChatLease, type ChatLease } from "@/lib/chat-run.server";
 
@@ -98,6 +100,12 @@ export async function appendCanonicalUserMessage(
       throw new Error("message_id_conflict");
     }
   }
+  await recordAnalyticsEventSafe({
+    eventName: "chat_user_message",
+    actorUserId: userId,
+    source: "server",
+    idempotencyKey: `chat:user:${id}`,
+  });
   return { inserted: rows.length > 0, id };
 }
 
@@ -124,6 +132,12 @@ export async function appendCanonicalAssistantMessage(
       throw new Error("assistant_message_conflict");
     }
   }
+  await recordAnalyticsEventSafe({
+    eventName: "chat_assistant_message",
+    actorUserId: userId,
+    source: "server",
+    idempotencyKey: `chat:assistant:${id}`,
+  });
   return { inserted: rows.length > 0, id };
 }
 
@@ -163,6 +177,15 @@ export async function persistCanonicalAssistantAndMemoryJob(
     if (!sameParts(assistant.parts, clean.parts)) {
       throw new Error("assistant_message_conflict");
     }
+    await tx
+      .insert(analyticsEvents)
+      .values({
+        event_name: "chat_assistant_message",
+        actor_user_id: userId,
+        source: "server",
+        idempotency_key: `chat:assistant:${assistantMessageId}`,
+      })
+      .onConflictDoNothing();
     const transcript = memoryTranscript(
       user.parts as UIMessage["parts"],
       assistant.parts as UIMessage["parts"],
@@ -283,10 +306,12 @@ function boundedTranscript(messages: UIMessage[]) {
   return `${head.trimEnd()}${omission}${tail.trimStart()}`;
 }
 
-async function summarize(messages: UIMessage[]) {
+async function summarize(userId: string, messages: UIMessage[]) {
   const source = boundedTranscript(messages);
   if (!source) return "No meaningful earlier context.";
 
+  const usageRequestId = randomUUID();
+  const usageStartedAt = Date.now();
   const controller = new AbortController();
   let rejectOnTimeout: ((error: Error) => void) | undefined;
   const timedOut = new Promise<never>((_, reject) => {
@@ -309,8 +334,31 @@ This is conversation context, not permanent memory. Return only the summary.`,
       prompt: source,
     });
     const result = await Promise.race([generation, timedOut]);
+    await recordAiUsageSafe({
+      requestId: usageRequestId,
+      userId,
+      purpose: "chat_compaction",
+      succeeded: true,
+      startedAt: usageStartedAt,
+      usage: {
+        inputTokens: result.usage.inputTokens,
+        cacheReadTokens: result.usage.inputTokenDetails.cacheReadTokens,
+        cacheWriteTokens: result.usage.inputTokenDetails.cacheWriteTokens,
+        outputTokens: result.usage.outputTokens,
+        reasoningTokens: result.usage.outputTokenDetails.reasoningTokens,
+        totalTokens: result.usage.totalTokens,
+      },
+    });
     return result.text.trim() || "No meaningful earlier context.";
   } catch (error) {
+    await recordAiUsageSafe({
+      requestId: usageRequestId,
+      userId,
+      purpose: "chat_compaction",
+      succeeded: false,
+      startedAt: usageStartedAt,
+      errorCode: error instanceof Error ? error.message : "unknown",
+    });
     console.error("Rolling chat summary failed", error);
     return source.slice(-12_000);
   } finally {
@@ -374,10 +422,10 @@ export async function compactCanonicalChatHistory(
     return { compacted: false, reason: "nothing_to_compact" as const };
   }
 
-  const generatedSummary = await (options.summaryGenerator ?? summarize)([
-    ...previousSummaries,
-    ...compactable,
-  ]);
+  const summaryInput = [...previousSummaries, ...compactable];
+  const generatedSummary = await (options.summaryGenerator
+    ? options.summaryGenerator(summaryInput)
+    : summarize(userId, summaryInput));
   const summaryText = generatedSummary.trim().slice(0, 12_000) || "No meaningful earlier context.";
 
   // The bounded model call should finish well inside the lease window. If it

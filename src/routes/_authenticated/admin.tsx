@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Ban,
+  BarChart3,
   Loader2,
   RefreshCw,
   Shield,
@@ -164,6 +165,17 @@ function AdminPage() {
                 <RefreshCw className={loading ? "animate-spin" : ""} />
               </Button>
             </div>
+
+            <Link
+              to="/admin-analytics"
+              className="mt-4 flex min-h-12 items-center justify-between border border-primary/50 bg-primary/10 px-4 font-black uppercase text-primary"
+            >
+              <span className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" />
+                Business analytics
+              </span>
+              <span aria-hidden>→</span>
+            </Link>
 
             <form
               className="mt-5 grid gap-3 border border-border bg-card p-4"

@@ -14,6 +14,7 @@ import appCss from "../styles.css?url";
 import { reportError } from "../lib/error-reporting";
 import { PwaRegistration } from "../components/PwaRegistration";
 import { AuthProvider } from "../components/AuthProvider";
+import { AnalyticsBeacon } from "../components/AnalyticsBeacon";
 
 function NotFoundComponent() {
   return (
@@ -152,6 +153,7 @@ function RootComponent() {
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <Outlet />
+        <AnalyticsBeacon />
         <Toaster theme="dark" position="top-center" />
         <PwaRegistration />
       </QueryClientProvider>

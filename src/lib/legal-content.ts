@@ -39,6 +39,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
             "Kost och mätningar: måltidsbeskrivningar, uppskattade kalorier, näringsämnen, kroppsvikt och andra mått som du väljer att logga.",
             "Coachning: chattmeddelanden, permanenta minnen och agentens sparade arbetsfiler.",
             "Teknisk säkerhetsdata: begränsade serverloggar, tidszon, versionsinformation och hashad enhetsinformation vid samtycke.",
+            "Drift- och produktanalys: sidvisningar, registrerings- och betalningssteg, antal chattmeddelanden, slutförda funktioner, AI-tokenanvändning och uppskattad kost. Analysloggen innehåller inte chatttext, måltidsinnehåll, kroppsmått, IP-adress eller user-agent.",
             "Betalningar när de aktiveras: plan, prenumerationsstatus och betalningshändelser. COACH lagrar inte fullständiga kort- eller bankuppgifter.",
           ],
         },
@@ -54,6 +55,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
             "Avtal: autentisering, program, träningslogg, coachning och kontofunktioner.",
             "Uttryckligt samtycke: hälsorelaterade uppgifter, inklusive skador, kroppsmått, träning och kost.",
             "Berättigat intresse: begränsad säkerhet, bedrägeriförebyggande och driftsäkerhet, när detta inte väger tyngre än dina rättigheter.",
+            "Berättigat intresse: integritetsbegränsad förstapartsanalys för att förstå registrering, tillförlitlighet, produktanvändning och kostnader utan annonserings- eller tredjepartsspårning.",
             "Rättslig skyldighet: uppgifter som måste sparas enligt tillämplig lag.",
           ],
         },
@@ -66,7 +68,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
         {
           title: "Lagring och delning",
           paragraphs: [
-            "Kontodata sparas så länge kontot finns eller så länge lagen kräver det. COACH säljer inte personuppgifter och använder dem inte för tredjepartsannonsering. Säkerhetskopior ska roteras enligt publicerad lagringspolicy och raderade konton ska försvinna när backupcykeln löper ut.",
+            "Kontodata sparas så länge kontot finns eller så länge lagen kräver det. Integritetsbegränsade produkt- och AI-analyshändelser raderas automatiskt enligt den konfigurerade analysperioden; konto-ID kopplas bort vid kontoradering. Verifierade betalningsbokföringsposter kan sparas separat så länge lag kräver. COACH säljer inte personuppgifter, använder inte tredjepartsannonsering och använder ingen analyscookie. Säkerhetskopior ska roteras enligt publicerad lagringspolicy och raderade konton ska försvinna när backupcykeln löper ut.",
           ],
         },
         {
@@ -103,6 +105,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
           "Nutrition and measurements: meal descriptions, estimated calories and nutrients, bodyweight, and other measurements you choose to log.",
           "Coaching data: chat messages, permanent memories, and saved agent workspace files.",
           "Limited technical security data: server logs, timezone, version details, and hashed device information recorded with consent.",
+          "Operational and product analytics: page views, registration and payment funnel steps, chat-message counts, completed features, AI token usage, and estimated cost. The analytics ledger does not contain chat text, meal contents, body measurements, IP addresses, or user-agent strings.",
           "Payments when enabled: plan, subscription status, and payment events. COACH does not store full card or bank details.",
         ],
       },
@@ -118,6 +121,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
           "Contract: authentication, programs, workout logging, coaching, and account features.",
           "Explicit consent: health-related information including injuries, body measurements, training, and nutrition.",
           "Legitimate interests: limited security, fraud prevention, and service reliability where those interests do not override your rights.",
+          "Legitimate interests: privacy-minimal first-party analytics to understand registration, reliability, product use, and operating cost without advertising or third-party tracking.",
           "Legal obligation: records that applicable law requires the operator to retain.",
         ],
       },
@@ -130,7 +134,7 @@ export function privacyContent(config: PublicLegalConfig, language: Language) {
       {
         title: "Retention and sharing",
         paragraphs: [
-          "Account data is kept while the account exists or as legally required. COACH does not sell personal information or use it for third-party advertising. Backups must rotate under the published retention schedule, and deleted accounts must disappear when that backup cycle expires.",
+          "Account data is kept while the account exists or as legally required. Privacy-minimal product and AI analytics events are automatically removed under the configured analytics retention period; their account ID is detached on account deletion. Verified payment accounting records may be retained separately for the period required by law. COACH does not sell personal information, use third-party advertising, or use an analytics cookie. Backups must rotate under the published retention schedule, and deleted accounts must disappear when that backup cycle expires.",
         ],
       },
       {

@@ -26,3 +26,18 @@ export const requireAuth = createMiddleware({ type: "function" }).server(async (
   if (!hasCurrentPolicyBundle(context.user)) throw new Error("Consent required");
   return next({ context });
 });
+
+/**
+ * Read-only business analytics guard. Public environments additionally require
+ * the configured owner allowlist, and production requires MFA on that account.
+ */
+export const requireAnalyticsAdmin = createMiddleware({ type: "function" }).server(
+  async ({ next }) => {
+    const context = await authenticatedContext();
+    const { hasCurrentPolicyBundle } = await import("./policies");
+    if (!hasCurrentPolicyBundle(context.user)) throw new Error("Analytics access denied");
+    const { requireAnalyticsAdminUser } = await import("./analytics.server");
+    const analyticsAdmin = await requireAnalyticsAdminUser(context.userId);
+    return next({ context: { ...context, analyticsAdmin } });
+  },
+);

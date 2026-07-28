@@ -20,12 +20,14 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustRouteImport } from './routes/trust'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin-analytics'
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated/billing'
 import { Route as AuthenticatedChatRouteImport } from './routes/_authenticated/chat'
 import { Route as AuthenticatedConsentRouteImport } from './routes/_authenticated/consent'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedProgramRouteImport } from './routes/_authenticated/program'
 import { Route as ApiAccountExportRouteImport } from './routes/api/account-export'
+import { Route as ApiAnalyticsRouteImport } from './routes/api/analytics'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiReadinessRouteImport } from './routes/api/readiness'
@@ -85,6 +87,12 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminAnalyticsRoute =
+  AuthenticatedAdminAnalyticsRouteImport.update({
+    id: '/admin-analytics',
+    path: '/admin-analytics',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedBillingRoute = AuthenticatedBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
@@ -113,6 +121,11 @@ const AuthenticatedProgramRoute = AuthenticatedProgramRouteImport.update({
 const ApiAccountExportRoute = ApiAccountExportRouteImport.update({
   id: '/api/account-export',
   path: '/api/account-export',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAnalyticsRoute = ApiAnalyticsRouteImport.update({
+  id: '/api/analytics',
+  path: '/api/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatRoute = ApiChatRouteImport.update({
@@ -147,12 +160,14 @@ export interface FileRoutesByFullPath {
   '/trust': typeof TrustRoute
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/admin-analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/chat': typeof AuthenticatedChatRoute
   '/consent': typeof AuthenticatedConsentRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/program': typeof AuthenticatedProgramRoute
   '/api/account-export': typeof ApiAccountExportRoute
+  '/api/analytics': typeof ApiAnalyticsRoute
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
   '/api/readiness': typeof ApiReadinessRoute
@@ -169,12 +184,14 @@ export interface FileRoutesByTo {
   '/trust': typeof TrustRoute
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/admin-analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/chat': typeof AuthenticatedChatRoute
   '/consent': typeof AuthenticatedConsentRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/program': typeof AuthenticatedProgramRoute
   '/api/account-export': typeof ApiAccountExportRoute
+  '/api/analytics': typeof ApiAnalyticsRoute
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
   '/api/readiness': typeof ApiReadinessRoute
@@ -193,12 +210,14 @@ export interface FileRoutesById {
   '/trust': typeof TrustRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/admin-analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/chat': typeof AuthenticatedChatRoute
   '/_authenticated/consent': typeof AuthenticatedConsentRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/program': typeof AuthenticatedProgramRoute
   '/api/account-export': typeof ApiAccountExportRoute
+  '/api/analytics': typeof ApiAnalyticsRoute
   '/api/chat': typeof ApiChatRoute
   '/api/health': typeof ApiHealthRoute
   '/api/readiness': typeof ApiReadinessRoute
@@ -217,12 +236,14 @@ export interface FileRouteTypes {
     | '/trust'
     | '/account'
     | '/admin'
+    | '/admin-analytics'
     | '/billing'
     | '/chat'
     | '/consent'
     | '/dashboard'
     | '/program'
     | '/api/account-export'
+    | '/api/analytics'
     | '/api/chat'
     | '/api/health'
     | '/api/readiness'
@@ -239,12 +260,14 @@ export interface FileRouteTypes {
     | '/trust'
     | '/account'
     | '/admin'
+    | '/admin-analytics'
     | '/billing'
     | '/chat'
     | '/consent'
     | '/dashboard'
     | '/program'
     | '/api/account-export'
+    | '/api/analytics'
     | '/api/chat'
     | '/api/health'
     | '/api/readiness'
@@ -262,12 +285,14 @@ export interface FileRouteTypes {
     | '/trust'
     | '/_authenticated/account'
     | '/_authenticated/admin'
+    | '/_authenticated/admin-analytics'
     | '/_authenticated/billing'
     | '/_authenticated/chat'
     | '/_authenticated/consent'
     | '/_authenticated/dashboard'
     | '/_authenticated/program'
     | '/api/account-export'
+    | '/api/analytics'
     | '/api/chat'
     | '/api/health'
     | '/api/readiness'
@@ -285,6 +310,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   TrustRoute: typeof TrustRoute
   ApiAccountExportRoute: typeof ApiAccountExportRoute
+  ApiAnalyticsRoute: typeof ApiAnalyticsRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiReadinessRoute: typeof ApiReadinessRoute
@@ -370,6 +396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin-analytics': {
+      id: '/_authenticated/admin-analytics'
+      path: '/admin-analytics'
+      fullPath: '/admin-analytics'
+      preLoaderRoute: typeof AuthenticatedAdminAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/billing': {
       id: '/_authenticated/billing'
       path: '/billing'
@@ -412,6 +445,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAccountExportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/analytics': {
+      id: '/api/analytics'
+      path: '/api/analytics'
+      fullPath: '/api/analytics'
+      preLoaderRoute: typeof ApiAnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat': {
       id: '/api/chat'
       path: '/api/chat'
@@ -446,6 +486,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAdminAnalyticsRoute: typeof AuthenticatedAdminAnalyticsRoute
   AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedChatRoute: typeof AuthenticatedChatRoute
   AuthenticatedConsentRoute: typeof AuthenticatedConsentRoute
@@ -456,6 +497,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAdminAnalyticsRoute: AuthenticatedAdminAnalyticsRoute,
   AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedChatRoute: AuthenticatedChatRoute,
   AuthenticatedConsentRoute: AuthenticatedConsentRoute,
@@ -477,6 +519,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   TrustRoute: TrustRoute,
   ApiAccountExportRoute: ApiAccountExportRoute,
+  ApiAnalyticsRoute: ApiAnalyticsRoute,
   ApiChatRoute: ApiChatRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiReadinessRoute: ApiReadinessRoute,

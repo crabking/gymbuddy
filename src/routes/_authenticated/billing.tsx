@@ -8,6 +8,7 @@ import { getBillingState } from "@/lib/billing.functions";
 import { betterAuthFrontendEnabled } from "@/lib/auth-config";
 import { authClient } from "@/lib/better-auth-client";
 import { useLanguage } from "@/components/LanguageProvider";
+import { trackClientAnalytics } from "@/lib/analytics-client";
 
 export const Route = createFileRoute("/_authenticated/billing")({
   loader: ({ context }) =>
@@ -40,6 +41,10 @@ function BillingPage() {
 
   async function subscribe(annual: boolean) {
     setPending(annual ? "annual" : "monthly");
+    await trackClientAnalytics("checkout_started", {
+      locale: language,
+      interval: annual ? "annual" : "monthly",
+    });
     const result = await authClient.subscription.upgrade({
       plan: "coach",
       annual,

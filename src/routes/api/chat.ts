@@ -463,6 +463,8 @@ export const Route = createFileRoute("/api/chat")({
           } = await import("@/lib/chat-history.server");
           const { formatPermanentMemory, processPendingMemoryJob } =
             await import("@/lib/memory.server");
+          const { recordAiUsageSafe, recordAnalyticsEventSafe } =
+            await import("@/lib/analytics.server");
           const {
             getActiveSession,
             startSession,
@@ -1317,6 +1319,12 @@ ${input.notes}
                   .set({ onboarding_completed: true })
                   .where(eq(profiles.id, userId)),
               );
+              await recordAnalyticsEventSafe({
+                eventName: "onboarding_completed",
+                actorUserId: userId,
+                source: "server",
+                idempotencyKey: `onboarding:${userId}:${dataEpoch}`,
+              });
               return { ok: true };
             },
           });
@@ -2442,6 +2450,8 @@ ${programInput.why}
             },
           });
 
+          const aiUsageRequestId = crypto.randomUUID();
+          const aiStartedAt = Date.now();
           const result = streamText({
             model,
             system,
@@ -2560,6 +2570,35 @@ ${programInput.why}
             consumeSseStream: consumeStream,
           });
           return finalizeStreamingResponse(streamResponse, async () => {
+            try {
+              const usage = await result.usage;
+              await recordAiUsageSafe({
+                requestId: aiUsageRequestId,
+                userId,
+                purpose: "coach_chat",
+                succeeded: shouldCompactChat,
+                startedAt: aiStartedAt,
+                errorCode: shouldCompactChat ? null : "stream_incomplete",
+                usage: {
+                  inputTokens: usage.inputTokens,
+                  cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+                  cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+                  outputTokens: usage.outputTokens,
+                  reasoningTokens: usage.outputTokenDetails.reasoningTokens,
+                  totalTokens: usage.totalTokens,
+                },
+              });
+            } catch (error) {
+              await recordAiUsageSafe({
+                requestId: aiUsageRequestId,
+                userId,
+                purpose: "coach_chat",
+                succeeded: false,
+                startedAt: aiStartedAt,
+                errorCode: "usage_unavailable",
+              });
+              console.error("Chat usage collection failed", error);
+            }
             try {
               await releaseChatLease(lease);
             } catch (error) {

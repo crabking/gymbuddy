@@ -151,3 +151,25 @@ list actual processors and transfer safeguards, complete DPAs, define backup
 retention, test restoration and deletion from backups, configure incident
 response/monitoring, and obtain qualified EU consumer/privacy review. The
 repository controls are a strong technical baseline, not legal certification.
+
+## Private business analytics
+
+The authenticated `/admin-analytics` route provides a read-only business
+dashboard for acquisition, registration and checkout conversion, active
+subscriptions, verified payment totals, feature usage, workout/program
+completion, nutrition/measurement counts, and AI tokens/cost estimates. It
+does not display chat text, food contents, body values, IP addresses, user
+agents, card data, or database credentials.
+
+Access is checked on the server. Public environments require all three:
+
+- the Better Auth `admin` role;
+- an email in `ANALYTICS_ADMIN_EMAILS`;
+- authenticator-app MFA in production.
+
+Set an independent `ANALYTICS_HASH_SECRET`, current provider token rates, a
+business timezone, and a 30–3650 day analytics retention period. The
+first-party page beacon is cookieless and stores only a server HMAC, never the
+raw address or user agent. Account deletion disconnects the account ID from
+privacy-minimal analytics records; payment accounting follows its separate
+legal retention duty.

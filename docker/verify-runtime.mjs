@@ -9,6 +9,7 @@ const frontendAuth = (process.env.VITE_AUTH_PROVIDER || "local").trim().toLowerC
 const billing = (process.env.BILLING_PROVIDER || "disabled").trim().toLowerCase();
 const publicSignups = process.env.PUBLIC_SIGNUPS_ENABLED === "true";
 const frontendPublicSignups = process.env.VITE_PUBLIC_SIGNUPS_ENABLED === "true";
+const analyticsRetention = Number(process.env.ANALYTICS_RETENTION_DAYS || "760");
 
 const errors = [];
 const requireValue = (name) => {
@@ -39,6 +40,37 @@ if (productionLike) {
     errors.push("TRUST_PROXY_HEADERS must be true behind Coolify");
   }
   if (auth !== "better-auth") errors.push("Public environments require Better Auth");
+  if ((process.env.ANALYTICS_HASH_SECRET?.trim().length || 0) < 32) {
+    errors.push("ANALYTICS_HASH_SECRET must contain at least 32 characters");
+  }
+  const analyticsEmails = (process.env.ANALYTICS_ADMIN_EMAILS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (
+    analyticsEmails.length === 0 ||
+    analyticsEmails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+  ) {
+    errors.push("ANALYTICS_ADMIN_EMAILS must contain at least one valid email");
+  }
+  for (const name of ["AI_COST_INPUT_USD_PER_MILLION", "AI_COST_OUTPUT_USD_PER_MILLION"]) {
+    const raw = process.env[name]?.trim();
+    const value = Number(raw);
+    if (!raw || !Number.isFinite(value) || value < 0 || value > 1_000_000) {
+      errors.push(`${name} must be a valid non-negative number`);
+    }
+  }
+}
+
+if (!Number.isInteger(analyticsRetention) || analyticsRetention < 30 || analyticsRetention > 3650) {
+  errors.push("ANALYTICS_RETENTION_DAYS must be an integer between 30 and 3650");
+}
+try {
+  new Intl.DateTimeFormat("en", {
+    timeZone: process.env.ANALYTICS_TIMEZONE || "Europe/Stockholm",
+  }).format(new Date());
+} catch {
+  errors.push("ANALYTICS_TIMEZONE must be a valid IANA time zone");
 }
 
 if (auth === "better-auth") {

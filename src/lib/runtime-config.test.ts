@@ -17,6 +17,15 @@ function configureBetterAuth() {
   process.env.VITE_PUBLIC_SIGNUPS_ENABLED = "false";
 }
 
+function configurePublicAnalytics() {
+  process.env.ANALYTICS_HASH_SECRET = "b".repeat(32);
+  process.env.ANALYTICS_ADMIN_EMAILS = "owner@example.test";
+  process.env.ANALYTICS_TIMEZONE = "Europe/Stockholm";
+  process.env.ANALYTICS_RETENTION_DAYS = "760";
+  process.env.AI_COST_INPUT_USD_PER_MILLION = "3";
+  process.env.AI_COST_OUTPUT_USD_PER_MILLION = "15";
+}
+
 describe("runtime configuration", () => {
   it("rejects unknown environments", () => {
     process.env.APP_ENV = "prod-ish";
@@ -78,5 +87,34 @@ describe("runtime configuration", () => {
     expect(checks.stripe_tax).toBe(true);
     expect(checks.stripe_portal).toBe(true);
     expect(checks.billing_auth_match).toBe(true);
+  });
+
+  it("requires private analytics boundaries and price configuration in public environments", () => {
+    configureBetterAuth();
+    process.env.APP_ENV = "staging";
+    delete process.env.ANALYTICS_HASH_SECRET;
+    delete process.env.ANALYTICS_ADMIN_EMAILS;
+    delete process.env.AI_COST_INPUT_USD_PER_MILLION;
+    delete process.env.AI_COST_OUTPUT_USD_PER_MILLION;
+    let checks = readinessConfiguration().checks;
+    expect(checks.analytics_hash_secret).toBe(false);
+    expect(checks.analytics_admin_allowlist).toBe(false);
+    expect(checks.analytics_ai_costs).toBe(false);
+
+    configurePublicAnalytics();
+    checks = readinessConfiguration().checks;
+    expect(checks.analytics_hash_secret).toBe(true);
+    expect(checks.analytics_admin_allowlist).toBe(true);
+    expect(checks.analytics_ai_costs).toBe(true);
+    expect(checks.analytics_retention).toBe(true);
+    expect(checks.analytics_timezone).toBe(true);
+  });
+
+  it("rejects invalid analytics retention and timezone settings", () => {
+    process.env.ANALYTICS_RETENTION_DAYS = "7";
+    process.env.ANALYTICS_TIMEZONE = "Moon/Base";
+    const checks = readinessConfiguration().checks;
+    expect(checks.analytics_retention).toBe(false);
+    expect(checks.analytics_timezone).toBe(false);
   });
 });

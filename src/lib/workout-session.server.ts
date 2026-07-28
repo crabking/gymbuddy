@@ -1425,6 +1425,7 @@ export async function completeSession(
       };
     }
 
+    const completedAt = new Date().toISOString();
     let cycleCompleted = false;
     let programName: string | null = null;
     if (current.program_day_id) {
@@ -1455,7 +1456,12 @@ export async function completeSession(
       }
       await tx
         .update(programDays)
-        .set({ status: "completed", session_id: current.id, resolution_note: null })
+        .set({
+          status: "completed",
+          session_id: current.id,
+          resolution_note: null,
+          resolved_at: completedAt,
+        })
         .where(and(eq(programDays.id, linked.day_id), eq(programDays.status, "planned")));
       const statuses = await tx
         .select({ status: programDays.status })
@@ -1471,7 +1477,6 @@ export async function completeSession(
       programName = linked.program_name;
     }
 
-    const completedAt = new Date().toISOString();
     const durationMinutes =
       actualDurationMinutes ?? Math.min(1_440, Math.max(0, Math.round(elapsedMin)));
     const endReason = partialReason
@@ -1575,7 +1580,12 @@ export async function abandonSession(
       }
       const [resolved] = await tx
         .update(programDays)
-        .set({ status: "skipped", session_id: null, resolution_note: reason })
+        .set({
+          status: "skipped",
+          session_id: null,
+          resolution_note: reason,
+          resolved_at: now,
+        })
         .where(and(eq(programDays.id, linked.day_id), eq(programDays.status, "planned")))
         .returning({ id: programDays.id });
       if (!resolved) return { ok: false as const, error: "program_day_not_available" };
