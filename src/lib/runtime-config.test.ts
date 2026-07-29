@@ -11,8 +11,8 @@ function configureBetterAuth() {
   process.env.AUTH_PROVIDER = "better-auth";
   process.env.VITE_AUTH_PROVIDER = "better-auth";
   process.env.BETTER_AUTH_SECRET = "a".repeat(32);
-  process.env.SMTP_HOST = "smtp.example.test";
-  process.env.SMTP_FROM = "COACH <coach@example.test>";
+  process.env.EMAIL_DELIVERY_ENABLED = "false";
+  process.env.VITE_EMAIL_DELIVERY_ENABLED = "false";
   process.env.PUBLIC_SIGNUPS_ENABLED = "false";
   process.env.VITE_PUBLIC_SIGNUPS_ENABLED = "false";
 }
@@ -49,11 +49,16 @@ describe("runtime configuration", () => {
     expect(checks.managed_auth).toBe(false);
   });
 
-  it("requires a strong secret, SMTP, and matching frontend mode", () => {
+  it("allows invite-only Better Auth without SMTP but requires it when email is enabled", () => {
     configureBetterAuth();
+    expect(readinessConfiguration().checks.auth_email).toBe(true);
+    process.env.EMAIL_DELIVERY_ENABLED = "true";
+    process.env.VITE_EMAIL_DELIVERY_ENABLED = "true";
     delete process.env.SMTP_HOST;
     expect(readinessConfiguration().checks.auth_email).toBe(false);
     process.env.SMTP_HOST = "smtp.example.test";
+    process.env.SMTP_FROM = "COACH <coach@example.test>";
+    expect(readinessConfiguration().checks.auth_email).toBe(true);
     process.env.BETTER_AUTH_SECRET = "too-short";
     expect(readinessConfiguration().checks.better_auth_secret).toBe(false);
     process.env.BETTER_AUTH_SECRET = "a".repeat(32);
@@ -66,7 +71,15 @@ describe("runtime configuration", () => {
     process.env.PUBLIC_SIGNUPS_ENABLED = "true";
     expect(readinessConfiguration().checks.signup_mode_match).toBe(false);
     process.env.VITE_PUBLIC_SIGNUPS_ENABLED = "true";
-    expect(readinessConfiguration().checks.signup_mode_match).toBe(true);
+    expect(readinessConfiguration().checks.public_signup_prerequisites).toBe(false);
+    process.env.EMAIL_DELIVERY_ENABLED = "true";
+    process.env.VITE_EMAIL_DELIVERY_ENABLED = "true";
+    process.env.SMTP_HOST = "smtp.example.test";
+    process.env.SMTP_FROM = "COACH <coach@example.test>";
+    const checks = readinessConfiguration().checks;
+    expect(checks.signup_mode_match).toBe(true);
+    expect(checks.email_delivery_match).toBe(true);
+    expect(checks.public_signup_prerequisites).toBe(true);
   });
 
   it("requires complete Stripe, tax, and portal configuration", () => {

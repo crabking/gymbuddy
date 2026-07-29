@@ -21,6 +21,8 @@ export function readinessConfiguration() {
   const stripeBilling = billing === "stripe";
   const publicSignups = process.env.PUBLIC_SIGNUPS_ENABLED === "true";
   const frontendPublicSignups = process.env.VITE_PUBLIC_SIGNUPS_ENABLED === "true";
+  const emailDelivery = process.env.EMAIL_DELIVERY_ENABLED === "true";
+  const frontendEmailDelivery = process.env.VITE_EMAIL_DELIVERY_ENABLED === "true";
   const analyticsEmails = (process.env.ANALYTICS_ADMIN_EMAILS || "")
     .split(",")
     .map((value) => value.trim())
@@ -47,13 +49,16 @@ export function readinessConfiguration() {
     managed_auth: !productionLike || betterAuth,
     better_auth_secret:
       !betterAuth || Boolean((process.env.BETTER_AUTH_SECRET?.trim().length || 0) >= 32),
+    email_delivery_match: emailDelivery === frontendEmailDelivery,
     auth_email:
-      !betterAuth || Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_FROM?.trim()),
+      !emailDelivery ||
+      Boolean(betterAuth && process.env.SMTP_HOST?.trim() && process.env.SMTP_FROM?.trim()),
     signup_mode_match: publicSignups === frontendPublicSignups,
     public_signup_prerequisites:
       !publicSignups ||
       Boolean(
         betterAuth &&
+        emailDelivery &&
         process.env.SMTP_HOST?.trim() &&
         process.env.SMTP_FROM?.trim() &&
         (!productionLike ||

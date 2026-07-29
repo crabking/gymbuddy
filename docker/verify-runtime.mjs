@@ -9,6 +9,8 @@ const frontendAuth = (process.env.VITE_AUTH_PROVIDER || "local").trim().toLowerC
 const billing = (process.env.BILLING_PROVIDER || "disabled").trim().toLowerCase();
 const publicSignups = process.env.PUBLIC_SIGNUPS_ENABLED === "true";
 const frontendPublicSignups = process.env.VITE_PUBLIC_SIGNUPS_ENABLED === "true";
+const emailDelivery = process.env.EMAIL_DELIVERY_ENABLED === "true";
+const frontendEmailDelivery = process.env.VITE_EMAIL_DELIVERY_ENABLED === "true";
 const analyticsRetention = Number(process.env.ANALYTICS_RETENTION_DAYS || "760");
 
 const errors = [];
@@ -26,6 +28,12 @@ if (!["local", "better-auth"].includes(auth)) errors.push("Invalid AUTH_PROVIDER
 if (frontendAuth !== auth) errors.push("VITE_AUTH_PROVIDER must match AUTH_PROVIDER");
 if (publicSignups !== frontendPublicSignups) {
   errors.push("VITE_PUBLIC_SIGNUPS_ENABLED must match PUBLIC_SIGNUPS_ENABLED");
+}
+if (emailDelivery !== frontendEmailDelivery) {
+  errors.push("VITE_EMAIL_DELIVERY_ENABLED must match EMAIL_DELIVERY_ENABLED");
+}
+if (publicSignups && !emailDelivery) {
+  errors.push("Public signups require email delivery");
 }
 
 if (productionLike) {
@@ -77,8 +85,10 @@ if (auth === "better-auth") {
   if ((process.env.BETTER_AUTH_SECRET?.trim().length || 0) < 32) {
     errors.push("BETTER_AUTH_SECRET must contain at least 32 characters");
   }
-  requireValue("SMTP_HOST");
-  requireValue("SMTP_FROM");
+  if (emailDelivery) {
+    requireValue("SMTP_HOST");
+    requireValue("SMTP_FROM");
+  }
 }
 
 if (environment === "production" || (productionLike && publicSignups)) {

@@ -11,3 +11,7 @@ export function authProvider(): AuthProvider {
 export function billingProvider(): BillingProvider {
   return process.env.BILLING_PROVIDER?.trim().toLowerCase() === "stripe" ? "stripe" : "disabled";
 }
+
+export function emailDeliveryEnabled() {
+  return process.env.EMAIL_DELIVERY_ENABLED === "true";
+}

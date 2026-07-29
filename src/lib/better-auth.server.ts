@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db/db.server";
 import { profiles, users } from "@/db/schema";
 import { recordAnalyticsEventSafe, recordStripeBusinessEvent } from "@/lib/analytics.server";
+import { emailDeliveryEnabled } from "@/lib/auth-config.server";
 import { authLinkEmail } from "@/lib/email.server";
 import { hashPasswordAsync, verifyPassword } from "@/lib/auth.server";
 import { getStripe, stripeCheckoutEnabled, stripePriceId } from "@/lib/stripe.server";
@@ -201,7 +202,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     disableSignUp: !publicSignupsEnabled(),
-    requireEmailVerification: true,
+    requireEmailVerification: emailDeliveryEnabled(),
     // Existing private-beta accounts include shorter passwords. Sign-in keeps
     // those hashes usable, while the request hook below enforces 10+ characters
     // for every newly created or changed password.
@@ -212,9 +213,13 @@ export const auth = betterAuth({
       hash: hashPasswordAsync,
       verify: async ({ hash, password }) => verifyPassword(password, hash),
     },
-    sendResetPassword: async ({ user, url }) => {
-      await authLinkEmail({ kind: "reset", to: user.email, url });
-    },
+    ...(emailDeliveryEnabled()
+      ? {
+          sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
+            await authLinkEmail({ kind: "reset", to: user.email, url });
+          },
+        }
+      : {}),
     customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
       ...coreFields,
       role: "user",
@@ -227,15 +232,17 @@ export const auth = betterAuth({
       id,
     }),
   },
-  emailVerification: {
-    sendOnSignUp: true,
-    sendOnSignIn: true,
-    autoSignInAfterVerification: true,
-    expiresIn: 60 * 60,
-    sendVerificationEmail: async ({ user, url }) => {
-      await authLinkEmail({ kind: "verify", to: user.email, url });
-    },
-  },
+  emailVerification: emailDeliveryEnabled()
+    ? {
+        sendOnSignUp: true,
+        sendOnSignIn: true,
+        autoSignInAfterVerification: true,
+        expiresIn: 60 * 60,
+        sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
+          await authLinkEmail({ kind: "verify", to: user.email, url });
+        },
+      }
+    : undefined,
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (!passwordMutationPaths.has(ctx.path)) return;

@@ -13,7 +13,11 @@ import { clearAccountCache } from "@/lib/client-session";
 import { usePwaUpdateBlocker } from "@/lib/pwa-update";
 import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
 import { isLanguage, type Language } from "@/lib/i18n";
-import { betterAuthFrontendEnabled, publicSignupsEnabled } from "@/lib/auth-config";
+import {
+  betterAuthFrontendEnabled,
+  emailDeliveryEnabled,
+  publicSignupsEnabled,
+} from "@/lib/auth-config";
 import { authClient } from "@/lib/better-auth-client";
 import { trackClientAnalytics } from "@/lib/analytics-client";
 
@@ -382,7 +386,7 @@ function AuthPage({ language }: { language: Language }) {
                     {t("auth.sign_in")}
                   </Link>
                 )}
-                {mode === "sign-in" && (
+                {mode === "sign-in" && emailDeliveryEnabled && (
                   <Link
                     to="/auth"
                     search={{ coach: selectedCoach, lang: language, mode: "forgot" }}
